@@ -1,7 +1,7 @@
 # Ứng dụng Hướng dẫn nghiệp vụ Logistics 3PL (3PL Logistics Business Guide)
 
 > **Tài liệu đặc tả – phiên bản 2.1** (cập nhật 07/11/2026, ứng với mã nguồn phiên bản `1.1.0`).
-> Nội dung được đối chiếu trực tiếp với code trong `app/` và đã kiểm chứng bằng bộ test tự động (18/18 test đạt) cùng chạy thử server thật bằng `curl`. Những điểm chưa có căn cứ trong code được đánh dấu **CẦN XÁC NHẬN**. Lịch sử sửa lỗi code xem tại [`CHANGELOG.md`](CHANGELOG.md).
+> Nội dung được đối chiếu trực tiếp với code trong `app/` và đã kiểm chứng bằng bộ test tự động (18/18 test đạt) cùng chạy thử server thật bằng `curl`. Những điểm chưa có căn cứ trong code được đánh dấu **CẦN XÁC NHẬN**. Toàn bộ chỉnh sửa tài liệu và mã nguồn được tổng hợp tại [mục 10](#10-bảng-chỉnh-sửa).
 
 ---
 
@@ -67,8 +67,7 @@ fastapi-todo/
 ├── requirements.txt                # Thư viện chạy ứng dụng
 ├── requirements-dev.txt            # + pytest, httpx
 ├── pytest.ini
-├── README.md                       # Tài liệu đặc tả chính (bản 2.1)
-└── CHANGELOG.md                    # Lịch sử sửa lỗi code
+└── README.md                       # Tài liệu đặc tả (bản 2.1), gồm bảng chỉnh sửa
 ```
 
 Dữ liệu sinh ra khi chạy (đã loại khỏi git qua `.gitignore`): file CSDL `business_guide.db`, thư mục `uploads/training_documents/`, `uploads/video_resources/`, và `data/` khi chạy bằng Docker Compose.
@@ -312,9 +311,11 @@ README cũ ghi "MIT License" nhưng project không có file `LICENSE`. **CẦN X
 
 ---
 
-## 10. Bảng thay đổi so với README.md cũ
+## 10. Bảng chỉnh sửa
 
-README.md cũ (tiếng Anh) có thể xem lại tại commit `5f2b336`: `git show 5f2b336:README.md`.
+Phiên bản `1.1.0` (07/11/2026). Trạng thái trước khi chỉnh sửa (code và README tiếng Anh cũ) lưu tại commit `5f2b336`; xem lại bằng `git show 5f2b336:README.md` hoặc `git diff 5f2b336`.
+
+### 10.1. Tài liệu – so với README.md cũ
 
 | Nội dung cũ | Nội dung mới | Lý do sửa |
 |---|---|---|
@@ -338,4 +339,50 @@ README.md cũ (tiếng Anh) có thể xem lại tại commit `5f2b336`: `git sho
 | Usage Examples: 3 lệnh `curl` cho guide | Ví dụ `curl` cho cả 4 nhóm, đã chạy thử | Bổ sung, kiểm chứng |
 | "Development: To run tests..." (không có test) | Mục "Cách test": 18 test pytest, cách chạy, bảng phạm vi kiểm thử | Bổ sung bộ test tự động |
 | "MIT License" | Ghi không có file `LICENSE`, CẦN XÁC NHẬN | Không có căn cứ trong project |
-| Không có lịch sử thay đổi | Tham chiếu `CHANGELOG.md` | Ghi lại toàn bộ sửa lỗi code |
+| Không có lịch sử thay đổi | Mục 10.2–10.4 ghi toàn bộ chỉnh sửa mã nguồn | Lưu vết sửa lỗi ngay trong tài liệu đặc tả |
+
+### 10.2. Mã nguồn – lỗi khiến ứng dụng không khởi động
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `app/database/__init__.py` import `app.models`, trong khi `app/models` import `Base` từ `app.database` | Module database không import models; models được import tại `app/main.py` trước `create_all()` | Import vòng tròn: `ImportError: cannot import name 'Base'` |
+| `app/models/__init__.py` định nghĩa lại cả 4 model đã có trong file riêng | `__init__.py` chỉ re-export từ các file model | `InvalidRequestError: Table 'business_guides' is already defined` |
+| 4 router dùng `Optional` nhưng không import | Bổ sung `from typing import Optional` | `NameError: name 'Optional' is not defined` |
+
+### 10.3. Mã nguồn – lỗi chức năng và thay đổi hành vi
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Prefix ở `main.py` cộng với route lặp tên nhóm → `/api/v1/guide/guide`, `/api/v1/training/training/documents`, `/api/v1/business-data/business-data/records`, `/api/v1/video/video/resources` | `/api/v1/guide`, `/api/v1/training/documents`, `/api/v1/business-data/records`, `/api/v1/video/resources`; route trong router chỉ còn `""` và `/{id}` | Đường dẫn bị lặp đoạn, không khớp đặc tả |
+| Schema `*Update` bắt buộc đủ trường kèm `id`; `id` trong body ghi đè khóa chính; ghi đè được `file_path`/`video_path` tùy ý | Schema `*Update` toàn trường tùy chọn, không có `id` và đường dẫn file | Không cập nhật từng phần được; rủi ro đổi khóa chính và trỏ sai file |
+| PUT gửi `null` cho cột NOT NULL gây lỗi 500 | `app/core/crud.py` – `apply_update()` trả 422 | Lỗi máy chủ thay vì lỗi dữ liệu đầu vào |
+| Tên file upload `{title}_{hash(tên file)}.{suffix}` → sinh `..pdf`; `hash()` đổi giá trị mỗi lần chạy; tiêu đề đưa vào tên file; thumbnail `{title}_thumbnail` ghi đè nhau | `app/core/storage.py` – tên file = UUID4 + phần mở rộng gốc viết thường | Tên file sai, không ổn định, rủi ro path traversal, mất thumbnail |
+| DELETE xóa file trên đĩa trước khi commit CSDL | Commit xóa bản ghi trước, sau đó mới xóa file | Tránh mất file khi commit CSDL thất bại |
+| `data_content` bắt buộc trong schema dù cột CSDL cho phép null | Chuyển thành tùy chọn | Schema không khớp CSDL |
+| `app/schemas/__init__.py` định nghĩa trùng toàn bộ schema | Chỉ re-export | Loại trùng lặp, tránh hai định nghĩa lệch nhau |
+| Cú pháp Pydantic v1 (`class Config: orm_mode = True`, `.dict()`) trên Pydantic 2.5 | `ConfigDict(from_attributes=True)`, `model_dump()` | Cảnh báo deprecated |
+| Handler `async def` gọi SQLAlchemy đồng bộ | Đổi sang `def`; chỉ POST có đọc file upload giữ `async` | Truy vấn đồng bộ trong `async` chặn event loop |
+| Thư mục upload tạo khi import module | Tạo khi lưu file | Tránh tác dụng phụ khi import (kể cả khi chạy test) |
+| POST trả 200 | POST trả 201 Created | Đúng ngữ nghĩa HTTP cho tạo mới |
+| Danh sách không có thứ tự xác định | Sắp xếp tăng dần theo `id` | Kết quả ổn định |
+| Không kiểm tra độ dài trường | Kiểm tra theo giới hạn cột CSDL; `duration` ≥ 0 | Trả 422 thay vì lưu dữ liệu sai |
+| `DATABASE_URL` ghi cứng; đường dẫn upload ghi cứng | Đọc `DATABASE_URL`, `UPLOAD_DIR` từ biến môi trường (`app/core/config.py`), mặc định như cũ | Cho phép test và Docker dùng vị trí dữ liệu riêng |
+| `version` `1.0.0` ghi cứng ở 2 nơi | `1.1.0`; endpoint `/` lấy từ `app.version` | Một nguồn duy nhất cho số phiên bản |
+
+### 10.4. Mã nguồn – bổ sung
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Không có test | `tests/` (18 test), `requirements-dev.txt`, `pytest.ini` | Kiểm chứng hành vi đặc tả |
+| `Dockerfile` sao chép toàn bộ project, không khai báo volume; không có `.dockerignore`, `docker-compose.yml` | `Dockerfile` chỉ sao chép `app/`, khai báo biến môi trường và volume `/app/data`, `/app/uploads`; thêm `.dockerignore`, `docker-compose.yml` | Image gọn, không mất dữ liệu khi xóa container |
+| `.gitignore` không loại CSDL và file upload | Loại `*.db`, `uploads/`, `data/`, `.pytest_cache/` | Không đưa dữ liệu chạy thật vào git |
+| `app/api`, `app/api/v1` và các thư mục con không có `__init__.py` | Bổ sung `__init__.py` | Package Python tường minh |
+| README tiếng Anh, thiếu 3 nhóm chức năng; có thêm `README-v2.md`, `CHANGELOG.md` | Chỉ còn `README.md` (bản đặc tả này) | Một tài liệu duy nhất |
+
+### 10.5. Chưa xử lý (CẦN XÁC NHẬN)
+
+- Xác thực/phân quyền; giới hạn dung lượng và định dạng file upload.
+- Migration CSDL (Alembic). CSDL tạo từ bản cũ vẫn dùng được vì cấu trúc bảng không đổi.
+- Thư mục `venv/` cũ (Python 3.15, chưa cài thư viện) chưa xóa.
+- Docker chưa được chạy thử.
+- Giấy phép (README cũ ghi MIT, không có file `LICENSE`).
