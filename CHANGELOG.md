@@ -41,7 +41,7 @@ Rà soát, sửa lỗi toàn bộ mã nguồn và hoàn thiện tài liệu. B�
 - `docker-compose.yml`, `.dockerignore`; `Dockerfile` khai báo biến môi trường, volume dữ liệu, chỉ sao chép `app/`.
 - `.gitignore` loại `*.db`, `uploads/`, `data/`, `.pytest_cache/`.
 - Các file `__init__.py` cho package `app/api`, `app/api/v1` và các thư mục con.
-- `README.md` thay bằng đặc tả đầy đủ bản 2.1 (tiếng Việt); `README-v2.md` là bản sao. README cũ xem tại commit `5f2b336`.
+- `README.md` thay bằng đặc tả đầy đủ bản 2.1 (tiếng Việt). README cũ xem tại commit `5f2b336`.
 
 ### Chưa xử lý (CẦN XÁC NHẬN)
 

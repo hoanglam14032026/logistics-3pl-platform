@@ -68,7 +68,6 @@ fastapi-todo/
 ├── requirements-dev.txt            # + pytest, httpx
 ├── pytest.ini
 ├── README.md                       # Tài liệu đặc tả chính (bản 2.1)
-├── README-v2.md                    # Bản sao của README.md (giữ để đối chiếu)
 └── CHANGELOG.md                    # Lịch sử sửa lỗi code
 ```
 
