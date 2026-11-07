@@ -1,5 +1,5 @@
 """
-Video Resource Models for 3PL Logistics
+Model CSDL: Tài nguyên video (bảng video_resources).
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean

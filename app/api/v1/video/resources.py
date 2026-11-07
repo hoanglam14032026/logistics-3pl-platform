@@ -1,133 +1,104 @@
 """
-API routes for Video Resources in 3PL Logistics
+API Tài nguyên video (Video Resources). Prefix: /api/v1/video/resources
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
+
+from app.core.crud import apply_update
+from app.core.storage import delete_file, save_upload
 from app.database import get_db
 from app.models.video_resource import VideoResource
-from app.schemas.video_resource import VideoResource as VideoResourceSchema, VideoResourceCreate, VideoResourceUpdate
-import os
-from pathlib import Path
+from app.schemas.video_resource import (
+    VideoResource as VideoResourceSchema,
+    VideoResourceUpdate,
+)
 
 router = APIRouter()
 
-# Ensure upload directory exists
-UPLOAD_DIR = Path("uploads/video_resources")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+SUBDIR = "video_resources"
+NOT_FOUND = "Video resource not found"
+NON_NULLABLE = ("title", "is_active")
 
-@router.get("/video/resources/{resource_id}", response_model=VideoResourceSchema)
-async def get_video_resource(resource_id: int, db: Session = Depends(get_db)):
-    resource = db.query(VideoResource).filter(VideoResource.id == resource_id).first()
+
+def _get_or_404(db: Session, resource_id: int) -> VideoResource:
+    resource = db.get(VideoResource, resource_id)
     if not resource:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Video resource not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NOT_FOUND)
     return resource
 
-@router.get("/video/resources", response_model=list[VideoResourceSchema])
-async def get_video_resources(
+
+@router.get("", response_model=List[VideoResourceSchema])
+def list_video_resources(
     category: Optional[str] = None,
     is_active: Optional[bool] = True,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
+    """Danh sách video; lọc theo category và is_active (mặc định true)."""
     query = db.query(VideoResource)
-    
     if category:
         query = query.filter(VideoResource.category == category)
-    
     if is_active is not None:
         query = query.filter(VideoResource.is_active == is_active)
-        
-    return query.all()
+    return query.order_by(VideoResource.id).all()
 
-@router.post("/video/resources", response_model=VideoResourceSchema)
+
+@router.get("/{resource_id}", response_model=VideoResourceSchema)
+def get_video_resource(resource_id: int, db: Session = Depends(get_db)):
+    return _get_or_404(db, resource_id)
+
+
+@router.post("", response_model=VideoResourceSchema, status_code=status.HTTP_201_CREATED)
 async def create_video_resource(
-    title: str = Form(...),
+    title: str = Form(..., min_length=1, max_length=200),
     description: Optional[str] = Form(None),
-    category: Optional[str] = Form(None),
-    duration: Optional[int] = Form(None),
+    category: Optional[str] = Form(None, max_length=100),
+    duration: Optional[int] = Form(None, ge=0),
     video_file: UploadFile = File(...),
     thumbnail_file: Optional[UploadFile] = File(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # Save video file
-    video_extension = Path(video_file.filename).suffix
-    video_name = f"{title.replace(' ', '_')}_{hash(video_file.filename)}.{video_extension}"
-    video_path = UPLOAD_DIR / video_name
-    
-    with open(video_path, "wb") as buffer:
-        content = await video_file.read()
-        buffer.write(content)
-    
-    # Save thumbnail if provided
+    """Upload video (bắt buộc) và thumbnail (tùy chọn), tạo bản ghi."""
+    video_path = await save_upload(video_file, SUBDIR)
     thumbnail_path = None
-    if thumbnail_file:
-        thumbnail_extension = Path(thumbnail_file.filename).suffix
-        thumbnail_name = f"{title.replace(' ', '_')}_thumbnail{thumbnail_extension}"
-        thumbnail_path = UPLOAD_DIR / thumbnail_name
-        
-        with open(thumbnail_path, "wb") as buffer:
-            content = await thumbnail_file.read()
-            buffer.write(content)
-    
-    # Create video resource record
+    if thumbnail_file is not None and thumbnail_file.filename:
+        thumbnail_path = await save_upload(thumbnail_file, SUBDIR)
+
     db_resource = VideoResource(
         title=title,
         description=description,
-        video_path=str(video_path),
-        thumbnail_path=str(thumbnail_path) if thumbnail_path else None,
+        video_path=video_path,
+        thumbnail_path=thumbnail_path,
         duration=duration,
-        category=category
+        category=category,
     )
     db.add(db_resource)
     db.commit()
     db.refresh(db_resource)
     return db_resource
 
-@router.put("/video/resources/{resource_id}", response_model=VideoResourceSchema)
-async def update_video_resource(
-    resource_id: int, 
-    resource_update: VideoResourceUpdate, 
-    db: Session = Depends(get_db)
+
+@router.put("/{resource_id}", response_model=VideoResourceSchema)
+def update_video_resource(
+    resource_id: int, resource_update: VideoResourceUpdate, db: Session = Depends(get_db)
 ):
-    resource = db.query(VideoResource).filter(VideoResource.id == resource_id).first()
-    
-    if not resource:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Video resource not found"
-        )
-    
-    update_data = resource_update.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(resource, key, value)
-        
+    """Cập nhật metadata từng phần (không thay file)."""
+    resource = _get_or_404(db, resource_id)
+    apply_update(resource, resource_update.model_dump(exclude_unset=True), NON_NULLABLE)
     db.commit()
     db.refresh(resource)
     return resource
 
-@router.delete("/video/resources/{resource_id}")
-async def delete_video_resource(resource_id: int, db: Session = Depends(get_db)):
-    resource = db.query(VideoResource).filter(VideoResource.id == resource_id).first()
-    
-    if not resource:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Video resource not found"
-        )
-    
-    # Delete files from disk
-    video_path = Path(resource.video_path)
-    if video_path.exists():
-        video_path.unlink()
-    
-    if resource.thumbnail_path:
-        thumbnail_path = Path(resource.thumbnail_path)
-        if thumbnail_path.exists():
-            thumbnail_path.unlink()
-    
+
+@router.delete("/{resource_id}")
+def delete_video_resource(resource_id: int, db: Session = Depends(get_db)):
+    """Xóa bản ghi, file video và thumbnail trên đĩa."""
+    resource = _get_or_404(db, resource_id)
+    paths = (resource.video_path, resource.thumbnail_path)
     db.delete(resource)
     db.commit()
+    for p in paths:
+        delete_file(p)
     return {"message": "Video resource deleted successfully"}

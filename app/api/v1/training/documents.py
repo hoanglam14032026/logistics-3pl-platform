@@ -1,115 +1,97 @@
 """
-API routes for Training Documents in 3PL Logistics
+API Tài liệu đào tạo (Training Documents). Prefix: /api/v1/training/documents
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
+
+from app.core.crud import apply_update
+from app.core.storage import delete_file, save_upload
 from app.database import get_db
 from app.models.training_document import TrainingDocument
-from app.schemas.training_document import TrainingDocument as TrainingDocumentSchema, TrainingDocumentCreate, TrainingDocumentUpdate
-import os
-from pathlib import Path
+from app.schemas.training_document import (
+    TrainingDocument as TrainingDocumentSchema,
+    TrainingDocumentUpdate,
+)
 
 router = APIRouter()
 
-# Ensure upload directory exists
-UPLOAD_DIR = Path("uploads/training_documents")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+SUBDIR = "training_documents"
+NOT_FOUND = "Training document not found"
+NON_NULLABLE = ("title", "is_active")
 
-@router.get("/training/documents/{document_id}", response_model=TrainingDocumentSchema)
-async def get_training_document(document_id: int, db: Session = Depends(get_db)):
-    document = db.query(TrainingDocument).filter(TrainingDocument.id == document_id).first()
+
+def _get_or_404(db: Session, document_id: int) -> TrainingDocument:
+    document = db.get(TrainingDocument, document_id)
     if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Training document not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NOT_FOUND)
     return document
 
-@router.get("/training/documents", response_model=list[TrainingDocumentSchema])
-async def get_training_documents(
+
+@router.get("", response_model=List[TrainingDocumentSchema])
+def list_training_documents(
     category: Optional[str] = None,
     is_active: Optional[bool] = True,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
+    """Danh sách tài liệu; lọc theo category và is_active (mặc định true)."""
     query = db.query(TrainingDocument)
-    
     if category:
         query = query.filter(TrainingDocument.category == category)
-    
     if is_active is not None:
         query = query.filter(TrainingDocument.is_active == is_active)
-        
-    return query.all()
+    return query.order_by(TrainingDocument.id).all()
 
-@router.post("/training/documents", response_model=TrainingDocumentSchema)
+
+@router.get("/{document_id}", response_model=TrainingDocumentSchema)
+def get_training_document(document_id: int, db: Session = Depends(get_db)):
+    return _get_or_404(db, document_id)
+
+
+@router.post("", response_model=TrainingDocumentSchema, status_code=status.HTTP_201_CREATED)
 async def create_training_document(
-    title: str = Form(...),
+    title: str = Form(..., min_length=1, max_length=200),
+    file_type: str = Form(..., min_length=1, max_length=50),
     description: Optional[str] = Form(None),
-    file_type: str = Form(...),
-    category: Optional[str] = Form(None),
+    category: Optional[str] = Form(None, max_length=100),
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # Save file
-    file_extension = Path(file.filename).suffix
-    file_name = f"{title.replace(' ', '_')}_{hash(file.filename)}.{file_extension}"
-    file_path = UPLOAD_DIR / file_name
-    
-    with open(file_path, "wb") as buffer:
-        content = await file.read()
-        buffer.write(content)
-    
-    # Create document record
+    """Upload tài liệu (multipart/form-data) và tạo bản ghi."""
+    file_path = await save_upload(file, SUBDIR)
     db_document = TrainingDocument(
         title=title,
         description=description,
-        file_path=str(file_path),
+        file_path=file_path,
         file_type=file_type,
-        category=category
+        category=category,
     )
     db.add(db_document)
     db.commit()
     db.refresh(db_document)
     return db_document
 
-@router.put("/training/documents/{document_id}", response_model=TrainingDocumentSchema)
-async def update_training_document(
-    document_id: int, 
-    document_update: TrainingDocumentUpdate, 
-    db: Session = Depends(get_db)
+
+@router.put("/{document_id}", response_model=TrainingDocumentSchema)
+def update_training_document(
+    document_id: int, document_update: TrainingDocumentUpdate, db: Session = Depends(get_db)
 ):
-    document = db.query(TrainingDocument).filter(TrainingDocument.id == document_id).first()
-    
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Training document not found"
-        )
-    
-    update_data = document_update.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(document, key, value)
-        
+    """Cập nhật metadata từng phần (không thay file)."""
+    document = _get_or_404(db, document_id)
+    apply_update(document, document_update.model_dump(exclude_unset=True), NON_NULLABLE)
     db.commit()
     db.refresh(document)
     return document
 
-@router.delete("/training/documents/{document_id}")
-async def delete_training_document(document_id: int, db: Session = Depends(get_db)):
-    document = db.query(TrainingDocument).filter(TrainingDocument.id == document_id).first()
-    
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Training document not found"
-        )
-    
-    # Delete file from disk
-    file_path = Path(document.file_path)
-    if file_path.exists():
-        file_path.unlink()
-    
+
+@router.delete("/{document_id}")
+def delete_training_document(document_id: int, db: Session = Depends(get_db)):
+    """Xóa bản ghi và file trên đĩa."""
+    document = _get_or_404(db, document_id)
+    file_path = document.file_path
     db.delete(document)
     db.commit()
+    delete_file(file_path)
     return {"message": "Training document deleted successfully"}

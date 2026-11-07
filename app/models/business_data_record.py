@@ -1,5 +1,5 @@
 """
-Business Data Record Models for 3PL Logistics
+Model CSDL: Dữ liệu kinh doanh (bảng business_data_records).
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean

@@ -1,5 +1,5 @@
 """
-Training Document Models for 3PL Logistics
+Model CSDL: Tài liệu đào tạo (bảng training_documents).
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean

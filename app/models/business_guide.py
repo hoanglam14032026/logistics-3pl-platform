@@ -1,5 +1,5 @@
 """
-Business Guide Models for 3PL Logistics
+Model CSDL: Hướng dẫn nghiệp vụ (bảng business_guides).
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean

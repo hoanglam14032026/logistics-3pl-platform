@@ -1,0 +1,11 @@
+services:
+  api:
+    build: .
+    image: fastapi-todo:latest
+    container_name: fastapi-todo
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    restart: unless-stopped

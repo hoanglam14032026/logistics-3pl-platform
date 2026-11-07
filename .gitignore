@@ -4,3 +4,9 @@ __pycache__/
 venv/
 .env
 .DS_Store
+.pytest_cache/
+
+# Dữ liệu sinh ra khi chạy
+*.db
+uploads/
+data/
