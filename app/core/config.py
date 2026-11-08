@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr = Field(min_length=32)
     jwt_access_ttl_min: int = Field(default=15, gt=0)
     jwt_refresh_ttl_days: int = Field(default=7, gt=0)
+    # Khóa tạm tài khoản sau N lần đăng nhập sai liên tiếp (06 §3, bước 0.6)
+    auth_max_failed_logins: int = Field(default=5, gt=0)
+    auth_lockout_minutes: int = Field(default=15, gt=0)
 
     # Module (N6)
     enabled_flows: Annotated[frozenset[Flow], NoDecode] = frozenset(ALL_FLOWS)

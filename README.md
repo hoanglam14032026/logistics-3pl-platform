@@ -46,7 +46,8 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev-lock.txt                # phụ thuộc chạy + công cụ dev (đều đã khóa)
 cp .env.example .env                                     # rồi điền JWT_SECRET
 uvicorn app.main:create_app --factory --reload           # http://127.0.0.1:8000/docs; tự chạy alembic upgrade head
-pytest                                                   # 62 test: 26 tích hợp trên logistics_3pl_test (gồm 8 migration) + 36 đơn vị
+python -m app.shared.identity.cli create-admin --username admin --full-name "Quản trị"   # admin đầu tiên
+pytest                                                   # 160 test: 93 tích hợp trên logistics_3pl_test + 67 đơn vị
 ruff check . && ruff format --check .
 ```
 

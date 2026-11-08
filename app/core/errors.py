@@ -72,12 +72,14 @@ class AppError(Exception):
         status_code: int,
         message: str | None = None,
         details: list[dict] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message or DEFAULT_MESSAGES[code])
         self.code = code
         self.status_code = status_code
         self.message = message or DEFAULT_MESSAGES[code]
         self.details = details or []
+        self.headers = headers
 
 
 def _status_phrase(status_code: int) -> str:
@@ -110,7 +112,7 @@ def error_response(
 
 
 async def _app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-    return error_response(request, exc.status_code, exc.code, exc.message, exc.details)
+    return error_response(request, exc.status_code, exc.code, exc.message, exc.details, exc.headers)
 
 
 async def _http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:

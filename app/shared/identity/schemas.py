@@ -1,0 +1,141 @@
+"""Schema API của xác thực và quản lý người dùng. Không có trường `password_hash`, `totp_secret` ở đầu ra."""
+
+import re
+from typing import Annotated
+
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, model_validator
+
+from app.core.rbac import Role
+from app.core.timeutil import UtcDatetime
+
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128  # chặn chuỗi rất dài làm chậm Argon2 (DoS)
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _check_email(value: str) -> str:
+    if not _EMAIL_RE.match(value):
+        raise ValueError("Email không hợp lệ")
+    return value
+
+
+def _normalize(value: object) -> object:
+    # Chuẩn hóa TRƯỚC khi kiểm ràng buộc: StringConstraints kiểm `pattern` trước `to_lower`.
+    return value.strip().lower() if isinstance(value, str) else value
+
+
+Username = Annotated[
+    str, BeforeValidator(_normalize), StringConstraints(min_length=3, max_length=64, pattern=r"^[a-z0-9._-]+$")
+]
+Email = Annotated[str, BeforeValidator(_normalize), StringConstraints(max_length=254), AfterValidator(_check_email)]
+FullName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+Password = Annotated[str, StringConstraints(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)]
+RoleList = Annotated[list[Role], Field(min_length=1)]
+
+
+def _unique_roles(roles: list[Role] | None) -> list[Role] | None:
+    return sorted(set(roles), key=lambda r: r.value) if roles is not None else None
+
+
+# --- Xác thực --------------------------------------------------------------------------------------------
+
+
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"example": {"username": "nguyenvana", "password": "MatKhau@2026"}})
+
+    username: Annotated[str, BeforeValidator(_normalize), StringConstraints(min_length=1, max_length=64)]
+    password: Annotated[str, StringConstraints(min_length=1, max_length=PASSWORD_MAX_LENGTH)]
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: Annotated[str, StringConstraints(min_length=1, max_length=512)]
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = Field(description="Số giây access token còn hiệu lực")
+    refresh_token: str
+    refresh_expires_in: int = Field(description="Số giây refresh token còn hiệu lực")
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: Annotated[str, StringConstraints(min_length=1, max_length=PASSWORD_MAX_LENGTH)]
+    new_password: Password
+
+    @model_validator(mode="after")
+    def _different(self):
+        if self.current_password == self.new_password:
+            raise ValueError("Mật khẩu mới phải khác mật khẩu hiện tại")
+        return self
+
+
+# --- Người dùng ------------------------------------------------------------------------------------------
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    email: str | None
+    full_name: str
+    roles: list[str] = Field(validation_alias="role_codes")
+    is_active: bool
+    is_2fa_enabled: bool
+    locked_until: UtcDatetime | None
+    last_login_at: UtcDatetime | None
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
+    row_version: int
+
+
+class UserCreate(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "username": "nguyenvana",
+                "email": "nguyenvana@example.vn",
+                "full_name": "Nguyễn Văn A",
+                "password": "MatKhau@2026",
+                "roles": ["ops_staff"],
+            }
+        }
+    )
+
+    username: Username
+    email: Email | None = None
+    full_name: FullName
+    password: Password
+    roles: RoleList
+    is_active: bool = True
+
+    @model_validator(mode="after")
+    def _validate(self):
+        self.roles = _unique_roles(self.roles)
+        if self.password.lower() == self.username:
+            raise ValueError("Mật khẩu không được trùng tên đăng nhập")
+        return self
+
+
+class UserUpdate(BaseModel):
+    """PATCH (JSON Merge Patch): chỉ trường được gửi mới đổi; `null` chỉ hợp lệ với `email`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: Email | None = None
+    full_name: FullName | None = None
+    roles: RoleList | None = None
+    is_active: bool | None = None
+    password: Password | None = Field(None, description="Đặt lại mật khẩu (thu hồi mọi phiên của người dùng)")
+
+    @model_validator(mode="after")
+    def _validate(self):
+        for field in ("full_name", "roles", "is_active", "password"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"Trường '{field}' không được null")
+        # Chỉ gán khi client gửi roles: gán thuộc tính trong validator đánh dấu trường là "đã gửi" (model_fields_set).
+        if self.roles is not None:
+            self.roles = _unique_roles(self.roles)
+        return self

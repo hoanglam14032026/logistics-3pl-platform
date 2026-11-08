@@ -11,7 +11,8 @@
 /api/v2/assessment/...   Luồng 4
 /api/v2/portal/...       Cổng khách hàng (thuộc Luồng 1, chỉ vai trò customer)
 /api/v2/md/...           Danh mục dùng chung (gồm bộ quy tắc, ma trận chứng từ)
-/api/v2/auth/...         Đăng nhập, làm mới token
+/api/v2/auth/...         Đăng nhập, làm mới token, đăng xuất, đổi mật khẩu, người dùng hiện tại
+/api/v2/users/...        Quản lý người dùng, vai trò (admin – §4)
 /api/v2/files/{file_id}  Tải file (kiểm quyền theo luồng sở hữu)
 /health, /ready          Kiểm tra sức khỏe (không cần đăng nhập)
 ```
@@ -112,6 +113,23 @@ Phản hồi danh sách:
 ## 3. Xác thực
 
 - Đăng nhập tài khoản nội bộ, mật khẩu băm Argon2/bcrypt; JWT truy cập (15 phút) + refresh token (7 ngày, thu hồi được).
+- **Đã làm (bước 0.6, 08/11/2026)** – `app/core/security.py`, `app/core/rbac.py`, `app/shared/identity/`:
+  - Mật khẩu: Argon2id (`argon2-cffi`, tham số mặc định m = 64 MiB, t = 3, p = 4; băm lại khi tham số đổi); 8–128 ký tự,
+    không trùng tên đăng nhập. Tên đăng nhập `[a-z0-9._-]{3,64}`, không phân biệt hoa thường.
+  - Access token: JWT HS256 (`PyJWT`), thuật toán cố định khi giải mã; claim `iss`, `sub`, `type = access`, `roles`,
+    `iat`, `exp`, `jti`, `pwd_at`. Mỗi request đọc lại người dùng từ CSDL: tài khoản bị vô hiệu hóa, đổi mật khẩu
+    (`pwd_at` lệch `password_changed_at`) có hiệu lực ngay; vai trò lấy từ CSDL, không tin claim `roles`.
+  - Refresh token: chuỗi ngẫu nhiên 384 bit (không phải JWT), CSDL chỉ lưu SHA-256 (`sys_refresh_tokens`); xoay vòng
+    mỗi lần `POST /api/v2/auth/refresh`; dùng lại token đã xoay vòng → thu hồi cả họ token (`family_id`);
+    `logout` thu hồi phiên; đổi/đặt lại mật khẩu, vô hiệu hóa tài khoản → thu hồi mọi phiên.
+  - Khóa tạm: sai `AUTH_MAX_FAILED_LOGINS` (5) lần liên tiếp → khóa `AUTH_LOCKOUT_MINUTES` (15) phút, áp dụng mọi tài khoản;
+    đang khóa thì mật khẩu đúng cũng bị từ chối; đăng nhập đúng đặt lại bộ đếm; `admin` mở khóa qua
+    `POST /api/v2/users/{id}:unlock`. Dòng người dùng khóa `SELECT … FOR UPDATE` khi kiểm tra (đăng nhập song song
+    không vượt ngưỡng). Sai mật khẩu và tài khoản không tồn tại: cùng thông báo, cùng thời gian xử lý.
+  - Không cần access token: `login`, `refresh`, `logout` (xác thực bằng mật khẩu/refresh token). Phản hồi có token:
+    `Cache-Control: no-store`. Lỗi `401` có header `WWW-Authenticate: Bearer`.
+  - Tài khoản `admin` đầu tiên: `python -m app.shared.identity.cli create-admin` (mật khẩu nhập ẩn hoặc qua stdin).
+  - Thời gian khóa 15 phút, độ dài mật khẩu tối thiểu 8: **CẦN XÁC NHẬN** (đặc tả gốc chỉ nêu "5 lần sai").
 - Tích hợp SSO của trường/doanh nghiệp (Google Workspace, Microsoft Entra ID): **CẦN XÁC NHẬN**.
 - Mọi endpoint trừ `/health`, `/ready`, `/api/v2/auth/login`, trang khách mời phỏng vấn (`/api/v2/learning/interview-invitations/{token}` – xác thực bằng token, `04` BR-309) và webhook của máy chủ media phỏng vấn (xác thực bằng chữ ký) yêu cầu xác thực.
 - Tài khoản `customer`: bắt buộc xác thực 2 lớp; khóa tạm sau 5 lần đăng nhập sai; giới hạn tần suất gọi API và tải file theo tài khoản; phiên tối đa 8 giờ. **Lộ trình (đã chốt 08/11/2026):** Giai đoạn 0 (bước 0.6) chỉ làm JWT + refresh token + RBAC + khóa tạm sau nhiều lần đăng nhập sai; bảng `sys_users` có sẵn cột `totp_secret` (NULL) và `is_2fa_enabled` (mặc định `false`); endpoint và luồng xác thực 2 lớp làm cùng cổng khách hàng (Giai đoạn 2). Tài khoản nội bộ có quyền phê duyệt hợp đồng – tài chính (`manager`, `business_manager`) cũng bắt buộc xác thực 2 lớp; thao tác phê duyệt cấp 2 yêu cầu xác thực lại (nhập lại OTP) nếu phiên đã quá 30 phút.
@@ -163,6 +181,7 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
 | `STORAGE_BACKEND` | `local` | `local` / `s3` |
 | `UPLOAD_DIR` | `./data/uploads` | Khi `local` |
 | `JWT_SECRET`, `JWT_ACCESS_TTL_MIN`, `JWT_REFRESH_TTL_DAYS` | – / 15 / 7 | `JWT_SECRET` bắt buộc, không có mặc định, tối thiểu 32 ký tự; thiếu thì ứng dụng không khởi động |
+| `AUTH_MAX_FAILED_LOGINS`, `AUTH_LOCKOUT_MINUTES` | 5 / 15 | Khóa tạm sau N lần đăng nhập sai liên tiếp (§3) |
 | `ENABLED_FLOWS` | `ops,control,learning,assessment` | Bật/tắt module (N6); giá trị ngoài 4 mã này bị từ chối khi khởi động |
 | `EVENT_DISPATCH_INTERVAL_SEC` | `2` | Chu kỳ phát sự kiện outbox |
 | `FILE_LIMITS_JSON` | (§2.6) | Ghi đè danh sách loại và dung lượng file |

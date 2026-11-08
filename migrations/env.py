@@ -11,8 +11,10 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 from app.core.config import get_settings
-from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào Base.metadata)
-from app.legacy_v1.database import Base
+from app.core.db import Base
+from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào LegacyBase.metadata)
+from app.legacy_v1.database import Base as LegacyBase
+from app.shared.identity import models as _identity_models  # noqa: F401  (đăng ký model v2 vào Base.metadata)
 
 config = context.config
 
@@ -20,7 +22,8 @@ config = context.config
 if config.config_file_name is not None and config.attributes.get("connection") is None:
     fileConfig(config.config_file_name)
 
-target_metadata = Base.metadata
+# v1 (không có quy ước tên ràng buộc) và v2 (app/core/db.py) dùng hai MetaData riêng.
+target_metadata = [LegacyBase.metadata, Base.metadata]
 
 
 def run_migrations_offline() -> None:

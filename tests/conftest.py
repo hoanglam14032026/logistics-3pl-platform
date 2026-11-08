@@ -37,9 +37,22 @@ get_settings.cache_clear()  # Settings dùng chung đọc lại với DATABASE_U
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
+from app.core.db import Base, SessionLocal, engine  # noqa: E402
 from app.core.migrations import upgrade_to_head  # noqa: E402
-from app.legacy_v1.database import Base, engine  # noqa: E402
+from app.legacy_v1.database import Base as LegacyBase  # noqa: E402
 from app.main import create_app  # noqa: E402
+from app.shared.identity import service as identity_service  # noqa: E402
+from app.shared.identity.schemas import UserCreate  # noqa: E402
+
+# Mọi bảng do ứng dụng quản lý (v1 + v2) – dùng để xóa dữ liệu giữa các test.
+ALL_METADATA = [LegacyBase.metadata, Base.metadata]
+DEFAULT_PASSWORD = "MatKhau@2026"
+
+
+def truncate_all() -> None:
+    tables = ", ".join(t.name for md in ALL_METADATA for t in md.sorted_tables)
+    with engine.begin() as conn:
+        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
 
 def reset_database() -> None:
@@ -59,14 +72,59 @@ def _database():
     shutil.rmtree(_TMP, ignore_errors=True)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_settings():
+    """Test đổi biến môi trường (monkeypatch) không để lại Settings đã cache cho test sau."""
+    yield
+    get_settings.cache_clear()
+
+
 @pytest.fixture()
 def client():
     # Xóa dữ liệu, giữ schema; lifespan của create_app() chạy upgrade head (đã ở head – không đổi gì).
-    tables = ", ".join(t.name for t in Base.metadata.sorted_tables)
-    with engine.begin() as conn:
-        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+    truncate_all()
     with TestClient(create_app()) as c:
         yield c
+
+
+@pytest.fixture()
+def make_user(client):
+    """Tạo người dùng trực tiếp qua service: make_user("an", roles=["ops_staff"]) → SysUser."""
+
+    def _make(username: str, roles=("ops_staff",), password: str = DEFAULT_PASSWORD, **fields):
+        data = UserCreate(
+            username=username,
+            full_name=fields.pop("full_name", username.title()),
+            password=password,
+            roles=list(roles),
+            **fields,
+        )
+        with SessionLocal() as db:
+            return identity_service.create_user(db, data, actor_id=None)
+
+    return _make
+
+
+@pytest.fixture()
+def login(client):
+    """login("an") → phản hồi JSON của POST /api/v2/auth/login (gồm access_token, refresh_token)."""
+
+    def _login(username: str, password: str = DEFAULT_PASSWORD) -> dict:
+        r = client.post("/api/v2/auth/login", json={"username": username, "password": password})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    return _login
+
+
+@pytest.fixture()
+def auth_headers(login):
+    """auth_headers("an") → {"Authorization": "Bearer <access token>"}."""
+
+    def _headers(username: str, password: str = DEFAULT_PASSWORD) -> dict[str, str]:
+        return {"Authorization": f"Bearer {login(username, password)['access_token']}"}
+
+    return _headers
 
 
 @pytest.fixture()

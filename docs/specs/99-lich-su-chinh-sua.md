@@ -189,3 +189,16 @@ Phiên bản `1.1.0` (07/11/2026). Trạng thái trước khi chỉnh sửa (cod
 | Test: `drop_all`/`create_all` trước mỗi test | Mỗi phiên test: xóa schema `public` của CSDL test rồi `upgrade head`; mỗi test `TRUNCATE … RESTART IDENTITY`. `tests/test_migrations.py`: 8 test (1 head, upgrade từ trống, schema khớp model, downgrade base rồi upgrade lại, chạy lặp không đổi, stamp CSDL `create_all` giữ dữ liệu, từ chối schema thiếu bảng, lifespan tự migrate) | `07` §6 điểm 3 |
 | Docker image chỉ chép `app/` | Chép thêm `alembic.ini`, `migrations/` | Ứng dụng trong container tự migrate; dùng được `alembic` CLI |
 | `tests/conftest.py` đọc `TEST_DATABASE_URL` bằng `os.getenv` (bỏ qua file `.env`) | Đọc qua `Settings` (biến môi trường + `.env`) | Đặt `TEST_DATABASE_URL` trong `.env` (vd. đổi cổng) bị lặng lẽ bỏ qua, test chạy vào CSDL mặc định – phát hiện khi kiểm chứng fastapi-template |
+
+### 10.15. Mã nguồn – Giai đoạn 0, bước 0.6: xác thực, phân quyền (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Chưa có xác thực; `JWT_SECRET` chỉ được đọc | `app/core/security.py` (Argon2id – `argon2-cffi`; JWT HS256 – `PyJWT`; refresh token ngẫu nhiên lưu SHA-256), `app/core/rbac.py` (`Role` – 8 vai trò `00` §4, `require_roles`), `app/shared/identity/` (model, service, router, CLI) | `06` §3, §4; `07` §1 |
+| – | Migration `0002`: `sys_users` (cột chung `06` §2.4, khóa tạm, `totp_secret` NULL, `is_2fa_enabled` = false), `sys_user_roles` (CHECK 8 vai trò), `sys_refresh_tokens` | `01` §4; lộ trình 0.6 (`06` §3) |
+| – | API: `POST /api/v2/auth/{login,refresh,logout,change-password}`, `GET /api/v2/auth/me`; `GET/POST /api/v2/users`, `GET/PATCH /api/v2/users/{id}` (`If-Match` → `409 VERSION_CONFLICT`), `POST /api/v2/users/{id}:unlock` – chỉ `admin` | `06` §1 (thêm `/api/v2/users`), §2.1–2.4, §4 |
+| `06` §3: khóa tạm sau 5 lần sai (chỉ nêu cho `customer`) | Áp dụng mọi tài khoản; thời gian khóa 15 phút; cấu hình `AUTH_MAX_FAILED_LOGINS`, `AUTH_LOCKOUT_MINUTES` | Lộ trình 0.6 "khóa tạm sau nhiều lần đăng nhập sai"; thời gian khóa **CẦN XÁC NHẬN** |
+| `app/legacy_v1/database.py` tạo engine riêng | Dùng chung `engine` của `app/core/db.py` (một pool); `Base` v1 giữ riêng; Alembic so cả hai `MetaData` | Một pool kết nối; `Base` v2 có quy ước tên ràng buộc |
+| – | `app/core/db.py` (`Base`, `AuditColumnsMixin` – `row_version` là `version_id_col`), `app/core/pagination.py` (`Page[T]`, `page_size` ≤ 100, `sort`), `app/core/timeutil.py` (`now_utc`, xuất ISO 8601 hậu tố `Z`) | `06` §2.3, §2.4; `07` §1 |
+| `/health` một route `GET` + `HEAD` (bước 0.2 – sửa lỗi) | Hai route; `HEAD` ẩn khỏi OpenAPI | Một route hai phương thức sinh trùng `operation_id` trên OpenAPI |
+| – | 98 test mới (31 đơn vị `security`, `rbac`; 67 tích hợp PostgreSQL – đăng nhập, khóa tạm gồm đăng nhập sai song song, refresh xoay vòng/dùng lại, đổi mật khẩu, RBAC 7 vai trò không phải admin, CRUD người dùng, CLI); tổng 160 | `07` §4.1 |

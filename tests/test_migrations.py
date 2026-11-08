@@ -11,8 +11,8 @@ from alembic.runtime.migration import MigrationContext
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect, text
 
+from app.core.db import engine
 from app.core.migrations import (
-    BASELINE_REVISION,
     BASELINE_TABLES,
     SchemaStateError,
     alembic_config,
@@ -20,9 +20,11 @@ from app.core.migrations import (
     head_revision,
     upgrade_to_head,
 )
-from app.legacy_v1.database import Base, engine
+from app.legacy_v1.database import Base as LegacyBase
 from app.main import create_app
-from tests.conftest import reset_database
+from tests.conftest import ALL_METADATA, reset_database
+
+IDENTITY_TABLES = {"sys_users", "sys_user_roles", "sys_refresh_tokens"}
 
 
 @pytest.fixture(autouse=True)
@@ -48,13 +50,13 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == BASELINE_REVISION
+    assert head_revision() == "0002"
 
 
 def test_upgrade_from_empty_creates_all_tables():
     reset_database()
     assert upgrade_to_head(engine) == head_revision()
-    assert _tables() == BASELINE_TABLES | {"alembic_version"}
+    assert _tables() == BASELINE_TABLES | IDENTITY_TABLES | {"alembic_version"}
 
 
 def test_schema_after_upgrade_matches_models():
@@ -62,7 +64,7 @@ def test_schema_after_upgrade_matches_models():
     reset_database()
     upgrade_to_head(engine)
     with engine.connect() as conn:
-        diff = compare_metadata(MigrationContext.configure(conn), Base.metadata)
+        diff = compare_metadata(MigrationContext.configure(conn), ALL_METADATA)
     assert diff == []
 
 
@@ -83,7 +85,7 @@ def test_upgrade_is_idempotent():
 def test_legacy_create_all_database_is_stamped_and_keeps_data():
     """CSDL v1 tạo bằng create_all (chưa có alembic_version): đánh dấu 0001, không tạo lại bảng, giữ dữ liệu."""
     reset_database()
-    Base.metadata.create_all(bind=engine)
+    LegacyBase.metadata.create_all(bind=engine)
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO business_guides (title, category, content) VALUES ('Cũ', 'kho', 'Giữ lại')"))
 
@@ -97,7 +99,7 @@ def test_legacy_create_all_database_is_stamped_and_keeps_data():
 def test_partial_legacy_schema_is_rejected():
     reset_database()
     with engine.begin() as conn:
-        Base.metadata.tables["business_guides"].create(conn)
+        LegacyBase.metadata.tables["business_guides"].create(conn)
     with pytest.raises(SchemaStateError, match="thiếu"):
         upgrade_to_head(engine)
     assert "alembic_version" not in _tables()

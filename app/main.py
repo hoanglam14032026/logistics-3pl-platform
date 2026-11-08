@@ -4,8 +4,8 @@
 Dùng hàm tạo ứng dụng, không tạo `app` ở cấp module:
     uvicorn app.main:create_app --factory --reload
 
-Giai đoạn chuyển tiếp: chỉ gắn API v1.1.0 (app/legacy_v1), đánh dấu deprecated trên OpenAPI (06 §1).
-Router v2 gắn theo ENABLED_FLOWS khi các luồng được xây dựng.
+Router v2: xác thực `/api/v2/auth`, người dùng `/api/v2/users` (app/shared/identity, bước 0.6); router các luồng
+gắn theo ENABLED_FLOWS khi được xây dựng. API v1.1.0 (app/legacy_v1) đánh dấu deprecated trên OpenAPI (06 §1).
 """
 
 from collections.abc import AsyncIterator
@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import Settings, get_settings
+from app.core.db import engine
 from app.core.errors import UnhandledErrorMiddleware, register_exception_handlers
 from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
 from app.core.migrations import upgrade_to_head
@@ -23,7 +24,7 @@ from app.legacy_v1.api import business_guide
 from app.legacy_v1.api.business_data import records as business_data_records
 from app.legacy_v1.api.training import documents as training_documents
 from app.legacy_v1.api.video import resources as video_resources
-from app.legacy_v1.database import engine
+from app.shared.identity.router import auth_router, users_router
 
 APP_TITLE = "3PL Logistics Business Guide"
 APP_VERSION = "1.1.0"
@@ -87,10 +88,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "documentation": "/docs",
         }
 
-    @app.api_route("/health", methods=["GET", "HEAD"], tags=["System"])
+    @app.get("/health", tags=["System"])
     def health_check():
         # Giữ nguyên phản hồi của v1.1.0 (90-hien-trang-v1.1); không cần đăng nhập, không chạm CSDL.
         return {"status": "healthy"}
 
+    # HEAD cho công cụ healthcheck; route riêng, ẩn khỏi OpenAPI (một route GET+HEAD sinh trùng operation_id).
+    app.add_api_route("/health", health_check, methods=["HEAD"], include_in_schema=False)
+
+    app.include_router(auth_router)
+    app.include_router(users_router)
     _include_legacy_v1_routers(app)
     return app

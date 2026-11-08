@@ -5,14 +5,11 @@ Lưu ý: module này KHÔNG import app.legacy_v1.models để tránh import vòn
 Các model được import tại app/main.py và migrations/env.py; schema do Alembic quản lý (migrations/).
 """
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from app.legacy_v1.core.config import DATABASE_URL
+# Dùng chung engine của app/core/db.py (một pool kết nối cho cả v1 và v2); Base v1 giữ riêng.
+from app.core.db import engine
 
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
