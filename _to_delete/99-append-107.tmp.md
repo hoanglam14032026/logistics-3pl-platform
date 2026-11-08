@@ -1,0 +1,13 @@
+
+### 10.7. Hiệu chỉnh đặc tả v2.1 (08/11/2026)
+
+| Nội dung cũ (v2.0) | Nội dung mới (v2.1) | Lý do sửa |
+|---|---|---|
+| `04` §2, §3.3: phỏng vấn là một loại học liệu video/audio + bản ghi; nghĩa của "phỏng vấn" đánh dấu CẦN XÁC NHẬN | Kho dữ liệu phỏng vấn video/audio với 2 quy trình nhập: (1) phỏng vấn online trên hệ thống, ghi hình/ghi âm, tự lưu vào kho; (2) người hướng dẫn tải file từ tài khoản. Bổ sung phiên phỏng vấn, khách mời không cần tài khoản, xác nhận đồng ý điện tử, xử lý media, hậu kỳ, trạng thái thu nhận; BR-305 (sửa), BR-308–BR-310; LRN-F10–F13; API; 2 phương án kỹ thuật phòng họp | Yêu cầu của chủ dự án (điểm 1) |
+| `02` §5: ma trận và quy tắc lưu dạng dữ liệu cấu hình, chủ ghi `manager`; quy tắc R-01…R-14 cài trong code | `02` §5.3: thư viện bộ đánh giá trong code + bộ quy tắc có phiên bản (`md_rule_sets`) phạm vi `production` (`manager`) và `training` (`instructor`); thêm, sửa, xóa dòng ma trận và quy tắc; sao chép, chạy thử, công bố, ngừng, nhập/xuất; R-01…R-14 thành dữ liệu khởi tạo; BR-101 (sửa), BR-102 (sửa), BR-106; OPS-F13; cập nhật `01` §4, `05` (tình huống tham chiếu bộ quy tắc, BR-409), `06` RBAC | Yêu cầu của chủ dự án (điểm 2) |
+| Ngưỡng, trọng số KPI, thang điểm là giá trị minh họa | Giữ nguyên | Yêu cầu của chủ dự án (điểm 3) |
+| `00` §4, `02` §10: cổng khách hàng CẦN XÁC NHẬN, mặc định không làm; kế toán, công nợ ngoài phạm vi; hợp đồng chỉ có `:close` | `02` §9: cổng khách hàng (PRT-01…PRT-10, API `/api/v2/portal`, tài khoản `customer` có xác thực 2 lớp, BR-111). `02` §3.6: yêu cầu dịch vụ. `02` §3.7: góp ý bản nháp, phụ lục hợp đồng, phiên bản hợp đồng. `02` §3.8–3.9: biểu giá, khoản phí (dịch vụ, chi hộ, phát sinh, giảm trừ SLA, bồi thường), thanh toán, bảng kê đối soát, quyết toán S = A + T + C − D − E − F, trình tự thanh lý và biên bản thanh lý; máy trạng thái hợp đồng thêm `liquidating`; §6.5 bảng quyết toán; BR-107–BR-111; OPS-F14–F18 | Yêu cầu của chủ dự án (điểm 4) |
+| Danh mục sự kiện 24 mã | Thêm EV-103, EV-104, EV-113, EV-114; mở rộng EV-102, EV-205, EV-206 (trách nhiệm, bồi thường – Luồng 1 nhận), EV-401 (bộ quy tắc) | Đồng bộ tích hợp giữa các luồng cho các chức năng mới |
+| `03` | Loại phê duyệt `EXTRA_CHARGE`, `CONTRACT_AMENDMENT`, `CONTRACT_TERMINATION`, `SETTLEMENT`; thẩm quyền (BR-202); giám sát M-08, M-09; CTL-F10, CTL-F11; sự cố ghi trách nhiệm và giá trị bồi thường | Phê duyệt và kiểm soát các nghiệp vụ hợp đồng – tài chính mới |
+| `05` 13 KPI | Thêm KPI-14 Tỷ lệ phản hồi yêu cầu dịch vụ đúng hạn | Đo chất lượng xử lý yêu cầu qua cổng (dùng cho cả vận hành và đào tạo) |
+| `07` lộ trình 6 giai đoạn, E2E-01, E2E-02 | Thêm giai đoạn 1b (phỏng vấn online), 4b (thanh lý – quyết toán); E2E-03…E2E-06; thư viện bổ sung | Phản ánh phạm vi mới |
