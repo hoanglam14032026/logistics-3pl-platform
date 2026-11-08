@@ -16,10 +16,13 @@ from pathlib import Path
 import pytest
 from sqlalchemy.engine import make_url
 
-TEST_DATABASE_URL = os.getenv(
-    "TEST_DATABASE_URL",
-    "postgresql+psycopg://logistics:logistics@localhost:5432/logistics_3pl_test",
-)
+# Khóa ký JWT chỉ dùng cho test (06 §6: JWT_SECRET bắt buộc) – đặt trước khi đọc Settings.
+os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-" + "x" * 32)
+
+from app.core.config import Settings, get_settings  # noqa: E402
+
+# Đọc qua Settings (biến môi trường + file .env), không dùng os.getenv: đổi cổng/URL trong .env vẫn có hiệu lực.
+TEST_DATABASE_URL = Settings().test_database_url
 
 # Bộ test xóa và tạo lại toàn bộ bảng: chặn chạy nhầm trên CSDL không phải CSDL test.
 _db_name = make_url(TEST_DATABASE_URL).database or ""
@@ -29,8 +32,7 @@ if not _db_name.endswith("_test"):
 _TMP = Path(tempfile.mkdtemp(prefix="l3pl_test_"))
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
-# Khóa ký JWT chỉ dùng cho test (06 §6: JWT_SECRET bắt buộc).
-os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-" + "x" * 32)
+get_settings.cache_clear()  # Settings dùng chung đọc lại với DATABASE_URL = CSDL test
 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
