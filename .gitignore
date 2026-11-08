@@ -8,7 +8,6 @@ venv/
 
 # Dữ liệu sinh ra khi chạy
 *.db
-uploads/
 data/
 .ruff_cache/
 .coverage

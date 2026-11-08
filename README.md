@@ -46,7 +46,7 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev-lock.txt                # phụ thuộc chạy + công cụ dev (đều đã khóa)
 uvicorn app.main:create_app --factory --reload           # http://127.0.0.1:8000/docs (CSDL logistics_3pl_dev)
 cp .env.example .env                                     # rồi điền JWT_SECRET
-pytest                                                   # 47 test: 18 tích hợp trên logistics_3pl_test + 29 đơn vị (tests/core)
+pytest                                                   # 54 test: 18 tích hợp trên logistics_3pl_test + 36 đơn vị (tests/core)
 ruff check . && ruff format --check .
 ```
 

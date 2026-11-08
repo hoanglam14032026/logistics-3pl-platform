@@ -10,7 +10,6 @@ __pycache__/
 .ruff_cache/
 .DS_Store
 *.db
-uploads/
 data/
 tests/
 docs/

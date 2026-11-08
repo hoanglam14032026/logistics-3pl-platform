@@ -166,3 +166,15 @@ Phiên bản `1.1.0` (07/11/2026). Trạng thái trước khi chỉnh sửa (cod
 | Lỗi trả `{"detail": ...}` của FastAPI | `app/core/errors.py`: mọi lỗi 4xx/5xx (kể cả `/api/v1/*`, lỗi validation, lỗi không xử lý được) trả `{"error": {code, message, details, request_id}}`; `AppError` cho mã mới; lỗi 500 không lộ chi tiết, ghi log kèm `request_id` | `06` §2.2 |
 | – | `tests/core/test_create_app.py`: 12 test (`/health`, CORS, `X-Request-ID`, định dạng lỗi 404/422/409/500) | `07` §4.1 |
 
+### 10.13a. Rà soát lại bước 0.2 – sửa lỗi (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `CORS_ORIGINS=*` được chấp nhận trong khi CORS bật `allow_credentials` | Từ chối `*` khi khởi động; phải liệt kê từng nguồn | Bảo mật: `*` + credentials cho mọi trang web gọi API kèm thông tin đăng nhập |
+| `JWT_SECRET` toàn khoảng trắng (≥ 32 ký tự) được chấp nhận | Yêu cầu ≥ 32 ký tự không phải khoảng trắng | Bảo mật |
+| Lỗi 500 không có header CORS (handler chạy ngoài lớp CORS) | `UnhandledErrorMiddleware` bắt lỗi bên trong lớp CORS, request_id | Frontend đọc được lỗi và `request_id` |
+| JSON hỏng trả 422 | Trả 400 (`VALIDATION_ERROR`, "Request sai cú pháp") | `06` §2.1 |
+| `message` mặc định tiếng Anh ("Not Found", "Method Not Allowed") | Tiếng Việt theo mã lỗi; giữ `detail` riêng của nơi ném lỗi (vd. mã v1) | `06` §2.2 |
+| `HEAD /health` trả 405 | `/health` nhận `GET`, `HEAD` | Công cụ healthcheck dùng `HEAD` |
+| `.gitignore`, `.dockerignore` có dòng `uploads/` (thư mục cũ, đã xóa) | Bỏ; dữ liệu upload nằm trong `data/` (đã có trong cả hai file) | Dọn phần sót của v1.1.0 |
+| – | 7 test hồi quy (`test_config.py` +2, `test_create_app.py` +5) | `07` §4.1 |

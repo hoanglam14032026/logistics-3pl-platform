@@ -127,3 +127,17 @@ def test_settings_immutable(clean_env):
     s = make()
     with pytest.raises(ValidationError):
         s.jwt_access_ttl_min = 99
+
+
+def test_jwt_secret_blank_is_rejected(clean_env):
+    with pytest.raises(ValidationError, match="không phải khoảng trắng"):
+        make(jwt_secret=" " * 40)
+    with pytest.raises(ValidationError):
+        make(jwt_secret="a" * 31 + " " * 10)
+
+
+def test_cors_wildcard_is_rejected(clean_env):
+    clean_env.setenv("JWT_SECRET", SECRET)
+    clean_env.setenv("CORS_ORIGINS", "http://localhost:5173,*")
+    with pytest.raises(ValidationError, match="không được chứa"):
+        make()

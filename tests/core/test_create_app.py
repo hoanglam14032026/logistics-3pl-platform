@@ -134,3 +134,32 @@ def test_unhandled_exception_returns_internal_error_without_leaking(client):
     err = _assert_error(r, 500, "INTERNAL_ERROR")
     assert "chi tiết nội bộ" not in r.text
     assert err["details"] == []
+
+
+def test_unhandled_exception_response_has_cors_header(client):
+    r = client.get("/_test/boom", headers={"Origin": ORIGIN})
+    assert r.status_code == 500
+    assert r.headers["access-control-allow-origin"] == ORIGIN
+    assert r.json()["error"]["request_id"] == r.headers["X-Request-ID"]
+
+
+def test_malformed_json_is_400(client):
+    r = client.post("/_test/echo", content=b"{hong", headers={"Content-Type": "application/json"})
+    err = _assert_error(r, 400, "VALIDATION_ERROR")
+    assert err["details"][0]["issue"] == "json_invalid"
+
+
+def test_default_messages_are_vietnamese(client):
+    assert client.get("/khong-ton-tai").json()["error"]["message"] == "Không tìm thấy"
+    r = client.delete("/health")
+    assert r.status_code == 405
+    assert r.headers["allow"]
+    assert r.json()["error"]["message"] != "Method Not Allowed"
+
+
+def test_explicit_http_exception_detail_is_kept(client):
+    assert client.get("/api/v1/guide/999999").json()["error"]["message"] == "Business guide not found"
+
+
+def test_health_supports_head(client):
+    assert client.head("/health").status_code == 200

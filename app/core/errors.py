@@ -7,11 +7,13 @@ Mọi lỗi 4xx/5xx – kể cả lỗi validation của Pydantic – trả về
 
 import logging
 from enum import StrEnum
+from http import HTTPStatus
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.middleware import REQUEST_ID_HEADER, get_request_id
 
@@ -78,6 +80,13 @@ class AppError(Exception):
         self.details = details or []
 
 
+def _status_phrase(status_code: int) -> str:
+    try:
+        return HTTPStatus(status_code).phrase
+    except ValueError:
+        return ""
+
+
 def _code_for_status(status_code: int) -> ErrorCode:
     if status_code >= 500:
         return ErrorCode.INTERNAL_ERROR
@@ -106,7 +115,10 @@ async def _app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 
 async def _http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     code = _code_for_status(exc.status_code)
-    message = exc.detail if isinstance(exc.detail, str) and exc.detail else DEFAULT_MESSAGES[code]
+    # Starlette điền detail = tên chuẩn của mã HTTP (tiếng Anh) khi nơi ném lỗi không ghi gì thêm.
+    detail = exc.detail if isinstance(exc.detail, str) else ""
+    is_default_phrase = detail == _status_phrase(exc.status_code)
+    message = detail if detail and not is_default_phrase else DEFAULT_MESSAGES[code]
     return error_response(request, exc.status_code, code, message, headers=getattr(exc, "headers", None))
 
 
@@ -120,7 +132,10 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
         for err in exc.errors()
     ]
     code = ErrorCode.VALIDATION_ERROR
-    return error_response(request, 422, code, DEFAULT_MESSAGES[code], details)
+    # 06 §2.1: request sai cú pháp (JSON hỏng) là 400; dữ liệu đúng cú pháp nhưng không hợp lệ là 422.
+    status_code = 400 if any(err.get("type") == "json_invalid" for err in exc.errors()) else 422
+    message = "Request sai cú pháp" if status_code == 400 else DEFAULT_MESSAGES[code]
+    return error_response(request, status_code, code, message, details)
 
 
 async def _unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -128,6 +143,39 @@ async def _unhandled_error_handler(request: Request, exc: Exception) -> JSONResp
     logger.exception("Lỗi không xử lý được (request_id=%s)", get_request_id(request))
     code = ErrorCode.INTERNAL_ERROR
     return error_response(request, 500, code, DEFAULT_MESSAGES[code])
+
+
+class UnhandledErrorMiddleware:
+    """Bắt lỗi không xử lý được BÊN TRONG lớp CORS và request_id.
+
+    Handler `Exception` của FastAPI chạy ở ServerErrorMiddleware – lớp ngoài cùng, ngoài CORSMiddleware – nên
+    phản hồi 500 không có header CORS và trình duyệt chặn frontend đọc `request_id`. Middleware này đặt
+    ngay trong RequestIDMiddleware để phản hồi 500 đi qua cả hai lớp.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except Exception as exc:
+            if response_started:
+                raise  # Đã gửi một phần phản hồi – không thay được nữa, để server ghi log, đóng kết nối.
+            response = await _unhandled_error_handler(Request(scope, receive), exc)
+            await response(scope, receive, send)
 
 
 def register_exception_handlers(app: FastAPI) -> None:

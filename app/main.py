@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.core.config import Settings, get_settings
-from app.core.errors import register_exception_handlers
+from app.core.errors import UnhandledErrorMiddleware, register_exception_handlers
 from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
 from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào Base.metadata)
 from app.legacy_v1.api import business_guide
@@ -67,7 +67,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # add_middleware xếp chồng: thêm sau = bọc ngoài. CORS ở ngoài cùng để cả phản hồi lỗi 4xx có header CORS.
+    # add_middleware xếp chồng: thêm sau = bọc ngoài. Thứ tự từ ngoài vào: CORS → RequestID → lỗi 500 → app,
+    # để mọi phản hồi lỗi (4xx và 500) đều có header CORS và X-Request-ID.
+    app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -88,7 +90,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "documentation": "/docs",
         }
 
-    @app.get("/health", tags=["System"])
+    @app.api_route("/health", methods=["GET", "HEAD"], tags=["System"])
     def health_check():
         # Giữ nguyên phản hồi của v1.1.0 (90-hien-trang-v1.1); không cần đăng nhập, không chạm CSDL.
         return {"status": "healthy"}

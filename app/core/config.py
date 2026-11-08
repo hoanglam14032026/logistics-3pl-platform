@@ -85,6 +85,22 @@ class Settings(BaseSettings):
     def _parse_csv(cls, value: object) -> object:
         return _split_csv(value)
 
+    @field_validator("jwt_secret")
+    @classmethod
+    def _jwt_secret_not_blank(cls, value: SecretStr) -> SecretStr:
+        # min_length đếm cả khoảng trắng: chuỗi toàn dấu cách vẫn đủ 32 ký tự nhưng không phải khóa.
+        if len(value.get_secret_value().strip()) < 32:
+            raise ValueError("JWT_SECRET phải có tối thiểu 32 ký tự không phải khoảng trắng")
+        return value
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _cors_no_wildcard(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        # CORS bật allow_credentials: "*" sẽ cho mọi trang web gọi API kèm thông tin đăng nhập.
+        if "*" in value:
+            raise ValueError("CORS_ORIGINS không được chứa '*'; liệt kê từng nguồn, vd. https://portal.example.vn")
+        return value
+
 
 @lru_cache
 def get_settings() -> Settings:
