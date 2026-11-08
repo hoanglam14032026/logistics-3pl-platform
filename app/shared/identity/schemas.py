@@ -174,3 +174,22 @@ class CustomerAccountCreate(BaseModel):
         if self.password.lower() == self.username:
             raise ValueError("Mật khẩu không được trùng tên đăng nhập")
         return self
+
+
+class PortalAccountCreate(BaseModel):
+    """Customer admin mời tài khoản mới cho khách hàng của mình (`POST /api/v2/portal/users`).
+
+    Không có `is_customer_admin`: chỉ `manager`/`admin` cấp quyền quản trị tài khoản khách hàng."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: Username
+    email: Email | None = None
+    full_name: FullName
+    password: Password
+
+    @model_validator(mode="after")
+    def _validate(self):
+        if self.password.lower() == self.username:
+            raise ValueError("Mật khẩu không được trùng tên đăng nhập")
+        return self

@@ -56,10 +56,17 @@ def _no_store(response: Response) -> None:
 # --- /api/v2/auth -----------------------------------------------------------------------------------------
 
 
-@auth_router.post("/login", response_model=TokenResponse, summary="Đăng nhập, nhận access token + refresh token")
+@auth_router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Đăng nhập, nhận access token + refresh token",
+    description="Giới hạn tần suất theo IP và tên đăng nhập; vượt ngưỡng → 429 RATE_LIMITED + Retry-After.",
+)
 def login(body: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):  # noqa: B008
     _no_store(response)
-    return _tokens(service.login(db, body.username, body.password, _client(request)))
+    client = _client(request)
+    service.check_login_rate(body.username, client.ip)  # 429 trước khi băm mật khẩu
+    return _tokens(service.login(db, body.username, body.password, client))
 
 
 @auth_router.post("/refresh", response_model=TokenResponse, summary="Đổi refresh token lấy cặp token mới")

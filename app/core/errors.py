@@ -32,6 +32,7 @@ class ErrorCode(StrEnum):
     VERSION_CONFLICT = "VERSION_CONFLICT"
     FILE_TOO_LARGE = "FILE_TOO_LARGE"
     UNSUPPORTED_FILE_TYPE = "UNSUPPORTED_FILE_TYPE"
+    RATE_LIMITED = "RATE_LIMITED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
@@ -45,6 +46,7 @@ DEFAULT_MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.VERSION_CONFLICT: "Bản ghi đã bị người khác thay đổi",
     ErrorCode.FILE_TOO_LARGE: "File vượt dung lượng cho phép",
     ErrorCode.UNSUPPORTED_FILE_TYPE: "Loại file không được phép",
+    ErrorCode.RATE_LIMITED: "Gửi quá nhiều yêu cầu; thử lại sau",
     ErrorCode.INTERNAL_ERROR: "Lỗi hệ thống",
 }
 
@@ -59,6 +61,7 @@ _STATUS_TO_CODE: dict[int, ErrorCode] = {
     409: ErrorCode.DUPLICATE,
     413: ErrorCode.FILE_TOO_LARGE,
     415: ErrorCode.UNSUPPORTED_FILE_TYPE,
+    429: ErrorCode.RATE_LIMITED,
     422: ErrorCode.VALIDATION_ERROR,
 }
 

@@ -9,7 +9,7 @@
 /api/v2/control/...      Luồng 2
 /api/v2/learning/...     Luồng 3
 /api/v2/assessment/...   Luồng 4
-/api/v2/portal/...       Cổng khách hàng (thuộc Luồng 1, chỉ vai trò customer)
+/api/v2/portal/...       Cổng khách hàng (thuộc Luồng 1, chỉ vai trò customer); /api/v2/portal/users – customer admin
 /api/v2/md/...           Danh mục dùng chung (gồm bộ quy tắc, ma trận chứng từ); /api/v2/md/parties (khách hàng, đối tác)
 /api/v2/auth/...         Đăng nhập, làm mới token, đăng xuất, đổi mật khẩu, người dùng hiện tại
 /api/v2/users/...        Quản lý người dùng, vai trò (admin – §4)
@@ -62,7 +62,7 @@ Mọi lỗi 4xx/5xx – kể cả lỗi validation của Pydantic – được c
 }
 ```
 
-`code` thuộc danh mục cố định: `VALIDATION_ERROR`, `NOT_FOUND`, `FORBIDDEN`, `UNAUTHENTICATED`, `INVALID_STATE_TRANSITION`, `DUPLICATE`, `VERSION_CONFLICT`, `FILE_TOO_LARGE`, `UNSUPPORTED_FILE_TYPE`, `INTERNAL_ERROR`.
+`code` thuộc danh mục cố định: `VALIDATION_ERROR`, `NOT_FOUND`, `FORBIDDEN`, `UNAUTHENTICATED`, `INVALID_STATE_TRANSITION`, `DUPLICATE`, `VERSION_CONFLICT`, `FILE_TOO_LARGE`, `UNSUPPORTED_FILE_TYPE`, `RATE_LIMITED` (`429`, header `Retry-After` – thêm ở Giai đoạn 2), `INTERNAL_ERROR`.
 
 ### 2.3. Danh sách, lọc, sắp xếp, phân trang (C6, C7)
 
@@ -130,6 +130,12 @@ Phản hồi danh sách:
     `Cache-Control: no-store`. Lỗi `401` có header `WWW-Authenticate: Bearer`.
   - Tài khoản `admin` đầu tiên: `python -m app.shared.identity.cli create-admin` (mật khẩu nhập ẩn hoặc qua stdin).
   - Thời gian khóa 15 phút, độ dài mật khẩu tối thiểu 8: **CẦN XÁC NHẬN** (đặc tả gốc chỉ nêu "5 lần sai").
+- **Giới hạn tần suất (Giai đoạn 2, 08/11/2026)** – `app/core/rate_limit.py`: `POST /api/v2/auth/login` tối đa
+  `AUTH_LOGIN_RATE_LIMIT_PER_IP` (20) lần/IP và `AUTH_LOGIN_RATE_LIMIT_PER_USERNAME` (10) lần/tên đăng nhập mỗi
+  `AUTH_LOGIN_RATE_WINDOW_SEC` (60) giây; vượt → `429 RATE_LIMITED` + `Retry-After`, kiểm tra **trước** khi băm mật khẩu
+  (lần bị chặn không tính là đăng nhập sai). Bộ đếm cửa sổ cố định trong PostgreSQL (`sys_rate_limit_counters`) – đúng khi
+  chạy nhiều worker/container. Sau reverse proxy: chạy `uvicorn --proxy-headers --forwarded-allow-ips=<IP proxy>` để
+  đếm theo IP thật. Ngưỡng: **CẦN XÁC NHẬN**. Giới hạn theo tài khoản cho API khác, tải file (`customer`): chưa làm.
 - Tích hợp SSO của trường/doanh nghiệp (Google Workspace, Microsoft Entra ID): **CẦN XÁC NHẬN**.
 - Mọi endpoint trừ `/health`, `/ready`, `/api/v2/auth/login`, trang khách mời phỏng vấn (`/api/v2/learning/interview-invitations/{token}` – xác thực bằng token, `04` BR-309) và webhook của máy chủ media phỏng vấn (xác thực bằng chữ ký) yêu cầu xác thực.
 - Tài khoản `customer`: bắt buộc xác thực 2 lớp; khóa tạm sau 5 lần đăng nhập sai; giới hạn tần suất gọi API và tải file theo tài khoản; phiên tối đa 8 giờ. **Lộ trình (đã chốt 08/11/2026):** Giai đoạn 0 (bước 0.6) chỉ làm JWT + refresh token + RBAC + khóa tạm sau nhiều lần đăng nhập sai; bảng `sys_users` có sẵn cột `totp_secret` (NULL) và `is_2fa_enabled` (mặc định `false`); endpoint và luồng xác thực 2 lớp làm cùng cổng khách hàng (Giai đoạn 2). Tài khoản nội bộ có quyền phê duyệt hợp đồng – tài chính (`manager`, `business_manager`) cũng bắt buộc xác thực 2 lớp; thao tác phê duyệt cấp 2 yêu cầu xác thực lại (nhập lại OTP) nếu phiên đã quá 30 phút.
@@ -169,6 +175,12 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
 ## 5. Nhật ký và giám sát
 
 - `sys_audit_logs`: `actor_id`, `action`, `entity_type`, `entity_id`, `before` (JSON), `after` (JSON), `ip`, `request_id`, `at`. Không ghi nội dung file, mật khẩu, token.
+  **Đã làm (Giai đoạn 2, 08/11/2026)** – `app/shared/audit/`: ghi trong cùng giao dịch với thay đổi; chỉ ghi trường trong
+  danh sách cho phép, `before`/`after` chỉ gồm trường thay đổi; trigger CSDL chặn `UPDATE`/`DELETE` (môi trường thật: cấp
+  cho tài khoản CSDL của ứng dụng chỉ `INSERT`, `SELECT` trên bảng). Hành động: `party.create`/`update`/`archive`/`restore`;
+  `user.create`/`update`/`deactivate`/`activate`/`password_reset`/`password_change`/`lock` (tự động, `actor_id` NULL)/`unlock`;
+  `auth.login_failed` (`after.reason`: `unknown_user`, `invalid_password`, `locked`, `disabled`), `auth.rate_limited`
+  (lần đầu vượt ngưỡng mỗi cửa sổ), `auth.refresh_reuse_detected`. API đọc nhật ký: chưa làm.
 - Log ứng dụng dạng JSON, có `request_id`.
 - `/ready` kiểm tra kết nối CSDL, kho file và độ trễ outbox (số sự kiện tồn > ngưỡng → `503`).
 
@@ -182,6 +194,7 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
 | `UPLOAD_DIR` | `./data/uploads` | Khi `local` |
 | `JWT_SECRET`, `JWT_ACCESS_TTL_MIN`, `JWT_REFRESH_TTL_DAYS` | – / 15 / 7 | `JWT_SECRET` bắt buộc, không có mặc định, tối thiểu 32 ký tự; thiếu thì ứng dụng không khởi động |
 | `AUTH_MAX_FAILED_LOGINS`, `AUTH_LOCKOUT_MINUTES` | 5 / 15 | Khóa tạm sau N lần đăng nhập sai liên tiếp (§3) |
+| `AUTH_LOGIN_RATE_LIMIT_PER_IP`, `AUTH_LOGIN_RATE_LIMIT_PER_USERNAME`, `AUTH_LOGIN_RATE_WINDOW_SEC` | 20 / 10 / 60 | Giới hạn tần suất đăng nhập (§3) |
 | `ENABLED_FLOWS` | `ops,control,learning,assessment` | Bật/tắt module (N6); giá trị ngoài 4 mã này bị từ chối khi khởi động |
 | `EVENT_DISPATCH_INTERVAL_SEC` | `2` | Chu kỳ phát sự kiện outbox |
 | `FILE_LIMITS_JSON` | (§2.6) | Ghi đè danh sách loại và dung lượng file |

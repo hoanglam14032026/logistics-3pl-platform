@@ -217,3 +217,15 @@ Phiên bản `1.1.0` (07/11/2026). Trạng thái trước khi chỉnh sửa (cod
 | – | 66 test mới (49 `md_parties`, 17 tài khoản customer – gồm RBAC 9 vai trò, ràng buộc CSDL, tạo/lưu trữ song song); tổng 226 | `07` §4.1 |
 
 Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` mời, khóa tài khoản cùng khách hàng (cổng khách hàng – Giai đoạn 2); 2FA bắt buộc cho `customer` (`06` §3, Giai đoạn 2); nhập `md_parties` từ `business_data_records` v1 (`07` §3).
+
+### 10.17. Mã nguồn – Giai đoạn 2: nhật ký thao tác, giới hạn tần suất, customer admin (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `06` §5: `sys_audit_logs` (danh sách trường) | `app/shared/audit/`: ghi cùng giao dịch; trường cho phép; `before`/`after` chỉ trường thay đổi; trigger chặn `UPDATE`/`DELETE`; `ip`, `request_id` từ ngữ cảnh request (`app/core/request_context.py`, middleware). Ghi: party (tạo/sửa/lưu trữ/khôi phục), tài khoản (tạo/sửa/khóa/mở/đặt lại – đổi mật khẩu/tự khóa tạm/mở khóa), đăng nhập thất bại (kèm lý do), vượt giới hạn tần suất, dùng lại refresh token | `06` §5 |
+| `06` §3: "giới hạn tần suất gọi API" (không nêu ngưỡng, cách làm) | `app/core/rate_limit.py`: bộ đếm cửa sổ cố định trong PostgreSQL; `POST /api/v2/auth/login` 20/IP, 10/tên đăng nhập mỗi 60 giây (cấu hình được); `429 RATE_LIMITED` + `Retry-After`; kiểm tra trước khi băm mật khẩu | `06` §3; ngưỡng **CẦN XÁC NHẬN** |
+| `06` §2.2: danh mục mã lỗi không có mã cho `429` | Thêm `RATE_LIMITED` | Giới hạn tần suất cần mã lỗi riêng |
+| `02` §9.2: `is_customer_admin` "được mời, khóa tài khoản khác của cùng khách hàng" | `/api/v2/portal/users`: xem, mời (vai trò luôn `customer`, không cấp `is_customer_admin`), `:deactivate` (tài khoản khác cùng khách hàng); ngoài phạm vi → `404`; thu hồi cờ `is_customer_admin` có hiệu lực ngay | `02` §9.2; `06` §4; chi tiết **CẦN XÁC NHẬN** (khóa được customer admin khác; mở lại chỉ `admin`; mời qua email chờ SMTP) |
+| `identity.service`: vô hiệu hóa tài khoản chỉ qua PATCH của admin | `deactivate_user()` dùng chung (admin, customer admin): thu hồi phiên + nhật ký | Một đường xử lý |
+| – | Migration `0004`: `sys_audit_logs` (+ trigger, function viết tay – autogenerate không sinh trigger), `sys_rate_limit_counters` | `07` §6 điểm 3 |
+| – | 39 test mới (9 nhật ký – gồm không lộ mật khẩu/hash/token, bất biến, lỗi không để lại dòng; 5 bộ đếm – gồm 40 lượt song song đếm đúng; 4 giới hạn đăng nhập theo IP/tên đăng nhập; 21 customer admin – gồm không chạm khách hàng khác, tài khoản nội bộ); tổng 265 | `07` §4.1 |

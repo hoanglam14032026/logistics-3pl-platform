@@ -24,6 +24,7 @@ from app.legacy_v1.api import business_guide
 from app.legacy_v1.api.business_data import records as business_data_records
 from app.legacy_v1.api.training import documents as training_documents
 from app.legacy_v1.api.video import resources as video_resources
+from app.shared.identity.portal_router import router as portal_users_router
 from app.shared.identity.router import auth_router, users_router
 from app.shared.masterdata.router import router as parties_router
 
@@ -100,5 +101,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(users_router)
     app.include_router(parties_router)
+    app.include_router(portal_users_router)
     _include_legacy_v1_routers(app)
     return app

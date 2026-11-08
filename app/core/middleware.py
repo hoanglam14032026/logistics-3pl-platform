@@ -10,6 +10,8 @@ import uuid
 from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.request_context import client_ip_var, request_id_var
+
 REQUEST_ID_HEADER = "X-Request-ID"
 # Chỉ nhận request_id từ client nếu đúng dạng an toàn (chống chèn ký tự lạ vào log).
 _VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -32,6 +34,9 @@ class RequestIDMiddleware:
         request_id = incoming if _VALID_REQUEST_ID.match(incoming) else uuid.uuid4().hex
         # scope["state"] là nơi Starlette lưu request.state – handler lỗi đọc lại được.
         scope.setdefault("state", {})["request_id"] = request_id
+        client = scope.get("client")
+        request_token = request_id_var.set(request_id)
+        ip_token = client_ip_var.set(client[0] if client else None)
 
         async def send_with_request_id(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -40,4 +45,8 @@ class RequestIDMiddleware:
                 message["headers"] = headers
             await send(message)
 
-        await self.app(scope, receive, send_with_request_id)
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        finally:
+            request_id_var.reset(request_token)
+            client_ip_var.reset(ip_token)

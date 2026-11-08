@@ -16,6 +16,7 @@ from app.core.errors import AppError, ErrorCode
 from app.core.pagination import PageParams, like_pattern, order_by_clause, paginate
 from app.core.rbac import Role
 from app.core.timeutil import now_utc
+from app.shared.audit import service as audit
 from app.shared.identity import service as identity_service
 from app.shared.identity.models import SysUser
 from app.shared.identity.schemas import CustomerAccountCreate, UserCreate
@@ -28,6 +29,24 @@ _SORTABLE = {
     "party_type": MdParty.party_type,
     "tax_code": MdParty.tax_code,
 }
+
+
+PARTY_AUDIT_FIELDS = (
+    "party_type",
+    "name",
+    "tax_code",
+    "country_code",
+    "address",
+    "contact_name",
+    "phone",
+    "email",
+    "note",
+    "status",
+)
+
+
+def _audit(db: Session, action: str, party: MdParty, actor_id: int, before=None, after=None) -> None:
+    audit.record(db, action, "party", party.id, actor_id, before, after)
 
 
 def _not_found() -> AppError:
@@ -97,6 +116,12 @@ def create_party(db: Session, data: PartyCreate, actor_id: int) -> MdParty:
         updated_by=actor_id,
     )
     db.add(party)
+    try:
+        db.flush()  # lấy id cho nhật ký; trùng mã số thuế báo lỗi tại đây
+    except IntegrityError as exc:
+        db.rollback()
+        raise _duplicate(exc) from exc
+    _audit(db, "party.create", party, actor_id, after=audit.snapshot(party, PARTY_AUDIT_FIELDS))
     _commit(db)
     return party
 
@@ -126,10 +151,14 @@ def update_party(db: Session, party_id: int, data: PartyUpdate, actor_id: int, e
             str(exc),
             [{"field": "body.tax_code", "issue": "invalid", "message": str(exc)}],
         ) from exc
+    before = audit.snapshot(party, PARTY_AUDIT_FIELDS)
     for key, value in changes.items():
         setattr(party, key, value)
     party.updated_by = actor_id
     party.updated_at = now_utc()
+    old, new = audit.changed(before, audit.snapshot(party, PARTY_AUDIT_FIELDS))
+    if new:
+        _audit(db, "party.update", party, actor_id, old, new)
     _commit(db)
     db.refresh(party)
     return party
@@ -147,6 +176,7 @@ def archive_party(db: Session, party_id: int, actor_id: int, expected_version: i
     party.archived_by = actor_id
     party.updated_by = actor_id
     party.updated_at = now_utc()
+    _audit(db, "party.archive", party, actor_id, {"status": "active"}, {"status": "archived"})
     _commit(db)
     db.refresh(party)
     return party
@@ -162,6 +192,7 @@ def restore_party(db: Session, party_id: int, actor_id: int, expected_version: i
     party.archived_by = None
     party.updated_by = actor_id
     party.updated_at = now_utc()
+    _audit(db, "party.restore", party, actor_id, {"status": "archived"}, {"status": "active"})
     _commit(db)
     db.refresh(party)
     return party

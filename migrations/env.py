@@ -10,10 +10,12 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine, pool
 
+from app.core import rate_limit as _rate_limit_models  # noqa: F401
 from app.core.config import get_settings
 from app.core.db import Base
 from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào LegacyBase.metadata)
 from app.legacy_v1.database import Base as LegacyBase
+from app.shared.audit import models as _audit_models  # noqa: F401
 from app.shared.identity import models as _identity_models  # noqa: F401  (đăng ký model v2 vào Base.metadata)
 from app.shared.masterdata import models as _masterdata_models  # noqa: F401
 

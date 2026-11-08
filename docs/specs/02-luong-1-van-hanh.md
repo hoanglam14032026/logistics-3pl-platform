@@ -573,6 +573,7 @@ Kênh để khách hàng (chủ hàng) **tự gửi** yêu cầu dịch vụ, ch
 ### 9.2. Tài khoản khách hàng
 
 - Vai trò `customer`, mỗi tài khoản gắn **một** `md_parties.id` (khách hàng). Một khách hàng có thể có nhiều tài khoản; tài khoản có cờ `is_customer_admin` được mời, khóa tài khoản khác của cùng khách hàng.
+  **Đã làm (Giai đoạn 2, 08/11/2026)**: `GET/POST /api/v2/portal/users` (xem, mời tài khoản cùng khách hàng – vai trò luôn `customer`, không cấp được `is_customer_admin`), `POST /api/v2/portal/users/{id}:deactivate` (khóa tài khoản **khác** cùng khách hàng, thu hồi mọi phiên). Tài khoản khách hàng khác, nội bộ → `404`. Mời = tạo tài khoản kèm mật khẩu ban đầu; mời qua email (đường dẫn đặt mật khẩu) làm khi có SMTP. Customer admin khóa được cả customer admin khác cùng khách hàng; mở lại tài khoản: chỉ `admin`. **CẦN XÁC NHẬN**.
 - Tài khoản đầu tiên do `manager`/`admin` tạo khi kích hoạt hợp đồng có `portal_enabled = true`.
 - Đăng nhập bắt buộc xác thực 2 lớp (OTP qua email hoặc ứng dụng xác thực – `06` §3).
 - **BR-111**: Khách hàng chỉ thấy hợp đồng, lô, chứng từ, khoản phí, bảng quyết toán của chính khách hàng mình; không thấy nhật ký nội bộ, nhận xét điểm kiểm soát, kết quả kiểm tra tự động chưa được nhân viên gửi, dữ liệu `training` (trừ BR-107).

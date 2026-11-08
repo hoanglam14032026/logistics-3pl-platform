@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # Khóa tạm tài khoản sau N lần đăng nhập sai liên tiếp (06 §3, bước 0.6)
     auth_max_failed_logins: int = Field(default=5, gt=0)
     auth_lockout_minutes: int = Field(default=15, gt=0)
+    # Giới hạn tần suất POST /api/v2/auth/login: số lần gọi tối đa mỗi cửa sổ, theo IP và theo tên đăng nhập
+    auth_login_rate_limit_per_ip: int = Field(default=20, gt=0)
+    auth_login_rate_limit_per_username: int = Field(default=10, gt=0)
+    auth_login_rate_window_sec: int = Field(default=60, gt=0)
 
     # Module (N6)
     enabled_flows: Annotated[frozenset[Flow], NoDecode] = frozenset(ALL_FLOWS)
