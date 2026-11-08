@@ -153,3 +153,16 @@ Phiên bản `1.1.0` (07/11/2026). Trạng thái trước khi chỉnh sửa (cod
 | Phụ thuộc dev chỉ chốt `==` trong `pyproject.toml`, phụ thuộc bắc cầu không khóa; cài `pip install -r requirements-lock.txt --group dev` | Thêm `requirements-dev-lock.txt` (pip freeze phụ thuộc chạy + nhóm `dev` trên venv sạch); máy dev cài từ file này | Khóa đủ cả môi trường dev – quyết định của chủ dự án |
 | – | Giữ `POSTGRES_PASSWORD` mặc định `logistics` trong `docker-compose.yml`, chỉ dùng cho máy dev, không dùng cho môi trường thật | Quyết định của chủ dự án |
 
+### 10.13. Mã nguồn – Giai đoạn 0, bước 0.2: cấu hình (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `app/legacy_v1/core/config.py` đọc `os.getenv` (`DATABASE_URL`, `UPLOAD_DIR`) | `app/core/config.py`: `Settings` (pydantic-settings 2.16.2) đủ biến `06` §6, kiểm tra kiểu/giá trị khi khởi động, `get_settings()` có cache; mã v1 lấy `DATABASE_URL`, `UPLOAD_DIR` từ đây | `07` §1; `06` §6 |
+| `JWT_SECRET` chưa được đọc | Bắt buộc, ≥ 32 ký tự, kiểu `SecretStr` (không lộ khi in/log); `docker-compose.yml` truyền `JWT_SECRET` từ `.env` vào dịch vụ `api`; thêm `.env.example`; `.dockerignore` loại `.env` khỏi image | `06` §6 |
+| `UPLOAD_DIR` mặc định `uploads`; Docker `/app/uploads`, `docker-compose.yml` gắn `./uploads:/app/uploads` | Mặc định `./data/uploads` theo `06` §6; Dockerfile `UPLOAD_DIR=/app/data/uploads`, `docker-compose.yml` gắn `./data/uploads:/app/data/uploads` | Thống nhất với đặc tả; volume khớp `UPLOAD_DIR` |
+| `06` §6: `SMTP_*` | `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`; thêm ghi chú cách đọc biến (ưu tiên môi trường hơn `.env`, danh sách cách nhau bằng dấu phẩy) | Cụ thể hóa tên biến |
+| – | `tests/core/test_config.py`: 17 test đơn vị (mặc định, bắt buộc `JWT_SECRET`, giá trị sai bị từ chối, đọc `.env`) | `07` §4.1 |
+| `app/main.py` tạo `app = FastAPI(...)` ở cấp module, gọi `Base.metadata.create_all()` lúc import | `create_app()` (07 §1): CORS theo `CORS_ORIGINS`, middleware `X-Request-ID`, exception handler chung, `/health`, gắn router v1 bên trong hàm; lifespan kiểm tra kết nối CSDL, `create_all` bảng v1 (tạm, tới khi có Alembic – bước 0.3), đóng pool khi tắt. Chạy: `uvicorn app.main:create_app --factory` | `07` §1 |
+| Lỗi trả `{"detail": ...}` của FastAPI | `app/core/errors.py`: mọi lỗi 4xx/5xx (kể cả `/api/v1/*`, lỗi validation, lỗi không xử lý được) trả `{"error": {code, message, details, request_id}}`; `AppError` cho mã mới; lỗi 500 không lộ chi tiết, ghi log kèm `request_id` | `06` §2.2 |
+| – | `tests/core/test_create_app.py`: 12 test (`/health`, CORS, `X-Request-ID`, định dạng lỗi 404/422/409/500) | `07` §4.1 |
+

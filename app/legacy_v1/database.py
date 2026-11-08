@@ -2,7 +2,7 @@
 Cấu hình cơ sở dữ liệu cho ứng dụng 3PL Logistics Business Guide.
 
 Lưu ý: module này KHÔNG import app.legacy_v1.models để tránh import vòng tròn.
-Các model được import tại app/main.py trước khi gọi create_all().
+Các model được import tại app/main.py; create_all() chạy trong lifespan của create_app().
 """
 
 from sqlalchemy import create_engine

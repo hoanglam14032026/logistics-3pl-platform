@@ -162,12 +162,12 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
 | `TEST_DATABASE_URL` | `postgresql+psycopg://logistics:logistics@localhost:5432/logistics_3pl_test` | CSDL riêng cho test tích hợp; bộ test xóa/tạo lại bảng trên CSDL này |
 | `STORAGE_BACKEND` | `local` | `local` / `s3` |
 | `UPLOAD_DIR` | `./data/uploads` | Khi `local` |
-| `JWT_SECRET`, `JWT_ACCESS_TTL_MIN`, `JWT_REFRESH_TTL_DAYS` | – / 15 / 7 | `JWT_SECRET` bắt buộc, không có mặc định |
-| `ENABLED_FLOWS` | `ops,control,learning,assessment` | Bật/tắt module (N6) |
+| `JWT_SECRET`, `JWT_ACCESS_TTL_MIN`, `JWT_REFRESH_TTL_DAYS` | – / 15 / 7 | `JWT_SECRET` bắt buộc, không có mặc định, tối thiểu 32 ký tự; thiếu thì ứng dụng không khởi động |
+| `ENABLED_FLOWS` | `ops,control,learning,assessment` | Bật/tắt module (N6); giá trị ngoài 4 mã này bị từ chối khi khởi động |
 | `EVENT_DISPATCH_INTERVAL_SEC` | `2` | Chu kỳ phát sự kiện outbox |
 | `FILE_LIMITS_JSON` | (§2.6) | Ghi đè danh sách loại và dung lượng file |
 | `CORS_ORIGINS` | rỗng | Danh sách nguồn frontend được phép (gồm miền của cổng khách hàng) |
-| `SMTP_*` | – | Gửi thư mời phỏng vấn, OTP, thông báo cổng khách hàng |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | – / `587` / – / – / – | Gửi thư mời phỏng vấn, OTP, thông báo cổng khách hàng |
 | `MEDIA_SERVER` | `livekit` | Máy chủ media WebRTC tự triển khai: `livekit` / `jitsi` (`04` §3.3.1a) |
 | `MEDIA_SERVER_URL`, `MEDIA_SERVER_API_KEY`, `MEDIA_SERVER_API_SECRET` | – | Kết nối máy chủ media, ký token vào phòng; bắt buộc khi bật Quy trình 1 |
 | `TURN_URLS`, `TURN_SHARED_SECRET` | – | Cấp thông tin đăng nhập TURN theo phiên |
@@ -175,3 +175,5 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
 | `TRANSCRIPTION_ENGINE` | `faster_whisper` | Động cơ chuyển giọng nói thành văn bản chạy tại máy chủ đơn vị (`04` §3.3.1b) |
 | `TRANSCRIPTION_MODEL_PATH`, `TRANSCRIPTION_DEVICE` | – , `cuda` | Đường dẫn mô hình cục bộ; `cuda` / `cpu` |
 | `JOB_QUEUE_URL` | – | Hàng đợi tác vụ nền (xử lý media, tính KPI, phát sự kiện) |
+
+Đọc bằng `app/core/config.py` (pydantic-settings): biến môi trường ưu tiên hơn file `.env` (mẫu `.env.example`); không phân biệt hoa thường; biến danh sách (`ENABLED_FLOWS`, `CORS_ORIGINS`, `TURN_URLS`) viết cách nhau bằng dấu phẩy; `FILE_LIMITS_JSON` là chuỗi JSON. Biến khác trong `.env` (vd. `POSTGRES_PASSWORD` của docker-compose) được bỏ qua.

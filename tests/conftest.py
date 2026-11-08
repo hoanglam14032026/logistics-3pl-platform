@@ -27,11 +27,13 @@ if not _db_name.endswith("_test"):
 _TMP = Path(tempfile.mkdtemp(prefix="l3pl_test_"))
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
+# Khóa ký JWT chỉ dùng cho test (06 §6: JWT_SECRET bắt buộc).
+os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-" + "x" * 32)
 
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.legacy_v1.database import Base, engine  # noqa: E402
-from app.main import app  # noqa: E402
+from app.main import create_app  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -45,7 +47,7 @@ def _cleanup_tmp():
 def client():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    with TestClient(app) as c:
+    with TestClient(create_app()) as c:
         yield c
 
 

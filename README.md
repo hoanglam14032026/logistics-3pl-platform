@@ -44,12 +44,13 @@ cd logistics-3pl-platform
 docker compose up -d db                                  # PostgreSQL 17: logistics_3pl_dev, logistics_3pl_test
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev-lock.txt                # phụ thuộc chạy + công cụ dev (đều đã khóa)
-uvicorn app.main:app --reload                            # http://127.0.0.1:8000/docs (CSDL logistics_3pl_dev)
-pytest                                                   # 18 test trên logistics_3pl_test
+uvicorn app.main:create_app --factory --reload           # http://127.0.0.1:8000/docs (CSDL logistics_3pl_dev)
+cp .env.example .env                                     # rồi điền JWT_SECRET
+pytest                                                   # 47 test: 18 tích hợp trên logistics_3pl_test + 29 đơn vị (tests/core)
 ruff check . && ruff format --check .
 ```
 
-Toàn bộ bằng Docker: `docker compose up -d --build` (dữ liệu CSDL trong volume `pgdata`, file tải lên tại `./uploads/`).
+Toàn bộ bằng Docker: `docker compose up -d --build` (dữ liệu CSDL trong volume `pgdata`, file tải lên tại `./data/uploads/`).
 
 | File | Vai trò |
 |---|---|
@@ -58,7 +59,7 @@ Toàn bộ bằng Docker: `docker compose up -d --build` (dữ liệu CSDL trong
 | `requirements-dev-lock.txt` | `pip freeze` phụ thuộc chạy + nhóm `dev`; máy dev cài từ file này. Đổi phiên bản trong `pyproject.toml` thì tạo lại **cả hai** file lock |
 | `deploy/postgres/init/` | Script tạo CSDL test khi khởi tạo volume lần đầu |
 
-Biến môi trường: `DATABASE_URL` (mặc định CSDL dev ở trên), `TEST_DATABASE_URL` (tên CSDL bắt buộc kết thúc `_test`), `UPLOAD_DIR`, `POSTGRES_PASSWORD`, `POSTGRES_PORT`. Mã v1.1.0 nằm tại `app/legacy_v1/`, API `/api/v1/*` đánh dấu deprecated; mô tả chi tiết: [`90-hien-trang-v1.1.md`](docs/specs/90-hien-trang-v1.1.md).
+Cấu hình: sao chép `.env.example` thành `.env` và đặt **`JWT_SECRET`** (bắt buộc, ≥ 32 ký tự; thiếu thì ứng dụng không khởi động). Biến khác: `DATABASE_URL` (mặc định CSDL dev ở trên), `TEST_DATABASE_URL` (tên CSDL bắt buộc kết thúc `_test`), `UPLOAD_DIR` (mặc định `./data/uploads`), `POSTGRES_PASSWORD` (mặc định `logistics` – chỉ cho máy dev), `POSTGRES_PORT`; danh sách đầy đủ: [`06`](docs/specs/06-quy-uoc-api-bao-mat.md) §6, `app/core/config.py`. Mã v1.1.0 nằm tại `app/legacy_v1/`, API `/api/v1/*` đánh dấu deprecated; mô tả chi tiết: [`90-hien-trang-v1.1.md`](docs/specs/90-hien-trang-v1.1.md).
 
 ## 5. Giấy phép
 
