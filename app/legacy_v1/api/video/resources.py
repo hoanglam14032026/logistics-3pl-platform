@@ -7,11 +7,11 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.core.crud import apply_update
-from app.core.storage import delete_file, save_upload
-from app.database import get_db
-from app.models.video_resource import VideoResource
-from app.schemas.video_resource import (
+from app.legacy_v1.core.crud import apply_update
+from app.legacy_v1.core.storage import delete_file, save_upload
+from app.legacy_v1.database import get_db
+from app.legacy_v1.models.video_resource import VideoResource
+from app.legacy_v1.schemas.video_resource import (
     VideoResource as VideoResourceSchema,
     VideoResourceUpdate,
 )

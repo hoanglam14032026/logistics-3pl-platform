@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import UploadFile
 
-from app.core.config import UPLOAD_DIR
+from app.legacy_v1.core.config import UPLOAD_DIR
 
 
 async def save_upload(file: UploadFile, subdir: str) -> str:

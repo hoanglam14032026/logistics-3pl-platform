@@ -1,3 +1,1 @@
-"""
-FastAPI application for 3PL Logistics Business Guide
-"""
+"""Nền tảng vận hành và đào tạo nghiệp vụ Logistics 3PL."""

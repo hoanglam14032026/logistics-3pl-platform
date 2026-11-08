@@ -3,7 +3,7 @@ Model CSDL: Hướng dẫn nghiệp vụ (bảng business_guides).
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
-from app.database import Base
+from app.legacy_v1.database import Base
 from datetime import datetime
 
 class BusinessGuide(Base):

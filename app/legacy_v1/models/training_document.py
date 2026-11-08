@@ -1,20 +1,19 @@
 """
-Model CSDL: Tài nguyên video (bảng video_resources).
+Model CSDL: Tài liệu đào tạo (bảng training_documents).
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
-from app.database import Base
+from app.legacy_v1.database import Base
 from datetime import datetime
 
-class VideoResource(Base):
-    __tablename__ = "video_resources"
+class TrainingDocument(Base):
+    __tablename__ = "training_documents"
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200), nullable=False)
     description = Column(Text)
-    video_path = Column(String(500), nullable=False)
-    thumbnail_path = Column(String(500))
-    duration = Column(Integer)  # seconds
+    file_path = Column(String(500), nullable=False)
+    file_type = Column(String(50))
     category = Column(String(100))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

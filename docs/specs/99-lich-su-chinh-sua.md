@@ -134,3 +134,13 @@ Phiên bản `1.1.0` (07/11/2026). Trạng thái trước khi chỉnh sửa (cod
 | `07` §2, `06` §6: SQLite cho dev/test, PostgreSQL môi trường thật – CẦN XÁC NHẬN | PostgreSQL 17 cho dev/test/prod (`logistics_3pl_dev`, `logistics_3pl_test`) qua `docker-compose`; SQLite chỉ cho test đơn vị không đụng CSDL; thêm biến `TEST_DATABASE_URL` | Quyết định của chủ dự án (điểm 3) |
 | `06` §3: xác thực 2 lớp ngay từ đầu | Hoãn tới cổng khách hàng; bước 0.6 làm JWT + refresh + RBAC + khóa tạm; có sẵn cột `totp_secret`, `is_2fa_enabled` | Quyết định của chủ dự án (điểm 4) |
 | `07` §1: tên repo `fastapi-todo` – CẦN XÁC NHẬN | `logistics-3pl-platform`; xóa `_to_delete/` (đã lưu trong commit `3600a61`) và `venv/` | Quyết định của chủ dự án (điểm 5) |
+
+### 10.11. Mã nguồn – Giai đoạn 0, bước 0.0–0.1 (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `requirements.txt`, `requirements-dev.txt`, `pytest.ini` | `pyproject.toml` (chốt cứng `==`, nhóm `dev`, cấu hình pytest, ruff), `requirements-lock.txt`, `.python-version` | `07` §1, §2; mục 10.10 |
+| Mã v1 tại `app/api/v1`, `app/core`, `app/database`, `app/models`, `app/schemas` | Chuyển nguyên vào `app/legacy_v1/` (giữ lịch sử git); `/api/v1/*` đánh dấu `deprecated` trên OpenAPI; ruff bỏ qua `app/legacy_v1` | `07` §1, §3.3; `06` §1 |
+| CSDL mặc định SQLite `./business_guide.db`; test trên file SQLite tạm | Mặc định PostgreSQL `logistics_3pl_dev`; test trên `logistics_3pl_test` (`TEST_DATABASE_URL`, chặn chạy nếu tên CSDL không kết thúc `_test`); dọn thư mục tạm sau phiên test | Mục 10.10 (điểm 3) |
+| `docker-compose.yml` chỉ có dịch vụ `api`, dữ liệu SQLite trong `./data/` | Thêm dịch vụ `db` (`postgres:17`, healthcheck, volume `pgdata`, script tạo CSDL test); `api` chờ `db` sẵn sàng; Dockerfile `python:3.12-slim`, cài từ `requirements-lock.txt` | Mục 10.10; đã chạy thử `docker compose up` |
+| `status.HTTP_422_UNPROCESSABLE_ENTITY` | `status.HTTP_422_UNPROCESSABLE_CONTENT` | Hằng số cũ deprecated trong Starlette 1.x |

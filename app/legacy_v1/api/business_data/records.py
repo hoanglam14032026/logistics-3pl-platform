@@ -7,10 +7,10 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.crud import apply_update
-from app.database import get_db
-from app.models.business_data_record import BusinessDataRecord
-from app.schemas.business_data_record import (
+from app.legacy_v1.core.crud import apply_update
+from app.legacy_v1.database import get_db
+from app.legacy_v1.models.business_data_record import BusinessDataRecord
+from app.legacy_v1.schemas.business_data_record import (
     BusinessDataRecord as BusinessDataRecordSchema,
     BusinessDataRecordCreate,
     BusinessDataRecordUpdate,

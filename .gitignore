@@ -10,3 +10,5 @@ venv/
 *.db
 uploads/
 data/
+.ruff_cache/
+.coverage

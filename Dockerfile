@@ -1,19 +1,18 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DATABASE_URL=sqlite:////app/data/business_guide.db \
     UPLOAD_DIR=/app/uploads
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-lock.txt .
+RUN pip install --no-cache-dir -r requirements-lock.txt
 
 COPY app ./app
 
-RUN mkdir -p /app/data /app/uploads
-VOLUME ["/app/data", "/app/uploads"]
+RUN mkdir -p /app/uploads
+VOLUME ["/app/uploads"]
 
 EXPOSE 8000
 

@@ -26,7 +26,7 @@ def test_filters(client):
     client.post(URL, json={**PAYLOAD, "category": "transport"})
     client.post(URL, json={**PAYLOAD, "is_active": False})
 
-    assert len(client.get(URL).json()) == 2                      # mặc định is_active=true
+    assert len(client.get(URL).json()) == 2  # mặc định is_active=true
     assert len(client.get(URL, params={"category": "warehouse"}).json()) == 1
     assert len(client.get(URL, params={"is_active": False}).json()) == 1
 
