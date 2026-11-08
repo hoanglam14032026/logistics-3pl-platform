@@ -229,3 +229,16 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | `identity.service`: vô hiệu hóa tài khoản chỉ qua PATCH của admin | `deactivate_user()` dùng chung (admin, customer admin): thu hồi phiên + nhật ký | Một đường xử lý |
 | – | Migration `0004`: `sys_audit_logs` (+ trigger, function viết tay – autogenerate không sinh trigger), `sys_rate_limit_counters` | `07` §6 điểm 3 |
 | – | 39 test mới (9 nhật ký – gồm không lộ mật khẩu/hash/token, bất biến, lỗi không để lại dòng; 5 bộ đếm – gồm 40 lượt song song đếm đúng; 4 giới hạn đăng nhập theo IP/tên đăng nhập; 21 customer admin – gồm không chạm khách hàng khác, tài khoản nội bộ); tổng 265 | `07` §4.1 |
+
+### 10.18. Mã nguồn – Giai đoạn 3: hợp đồng dịch vụ, `portal_enabled`, API đọc nhật ký (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `02` §3.1, §6.1: `ops_service_contracts` (đầy đủ trường, máy trạng thái) | `app/flows/operations/` (Luồng 1 – module đầu tiên): phần lõi hợp đồng, `contract_no` `HD-yyyy-nnnn` (`app/core/numbering.py`, `sys_doc_sequences`); `draft` → `active` ⇄ `suspended` → `expired`; API `/api/v2/ops/service-contracts` (danh sách, tạo, xem, PATCH nháp với `If-Match`, `:activate`, `:suspend`, `:resume`); gắn router khi `ops` ∈ `ENABLED_FLOWS` | `02` §3.1, §6.1, §8; phần chưa làm ghi tại `02` §3.1, §6.1 |
+| `02` §6.1: kích hoạt cần biểu giá, `contract_file_id` | Tạm thời: `signed_date`, `valid_to ≥ hôm nay`, khách hàng đang hoạt động | Chưa có `02` §3.8, §3.11 – **CẦN XÁC NHẬN** |
+| `06` §4: `manager` tạo tài khoản `customer` "cho khách hàng của hợp đồng" (Giai đoạn 1: chưa kiểm hợp đồng) | Cần hợp đồng `active`, đang trong hạn, `portal_enabled` – áp dụng cho `manager` và customer admin; `admin` không bị giới hạn | `06` §4; `02` §9.2 |
+| `app/shared/masterdata` không biết tới hợp đồng | Điểm móc `CUSTOMER_ACCOUNT_GUARDS`, `ARCHIVE_GUARDS`, `TYPE_CHANGE_GUARDS`; Luồng 1 đăng ký trong `create_app()` – `shared` không import `flows` | `01` §3 (N4) |
+| `06` §5: chưa có API đọc nhật ký | `GET /api/v2/audit-logs`, `/{id}` (`admin`; lọc theo hành động/tiền tố, đối tượng, người thao tác, `request_id`, khoảng thời gian) | Yêu cầu Giai đoạn 3 |
+| – | `app/core/timeutil.py`: `today_vn()` (UTC+7 cố định – không phụ thuộc tzdata) | Ngày hiệu lực theo giờ Việt Nam (`06` §2.4) |
+| – | Migration `0005`: `ops_service_contracts`, `sys_doc_sequences` | `07` §6 điểm 3 |
+| – | 77 test mới (37 hợp đồng – gồm RBAC 8 vai trò, 20 hợp đồng tạo song song không trùng số, tự hết hạn; 18 điều kiện cổng – gồm tạm dừng hợp đồng song song với tạo tài khoản; 22 API nhật ký); 10 test cũ cập nhật (tạo tài khoản qua manager/customer admin giờ cần hợp đồng); tổng 342 | `07` §4.1 |

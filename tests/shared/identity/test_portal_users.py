@@ -33,9 +33,11 @@ def _customer(party_id: int, username: str, is_admin: bool = False, **fields):
 
 
 @pytest.fixture()
-def world(client, make_party, make_user, auth_headers):
-    """Hai khách hàng A, B; mỗi bên một customer admin + một tài khoản thường; một nhân viên nội bộ."""
+def world(client, make_party, make_contract, make_user, auth_headers):
+    """Hai khách hàng A, B (có hợp đồng dùng cổng); mỗi bên một customer admin + một tài khoản thường; một nhân viên."""
     a, b = make_party("Khách A", tax_code="0100000001"), make_party("Khách B", tax_code="0100000002")
+    make_contract(a.id)
+    make_contract(b.id)
     users = {
         "a_admin": _customer(a.id, "a.admin", True),
         "a_user": _customer(a.id, "a.user"),

@@ -13,6 +13,7 @@
 /api/v2/md/...           Danh mục dùng chung (gồm bộ quy tắc, ma trận chứng từ); /api/v2/md/parties (khách hàng, đối tác)
 /api/v2/auth/...         Đăng nhập, làm mới token, đăng xuất, đổi mật khẩu, người dùng hiện tại
 /api/v2/users/...        Quản lý người dùng, vai trò (admin – §4)
+/api/v2/audit-logs       Tra cứu nhật ký thao tác (admin – §5)
 /api/v2/files/{file_id}  Tải file (kiểm quyền theo luồng sở hữu)
 /health, /ready          Kiểm tra sức khỏe (không cần đăng nhập)
 ```
@@ -180,7 +181,10 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
   cho tài khoản CSDL của ứng dụng chỉ `INSERT`, `SELECT` trên bảng). Hành động: `party.create`/`update`/`archive`/`restore`;
   `user.create`/`update`/`deactivate`/`activate`/`password_reset`/`password_change`/`lock` (tự động, `actor_id` NULL)/`unlock`;
   `auth.login_failed` (`after.reason`: `unknown_user`, `invalid_password`, `locked`, `disabled`), `auth.rate_limited`
-  (lần đầu vượt ngưỡng mỗi cửa sổ), `auth.refresh_reuse_detected`. API đọc nhật ký: chưa làm.
+  (lần đầu vượt ngưỡng mỗi cửa sổ), `auth.refresh_reuse_detected`; `contract.create`/`update`/`activate`/`suspend`/`resume`/
+  `expire` (Giai đoạn 3). **API đọc (Giai đoạn 3)**: `GET /api/v2/audit-logs` (`admin`; §2.3 – lọc `action` khớp đúng hoặc
+  tiền tố `party.`, `entity_type` + `entity_id`, `actor_id`, `request_id`, `from`/`to` ISO 8601 có múi giờ; mặc định
+  `-at`), `GET /api/v2/audit-logs/{id}`; không có API sửa/xóa.
 - Log ứng dụng dạng JSON, có `request_id`.
 - `/ready` kiểm tra kết nối CSDL, kho file và độ trễ outbox (số sự kiện tồn > ngưỡng → `503`).
 

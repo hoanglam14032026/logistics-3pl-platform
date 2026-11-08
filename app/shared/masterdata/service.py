@@ -8,6 +8,8 @@ Danh mục khách hàng, đối tác (01 §4; 06 §2.3–2.5, §4) và tài kho�
 - Không đổi `party_type` khỏi `customer` khi đã có tài khoản gắn vào.
 """
 
+from collections.abc import Callable
+
 from sqlalchemy import exists, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -29,6 +31,29 @@ _SORTABLE = {
     "party_type": MdParty.party_type,
     "tax_code": MdParty.tax_code,
 }
+
+
+# --- Điểm móc cho luồng nghiệp vụ ----------------------------------------------------------------------------
+# `shared` không import `flows` (01 §3, N4). Luồng sở hữu dữ liệu liên quan tới party (vd. hợp đồng – Luồng 1) đăng ký
+# hàm kiểm tra ở đây; hàm trả thông báo lỗi (→ 409) hoặc None nếu cho phép.
+PartyGuard = Callable[[Session, MdParty], str | None]
+ARCHIVE_GUARDS: list[PartyGuard] = []  # trước khi lưu trữ party
+TYPE_CHANGE_GUARDS: list[PartyGuard] = []  # trước khi đổi party_type khỏi customer
+CUSTOMER_ACCOUNT_GUARDS: list[PartyGuard] = []  # trước khi manager/customer admin tạo tài khoản customer
+
+
+def _run_guards(db: Session, guards: list[PartyGuard], party: MdParty, status_code: int = 409) -> None:
+    for guard in guards:
+        message = guard(db, party)
+        if message:
+            if status_code == 409:
+                raise _conflict(message)
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                422,
+                message,
+                [{"field": "path.party_id", "issue": "not_allowed", "message": message}],
+            )
 
 
 PARTY_AUDIT_FIELDS = (
@@ -140,8 +165,10 @@ def update_party(db: Session, party_id: int, data: PartyUpdate, actor_id: int, e
         raise _conflict("Khách hàng/đối tác đã lưu trữ; khôi phục trước khi sửa")
     changes = data.model_dump(mode="json", exclude_unset=True)
     new_type = changes.get("party_type", party.party_type)
-    if party.party_type == PartyType.CUSTOMER.value and new_type != party.party_type and _has_accounts(db, party.id):
-        raise _conflict("Khách hàng đã có tài khoản customer; không đổi được loại đối tác")
+    if party.party_type == PartyType.CUSTOMER.value and new_type != party.party_type:
+        if _has_accounts(db, party.id):
+            raise _conflict("Khách hàng đã có tài khoản customer; không đổi được loại đối tác")
+        _run_guards(db, TYPE_CHANGE_GUARDS, party)
     try:
         check_tax_code(changes.get("tax_code", party.tax_code), changes.get("country_code", party.country_code))
     except ValueError as exc:
@@ -171,6 +198,7 @@ def archive_party(db: Session, party_id: int, actor_id: int, expected_version: i
         raise _conflict("Khách hàng/đối tác đã lưu trữ")
     if _has_accounts(db, party.id, only_active=True):
         raise _conflict("Khách hàng còn tài khoản customer đang hoạt động; vô hiệu hóa tài khoản trước khi lưu trữ")
+    _run_guards(db, ARCHIVE_GUARDS, party)
     party.status = PartyStatus.ARCHIVED.value
     party.archived_at = now_utc()
     party.archived_by = actor_id
@@ -202,7 +230,12 @@ def restore_party(db: Session, party_id: int, actor_id: int, expected_version: i
 
 
 def create_customer_account(db: Session, party_id: int, data: CustomerAccountCreate, actor_id: int) -> SysUser:
-    get_party(db, party_id)  # 404 nếu không có; loại/trạng thái party kiểm tra trong identity_service (khóa dòng)
+    """Manager (06 §4) và customer admin (02 §9.2) tạo tài khoản customer. `admin` dùng `/api/v2/users` – không qua
+    `CUSTOMER_ACCOUNT_GUARDS` (06 §4: `admin` toàn quyền người dùng)."""
+    party = get_party(db, party_id)  # 404 nếu không có
+    # Loại, trạng thái party trước (thông báo đúng nguyên nhân); identity_service kiểm lại khi khóa dòng.
+    if party.party_type == PartyType.CUSTOMER.value and party.status == PartyStatus.ACTIVE.value:
+        _run_guards(db, CUSTOMER_ACCOUNT_GUARDS, party, status_code=422)
     user_data = UserCreate(
         username=data.username,
         email=data.email,

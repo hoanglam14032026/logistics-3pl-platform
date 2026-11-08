@@ -72,6 +72,8 @@ Khóa ngoại chỉ trong nội bộ Luồng 1 và tới `md_*`/`sys_*` (N3). Tr
 | `contract_file_id`, `signed_document_id` | → `sys_files`, → `ops_signed_documents` | B khi kích hoạt | Bản scan có chữ ký, đã xác nhận theo §3.11 |
 | `status` | ENUM | B | §6.1 |
 
+**Đã làm (Giai đoạn 3, 08/11/2026)** – `app/flows/operations/`: `contract_no` (`HD-yyyy-nnnn`, bộ đếm `sys_doc_sequences` theo năm giờ Việt Nam, không trùng/nhảy số khi tạo song song), `customer_contract_ref`, `mode` (cột có sẵn; API chỉ nhận `production` – `training` làm cùng lớp/người học), `customer_id` + bản chụp `customer_name`, `customer_tax_code` (khách hàng phải là `customer` đang hoạt động), `signed_date` (bắt buộc khi kích hoạt), `valid_from ≤ valid_to`, `liability_terms`, `payment_terms`, `advance_required`, `payment_due_days`, `portal_enabled` (mặc định `true`), `status`. Chưa làm: `service_scopes`, `sla_terms`, `rates`, `contract_version`, `contract_file_id`, `signed_document_id`, `learner_id`, `scenario_assignment_id`.
+
 ### 3.2. `ops_shipments` – Lô hàng
 
 | Trường | Kiểu | B/T | Ghi chú |
@@ -442,6 +444,8 @@ Quy định thực thi:
 | `active` | (tự động) | `expired` | Quá `valid_to`; không nhận yêu cầu dịch vụ, không tạo lô mới; lô đang thực hiện tiếp tục | Hệ thống |
 | `active`, `suspended`, `expired` | `:start-liquidation` | `liquidating` | Hết hiệu lực/hoàn thành phạm vi; hoặc chấm dứt trước hạn có phê duyệt `CONTRACT_TERMINATION` | `manager` |
 | `liquidating` | biên bản thanh lý đã ký | `closed` | §3.9.2, BR-110 | Hệ thống |
+**Đã làm (Giai đoạn 3)**: tạo → `draft` (`ops_staff`, `manager`); PATCH chỉ `draft`; `:activate` (`manager`) – điều kiện tạm thời: có `signed_date`, `valid_to ≥ hôm nay` (giờ Việt Nam), khách hàng đang hoạt động; **chưa** kiểm biểu giá, `contract_file_id` (chưa có §3.8, §3.11) – **CẦN XÁC NHẬN**; `:suspend` (bắt buộc lý do) / `:resume` (`manager`; tiếp tục khi đã quá `valid_to` → `expired`); `active` → `expired` tự động khi khởi động ứng dụng và trước mỗi thao tác đọc/ghi hợp đồng (tới khi có tác vụ nền). Chưa làm: `:start-liquidation`, `closed`, `draft_revision`. Mọi chuyển trạng thái ghi `sys_audit_logs` (`contract.*`). Chưa phát sự kiện EV-101 (chưa có outbox).
+
 ### 6.2. Lô hàng
 
 ```
@@ -573,6 +577,7 @@ Kênh để khách hàng (chủ hàng) **tự gửi** yêu cầu dịch vụ, ch
 ### 9.2. Tài khoản khách hàng
 
 - Vai trò `customer`, mỗi tài khoản gắn **một** `md_parties.id` (khách hàng). Một khách hàng có thể có nhiều tài khoản; tài khoản có cờ `is_customer_admin` được mời, khóa tài khoản khác của cùng khách hàng.
+  **Đã làm (Giai đoạn 3)**: `manager` (`POST /api/v2/md/parties/{id}/users`) và customer admin (`POST /api/v2/portal/users`) chỉ tạo được tài khoản khi khách hàng có ít nhất một hợp đồng `active`, `valid_from ≤ hôm nay ≤ valid_to`, `portal_enabled = true` (khác → `422`); `admin` (`/api/v2/users`) không bị giới hạn (`06` §4). Hợp đồng thỏa điều kiện được khóa `FOR SHARE` trong lúc tạo tài khoản – không tạm dừng chen giữa được. Tạm dừng/hết hạn hợp đồng **không** tự khóa tài khoản đã có – **CẦN XÁC NHẬN**. Khách hàng còn hợp đồng chưa `closed` không lưu trữ được; đã có hợp đồng thì không đổi `party_type`.
   **Đã làm (Giai đoạn 2, 08/11/2026)**: `GET/POST /api/v2/portal/users` (xem, mời tài khoản cùng khách hàng – vai trò luôn `customer`, không cấp được `is_customer_admin`), `POST /api/v2/portal/users/{id}:deactivate` (khóa tài khoản **khác** cùng khách hàng, thu hồi mọi phiên). Tài khoản khách hàng khác, nội bộ → `404`. Mời = tạo tài khoản kèm mật khẩu ban đầu; mời qua email (đường dẫn đặt mật khẩu) làm khi có SMTP. Customer admin khóa được cả customer admin khác cùng khách hàng; mở lại tài khoản: chỉ `admin`. **CẦN XÁC NHẬN**.
 - Tài khoản đầu tiên do `manager`/`admin` tạo khi kích hoạt hợp đồng có `portal_enabled = true`.
 - Đăng nhập bắt buộc xác thực 2 lớp (OTP qua email hoặc ứng dụng xác thực – `06` §3).

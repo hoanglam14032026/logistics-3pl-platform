@@ -119,6 +119,35 @@ def make_party(client):
 
 
 @pytest.fixture()
+def make_contract(client):
+    """make_contract(party_id) → hợp đồng `active`, `portal_enabled`, đang hiệu lực (mặc định: từ 30 ngày trước, 1 năm).
+
+    `status="draft"` để giữ bản nháp; tham số khác ghi đè trường của ContractCreate."""
+    from datetime import timedelta
+
+    from app.core.timeutil import today_vn
+    from app.flows.operations import service as ops_service
+    from app.flows.operations.schemas import ContractCreate
+
+    def _make(party_id: int, status: str = "active", **fields):
+        today = today_vn()
+        data = {
+            "customer_id": party_id,
+            "signed_date": today - timedelta(days=30),
+            "valid_from": today - timedelta(days=30),
+            "valid_to": today + timedelta(days=335),
+            **fields,
+        }
+        with SessionLocal() as db:
+            contract = ops_service.create_contract(db, ContractCreate(**data), actor_id=0)
+            if status == "active":
+                contract = ops_service.activate_contract(db, contract.id, actor_id=0, expected_version=None)
+            return contract
+
+    return _make
+
+
+@pytest.fixture()
 def login(client):
     """login("an") → phản hồi JSON của POST /api/v2/auth/login (gồm access_token, refresh_token)."""
 

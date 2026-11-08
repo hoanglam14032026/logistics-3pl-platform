@@ -32,8 +32,19 @@ def staff(client, make_user, auth_headers):
 
 
 @pytest.fixture()
-def customer_party(make_party):
-    return make_party("Công ty TNHH Minh An", tax_code="0101234567")
+def customer_party(make_party, make_contract):
+    """Khách hàng có hợp đồng đang hiệu lực, portal_enabled – manager tạo được tài khoản customer."""
+    party = make_party("Công ty TNHH Minh An", tax_code="0101234567")
+    make_contract(party.id)
+    return party
+
+
+def _admin_account(client, staff, party_id, username="minhan.lan"):
+    """Admin tạo tài khoản customer qua /api/v2/users (không cần hợp đồng – 06 §4: admin toàn quyền người dùng)."""
+    body = {**ACCOUNT, "username": username, "roles": ["customer"], "party_id": party_id}
+    r = client.post("/api/v2/users", json=body, headers=staff["admin"])
+    assert r.status_code == 201, r.text
+    return r.json()
 
 
 def _create_account(client, headers, pid, /, **override):
@@ -91,8 +102,9 @@ def test_party_must_be_active_customer(client, staff, make_party):
     _error(_create_account(client, staff["manager"], 99999), 404, "NOT_FOUND")
 
 
-def test_many_accounts_per_customer_and_listing(client, staff, customer_party, make_party):
+def test_many_accounts_per_customer_and_listing(client, staff, customer_party, make_party, make_contract):
     other = make_party("Khách khác", tax_code="0109999999")
+    make_contract(other.id)
     _create_account(client, staff["manager"], customer_party.id, is_customer_admin=True)
     _create_account(client, staff["manager"], customer_party.id, username="minhan.hung", email=None)
     _create_account(client, staff["manager"], other.id, username="khac.mot", email=None)
@@ -152,9 +164,10 @@ def test_patch_rules(client, staff, customer_party):
 # --- Lưu trữ, đổi loại khách hàng có tài khoản ---------------------------------------------------------------
 
 
-def test_cannot_archive_customer_with_active_accounts(client, staff, customer_party):
-    account = _create_account(client, staff["manager"], customer_party.id).json()
-    url = f"{PARTIES}/{customer_party.id}"
+def test_cannot_archive_customer_with_active_accounts(client, staff, make_party):
+    party = make_party("Không hợp đồng", tax_code="0107777777")  # chỉ đo quy tắc tài khoản, không vướng hợp đồng
+    account = _admin_account(client, staff, party.id)
+    url = f"{PARTIES}/{party.id}"
     _error(client.post(f"{url}:archive", headers=staff["manager"]), 409, "INVALID_STATE_TRANSITION")
     client.patch(f"/api/v2/users/{account['id']}", json={"is_active": False}, headers=staff["admin"])
     assert client.post(f"{url}:archive", headers=staff["manager"]).status_code == 200
@@ -175,15 +188,16 @@ def test_cannot_change_type_of_customer_with_accounts(client, staff, customer_pa
 # --- Ràng buộc ở CSDL --------------------------------------------------------------------------------------------
 
 
-def test_database_constraints(client, make_user, staff, customer_party):
+def test_database_constraints(client, make_user, make_party, staff):
     user = make_user("noibo")
     with SessionLocal() as db, pytest.raises(IntegrityError, match="ck_sys_users_customer_admin_has_party"):
         db.execute(update(SysUser).where(SysUser.id == user.id).values(is_customer_admin=True))
         db.commit()
-    _create_account(client, staff["manager"], customer_party.id)
+    party = make_party("Không hợp đồng", tax_code="0107777777")
+    _admin_account(client, staff, party.id)
     # Khóa ngoại RESTRICT: không xóa được khách hàng còn tài khoản
     with SessionLocal() as db, pytest.raises(IntegrityError, match="fk_sys_users_party_id_md_parties"):
-        db.execute(delete(MdParty).where(MdParty.id == customer_party.id))
+        db.execute(delete(MdParty).where(MdParty.id == party.id))
         db.commit()
 
 

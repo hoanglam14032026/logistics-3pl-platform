@@ -74,8 +74,9 @@ def test_failed_change_leaves_no_log(client, staff):
 # --- Tài khoản --------------------------------------------------------------------------------------------------
 
 
-def test_account_creation_and_deactivation_are_logged(client, staff, make_party):
+def test_account_creation_and_deactivation_are_logged(client, staff, make_party, make_contract):
     party = make_party()
+    make_contract(party.id)
     r = client.post(
         f"{PARTIES}/{party.id}/users",
         json={"username": "minhan.lan", "full_name": "Lan", "password": "MatKhau@2026", "is_customer_admin": True},
