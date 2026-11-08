@@ -242,3 +242,18 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | `app/core/timeutil.py`: `today_vn()` (UTC+7 cố định – không phụ thuộc tzdata) | Ngày hiệu lực theo giờ Việt Nam (`06` §2.4) |
 | – | Migration `0005`: `ops_service_contracts`, `sys_doc_sequences` | `07` §6 điểm 3 |
 | – | 77 test mới (37 hợp đồng – gồm RBAC 8 vai trò, 20 hợp đồng tạo song song không trùng số, tự hết hạn; 18 điều kiện cổng – gồm tạm dừng hợp đồng song song với tạo tài khoản; 22 API nhật ký); 10 test cũ cập nhật (tạo tài khoản qua manager/customer admin giờ cần hợp đồng); tổng 342 | `07` §4.1 |
+
+### 10.19. Mã nguồn – Giai đoạn 4: chi tiết hợp đồng, phiên bản, file, thanh lý/đóng, cổng xem hợp đồng (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `02` §3.1, §3.8: phạm vi, SLA, biểu giá, phiên bản (chưa làm ở Giai đoạn 3) | `ops_contract_scopes`, `ops_contract_sla`, `ops_contract_rates` theo phiên bản (tiền `NUMERIC(18,2)`, trả về dạng chuỗi); `ops_contract_versions` (bản chụp); PATCH nháp nhận mảng (thay toàn bộ – JSON Merge Patch); `GET …/versions`, `…/versions/{n}` | `02` §3.1, §3.8; `06` §2.1, §2.4 |
+| `02` §3.7: thay đổi khi hiệu lực qua phụ lục (đề nghị → đàm phán → phê duyệt Luồng 2 → ký → xác nhận) | Tạm thời `POST …/versions` (`manager`, kèm file `amendment`): `contract_version + 1`, mang sang bảng con không đổi, bản chụp, nhật ký `contract.new_version` | Chưa có Luồng 2 – **CẦN XÁC NHẬN** |
+| `02` §3.1: `contract_file_id` → `sys_files` | `ops_contract_attachments` (nhiều file/hợp đồng, `kind`, `customer_visible`) + `sys_files`; `POST/GET …/attachments` | Hợp đồng có nhiều loại file (hợp đồng, phụ lục, biên bản thanh lý) |
+| `06` §2.6: quy định file (chưa có mã) | `app/shared/files/` (`sys_files`, `LocalStorage`, nhận dạng magic bytes, `GET /api/v2/files/{id}` kiểm quyền theo chủ sở hữu) | `06` §2.6; `07` §1 |
+| `02` §6.1: kích hoạt cần biểu giá, `contract_file_id` (Giai đoạn 3: chưa kiểm) | Kiểm ≥ 1 phạm vi, có biểu giá trong phạm vi, có file `signed_contract` | `02` §6.1; xác nhận bản scan (§3.11) **CẦN XÁC NHẬN** |
+| `02` §3.9.2, §6.1: thanh lý → đóng (cần quyết toán, biên bản đã xác nhận) | `:start-liquidation`, `:close` (`manager`; đóng cần file `liquidation_minutes`); hợp đồng `closed` chỉ đọc – service + trigger CSDL trên hợp đồng và mọi bảng con | Yêu cầu Giai đoạn 4; BR-110, BR-116, phê duyệt `CONTRACT_TERMINATION` **CẦN XÁC NHẬN** |
+| PRT-01 (cổng – chưa làm) | `/api/v2/portal/contracts` (+ `/{id}`, `/versions`, `/attachments`): chỉ hợp đồng của khách hàng mình (BR-111), không có trường nội bộ | `02` §9.3, §9.4 |
+| `tests/conftest.py` xóa thư mục tạm trong fixture phiên | `atexit` – `pytest --co` không để lại thư mục `l3pl_test_*` | Phát hiện 26 thư mục tạm bị bỏ lại |
+| – | Migration `0006` (6 bảng, 4 cột, 2 function + 6 trigger viết tay) | `07` §6 điểm 3 |
+| – | 84 test mới (32 chi tiết/phiên bản/thanh lý/đóng – gồm 8 câu SQL bị trigger chặn; 15 file hợp đồng – gồm Range, 413/415/422, không file mồ côi khi lỗi CSDL; 24 kho lưu trữ/nhận dạng; 13 cổng xem hợp đồng); 4 test cũ cập nhật (kích hoạt cần phạm vi, biểu giá, file); tổng 426 | `07` §4.1 |

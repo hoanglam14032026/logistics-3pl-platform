@@ -8,6 +8,7 @@ Schema tạo bằng Alembic (migrations/) một lần mỗi phiên; mỗi test c
 Trước khi chạy: docker compose up -d db
 """
 
+import atexit
 import os
 import shutil
 import tempfile
@@ -30,6 +31,8 @@ if not _db_name.endswith("_test"):
     raise RuntimeError(f"TEST_DATABASE_URL phải trỏ tới CSDL có tên kết thúc bằng '_test' (đang là '{_db_name}')")
 
 _TMP = Path(tempfile.mkdtemp(prefix="l3pl_test_"))
+# Dọn khi tiến trình kết thúc – kể cả `pytest --co` (không chạy fixture) hay phiên test bị dừng giữa chừng
+atexit.register(shutil.rmtree, _TMP, ignore_errors=True)
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
 get_settings.cache_clear()  # Settings dùng chung đọc lại với DATABASE_URL = CSDL test
@@ -69,7 +72,6 @@ def _database():
     upgrade_to_head(engine)
     yield
     engine.dispose()
-    shutil.rmtree(_TMP, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)
@@ -118,11 +120,46 @@ def make_party(client):
     return _make
 
 
+def pdf_bytes(text: str = "Hop dong") -> bytes:
+    """PDF tối thiểu hợp lệ (đủ để nhận dạng theo magic bytes %PDF-)."""
+    return (
+        b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 0/Kids[]>>endobj\n"
+        + f"% {text}\n".encode()
+        + b"trailer<</Root 1 0 R>>\n%%EOF\n"
+    )
+
+
+DEFAULT_SCOPE = {"service_code": "CUSTOMS_CLEARANCE", "params": {"port": "VNHPH"}}
+DEFAULT_RATE = {
+    "rate_code": "TK-01",
+    "service_code": "CUSTOMS_CLEARANCE",
+    "charge_name": "Phí khai báo hải quan",
+    "basis": "per_declaration",
+    "unit_price": "1500000.00",
+    "currency": "VND",
+    "tax_rate": "8.00",
+}
+
+
+def attach(contract_id: int, kind: str = "signed_contract", content: bytes | None = None, filename: str = "hd.pdf"):
+    """Đính kèm file vào hợp đồng trực tiếp qua service (không qua API)."""
+    from io import BytesIO
+
+    from starlette.datastructures import UploadFile
+
+    from app.flows.operations import service as ops_service
+    from app.flows.operations.models import AttachmentKind
+
+    upload = UploadFile(file=BytesIO(content or pdf_bytes()), filename=filename)
+    with SessionLocal() as db:
+        return ops_service.add_attachment(db, contract_id, upload, AttachmentKind(kind), None, None, actor_id=0)
+
+
 @pytest.fixture()
 def make_contract(client):
-    """make_contract(party_id) → hợp đồng `active`, `portal_enabled`, đang hiệu lực (mặc định: từ 30 ngày trước, 1 năm).
-
-    `status="draft"` để giữ bản nháp; tham số khác ghi đè trường của ContractCreate."""
+    """make_contract(party_id) → hợp đồng `active`, `portal_enabled`, đang hiệu lực (mặc định: từ 30 ngày trước, 1 năm),
+    có 1 phạm vi, 1 biểu giá, bản scan đã ký (đủ điều kiện kích hoạt). `status="draft"` để giữ bản nháp; tham số khác
+    ghi đè trường của ContractCreate."""
     from datetime import timedelta
 
     from app.core.timeutil import today_vn
@@ -136,13 +173,17 @@ def make_contract(client):
             "signed_date": today - timedelta(days=30),
             "valid_from": today - timedelta(days=30),
             "valid_to": today + timedelta(days=335),
+            "service_scopes": [DEFAULT_SCOPE],
+            "rates": [DEFAULT_RATE],
             **fields,
         }
         with SessionLocal() as db:
             contract = ops_service.create_contract(db, ContractCreate(**data), actor_id=0)
-            if status == "active":
+        if status == "active":
+            attach(contract.id)
+            with SessionLocal() as db:
                 contract = ops_service.activate_contract(db, contract.id, actor_id=0, expected_version=None)
-            return contract
+        return contract
 
     return _make
 

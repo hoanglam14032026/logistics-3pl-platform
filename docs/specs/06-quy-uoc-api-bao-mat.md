@@ -111,6 +111,8 @@ Phản hồi danh sách:
 | Nhất quán | Ghi file → ghi CSDL trong giao dịch; lỗi CSDL → xóa file vừa ghi. Xóa thực thể → xóa file bằng tác vụ dọn dẹp định kỳ (file mồ côi) |
 | Quét mã độc | **CẦN XÁC NHẬN** (đề xuất: ClamAV khi triển khai ra Internet) |
 
+**Đã làm (Giai đoạn 4, 08/11/2026)** – `app/shared/files/`: `sys_files` (`storage_key` = `<module>/<yyyy>/<mm>/<uuid4>`, tên gốc đã làm sạch, MIME theo nội dung, SHA-256, `owner_type`/`owner_id`); `LocalStorage` ghi theo luồng 1 MiB vào file tạm rồi đổi tên, dừng ngay khi vượt dung lượng, chặn `storage_key` thoát khỏi `UPLOAD_DIR`; nhận dạng magic bytes `pdf`, `jpg`, `png`, `docx`, `xlsx`, `pptx` (chưa dùng thư viện `filetype`); mục đích `contract_document` (`pdf, jpg, png, docx, xlsx` ≤ 20 MB, ghi đè bằng `FILE_LIMITS_JSON`); `0 byte` → `422`, quá dung lượng → `413`, sai loại → `415`; lỗi sau khi ghi file → xóa file (không file mồ côi). `GET /api/v2/files/{id}`: kiểm quyền qua `ACCESS_CHECKERS[owner_type]` (module sở hữu đăng ký), không có quyền → `404`; `Range`, `Content-Disposition` (tên UTF-8), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, `Cache-Control: private, no-store`. Chưa làm: upload theo phần (> 100 MB), S3, quét mã độc, dọn file mồ côi định kỳ. Giới hạn kích thước body ở reverse proxy (vd. `client_max_body_size`) – Starlette nhận trọn file trước khi ứng dụng kiểm dung lượng.
+
 ## 3. Xác thực
 
 - Đăng nhập tài khoản nội bộ, mật khẩu băm Argon2/bcrypt; JWT truy cập (15 phút) + refresh token (7 ngày, thu hồi được).

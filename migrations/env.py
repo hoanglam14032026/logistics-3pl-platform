@@ -18,6 +18,7 @@ from app.flows.operations import models as _ops_models  # noqa: F401
 from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào LegacyBase.metadata)
 from app.legacy_v1.database import Base as LegacyBase
 from app.shared.audit import models as _audit_models  # noqa: F401
+from app.shared.files import models as _files_models  # noqa: F401
 from app.shared.identity import models as _identity_models  # noqa: F401  (đăng ký model v2 vào Base.metadata)
 from app.shared.masterdata import models as _masterdata_models  # noqa: F401
 

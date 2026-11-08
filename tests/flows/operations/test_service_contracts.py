@@ -12,6 +12,7 @@ from app.flows.operations import service
 from app.flows.operations.models import OpsServiceContract
 from app.flows.operations.schemas import ContractCreate
 from app.shared.audit.models import SysAuditLog
+from tests.conftest import DEFAULT_RATE, DEFAULT_SCOPE, attach
 
 URL = "/api/v2/ops/service-contracts"
 TODAY = today_vn()
@@ -53,6 +54,8 @@ def _body(party_id: int, **override) -> dict:
         "valid_from": str(TODAY - timedelta(days=1)),
         "valid_to": str(TODAY + timedelta(days=364)),
         "payment_due_days": 30,
+        "service_scopes": [DEFAULT_SCOPE],
+        "rates": [DEFAULT_RATE],
         **override,
     }
 
@@ -205,7 +208,8 @@ def test_patch_draft(client, as_role, party, make_party):
 def test_cannot_patch_after_activation(client, as_role, party):
     manager = as_role("manager")
     c = _create(client, manager, party.id)
-    client.post(f"{URL}/{c['id']}:activate", headers=manager)
+    attach(c["id"])
+    assert client.post(f"{URL}/{c['id']}:activate", headers=manager).status_code == 200
     _error(
         client.patch(f"{URL}/{c['id']}", json={"payment_due_days": 1}, headers=manager), 409, "INVALID_STATE_TRANSITION"
     )
@@ -225,8 +229,9 @@ def test_activate_requirements(client, as_role, party):
         valid_to=str(TODAY - timedelta(days=1)),
     )
     err = _error(client.post(f"{URL}/{c['id']}:activate", headers=manager), 422, "VALIDATION_ERROR")
-    assert {d["field"] for d in err["details"]} == {"body.signed_date", "body.valid_to"}
+    assert {d["field"] for d in err["details"]} == {"body.signed_date", "body.valid_to", "body.attachments"}
     client.patch(f"{URL}/{c['id']}", json={"signed_date": str(TODAY), "valid_to": str(TODAY)}, headers=manager)
+    attach(c["id"])
     r = client.post(f"{URL}/{c['id']}:activate", headers=manager)  # valid_to = hôm nay: còn hiệu lực
     assert r.status_code == 200 and r.json()["status"] == "active" and r.json()["activated_at"].endswith("Z")
     _error(client.post(f"{URL}/{c['id']}:activate", headers=manager), 409, "INVALID_STATE_TRANSITION")
@@ -250,6 +255,7 @@ def test_suspend_and_resume(client, as_role, party):
     _error(
         client.post(f"{url}:suspend", json={"reason": "Khách nợ phí"}, headers=manager), 409, "INVALID_STATE_TRANSITION"
     )
+    attach(c["id"])
     client.post(f"{url}:activate", headers=manager)
     _error(client.post(f"{url}:suspend", json={}, headers=manager), 422, "VALIDATION_ERROR")  # bắt buộc lý do
     _error(client.post(f"{url}:suspend", json={"reason": "x"}, headers=manager), 422, "VALIDATION_ERROR")
@@ -259,7 +265,13 @@ def test_suspend_and_resume(client, as_role, party):
     r = client.post(f"{url}:resume", headers=manager)
     assert (r.json()["status"], r.json()["status_reason"]) == ("active", None)
     _error(client.post(f"{url}:resume", headers=manager), 409, "INVALID_STATE_TRANSITION")
-    assert _actions(c["id"]) == ["contract.create", "contract.activate", "contract.suspend", "contract.resume"]
+    assert _actions(c["id"]) == [
+        "contract.create",
+        "contract.attachment_add",
+        "contract.activate",
+        "contract.suspend",
+        "contract.resume",
+    ]
 
 
 def test_auto_expire(client, as_role, party, make_contract):

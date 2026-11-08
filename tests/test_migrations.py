@@ -27,7 +27,16 @@ from tests.conftest import ALL_METADATA, reset_database
 IDENTITY_TABLES = {"sys_users", "sys_user_roles", "sys_refresh_tokens"}
 MASTERDATA_TABLES = {"md_parties"}
 AUDIT_TABLES = {"sys_audit_logs", "sys_rate_limit_counters"}
-OPS_TABLES = {"ops_service_contracts", "sys_doc_sequences"}
+OPS_TABLES = {
+    "ops_service_contracts",
+    "sys_doc_sequences",
+    "ops_contract_scopes",
+    "ops_contract_sla",
+    "ops_contract_rates",
+    "ops_contract_versions",
+    "ops_contract_attachments",
+    "sys_files",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -53,7 +62,7 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0005"
+    assert head_revision() == "0006"
 
 
 def test_upgrade_from_empty_creates_all_tables():

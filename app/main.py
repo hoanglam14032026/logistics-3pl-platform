@@ -20,6 +20,7 @@ from app.core.errors import UnhandledErrorMiddleware, register_exception_handler
 from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
 from app.core.migrations import upgrade_to_head
 from app.flows.operations import service as ops_service
+from app.flows.operations.portal.router import router as portal_contracts_router
 from app.flows.operations.router import router as ops_contracts_router
 from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào Base.metadata)
 from app.legacy_v1.api import business_guide
@@ -27,6 +28,7 @@ from app.legacy_v1.api.business_data import records as business_data_records
 from app.legacy_v1.api.training import documents as training_documents
 from app.legacy_v1.api.video import resources as video_resources
 from app.shared.audit.router import router as audit_router
+from app.shared.files.router import router as files_router
 from app.shared.identity.portal_router import router as portal_users_router
 from app.shared.identity.router import auth_router, users_router
 from app.shared.masterdata.router import router as parties_router
@@ -108,10 +110,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(parties_router)
     app.include_router(portal_users_router)
     app.include_router(audit_router)
+    app.include_router(files_router)
     # Điều kiện của Luồng 1 với danh mục khách hàng, tài khoản cổng: luôn đăng ký (kể cả khi tắt Luồng 1 – khi đó
     # không có hợp đồng nào nên manager không tạo được tài khoản customer; dữ liệu vẫn nhất quán).
     ops_service.register_guards()
     if "ops" in settings.enabled_flows:
         app.include_router(ops_contracts_router)
+        app.include_router(portal_contracts_router)
     _include_legacy_v1_routers(app)
     return app
