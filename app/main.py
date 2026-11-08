@@ -13,17 +13,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 
 from app.core.config import Settings, get_settings
 from app.core.errors import UnhandledErrorMiddleware, register_exception_handlers
 from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
+from app.core.migrations import upgrade_to_head
 from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào Base.metadata)
 from app.legacy_v1.api import business_guide
 from app.legacy_v1.api.business_data import records as business_data_records
 from app.legacy_v1.api.training import documents as training_documents
 from app.legacy_v1.api.video import resources as video_resources
-from app.legacy_v1.database import Base, engine
+from app.legacy_v1.database import engine
 
 APP_TITLE = "3PL Logistics Business Guide"
 APP_VERSION = "1.1.0"
@@ -31,11 +31,8 @@ APP_VERSION = "1.1.0"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Mở kết nối CSDL khi khởi động (báo lỗi ngay nếu không kết nối được), đóng pool khi tắt."""
-    with engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
-    # Bảng v1 – tạm dùng create_all cho tới khi có Alembic (bước 0.3).
-    Base.metadata.create_all(bind=engine)
+    """Kết nối CSDL và đưa schema lên head bằng Alembic khi khởi động (lỗi thì dừng ngay), đóng pool khi tắt."""
+    upgrade_to_head(engine)
     try:
         yield
     finally:

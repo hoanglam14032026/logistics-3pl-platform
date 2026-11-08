@@ -3,6 +3,8 @@ Cấu hình pytest cho test tích hợp: dùng CSDL PostgreSQL riêng cho test
 (TEST_DATABASE_URL, mặc định logistics_3pl_test của docker-compose) và thư mục
 upload tạm; không đụng tới CSDL dev/prod hay uploads/ thật.
 
+Schema tạo bằng Alembic (migrations/) một lần mỗi phiên; mỗi test chỉ xóa dữ liệu (TRUNCATE).
+
 Trước khi chạy: docker compose up -d db
 """
 
@@ -31,13 +33,25 @@ os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
 os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-" + "x" * 32)
 
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
 
+from app.core.migrations import upgrade_to_head  # noqa: E402
 from app.legacy_v1.database import Base, engine  # noqa: E402
 from app.main import create_app  # noqa: E402
 
 
+def reset_database() -> None:
+    """Xóa sạch schema public của CSDL test (gồm alembic_version) – CSDL về trạng thái trống."""
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+
+
 @pytest.fixture(scope="session", autouse=True)
-def _cleanup_tmp():
+def _database():
+    """Mỗi phiên test: CSDL trống rồi tạo schema bằng Alembic (không dùng create_all)."""
+    reset_database()
+    upgrade_to_head(engine)
     yield
     engine.dispose()
     shutil.rmtree(_TMP, ignore_errors=True)
@@ -45,8 +59,10 @@ def _cleanup_tmp():
 
 @pytest.fixture()
 def client():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
+    # Xóa dữ liệu, giữ schema; lifespan của create_app() chạy upgrade head (đã ở head – không đổi gì).
+    tables = ", ".join(t.name for t in Base.metadata.sorted_tables)
+    with engine.begin() as conn:
+        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
     with TestClient(create_app()) as c:
         yield c
 

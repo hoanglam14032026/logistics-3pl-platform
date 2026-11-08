@@ -178,3 +178,13 @@ Phiên bản `1.1.0` (07/11/2026). Trạng thái trước khi chỉnh sửa (cod
 | `HEAD /health` trả 405 | `/health` nhận `GET`, `HEAD` | Công cụ healthcheck dùng `HEAD` |
 | `.gitignore`, `.dockerignore` có dòng `uploads/` (thư mục cũ, đã xóa) | Bỏ; dữ liệu upload nằm trong `data/` (đã có trong cả hai file) | Dọn phần sót của v1.1.0 |
 | – | 7 test hồi quy (`test_config.py` +2, `test_create_app.py` +5) | `07` §4.1 |
+
+### 10.14. Mã nguồn – Giai đoạn 0, bước 0.3: Alembic (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Lifespan gọi `Base.metadata.create_all()` | Lifespan gọi `app/core/migrations.py` `upgrade_to_head()`: `alembic upgrade head` dưới khóa advisory PostgreSQL (nhiều worker/container khởi động cùng lúc chỉ một tiến trình chạy migration); lỗi migration thì ứng dụng dừng | `07` §1, §2 (Alembic quản lý schema) |
+| – | `alembic.ini`, `migrations/` (URL lấy từ `DATABASE_URL` của Settings, không ghi trong file); revision gốc `0001_v1_baseline`: 4 bảng v1.1.0 đúng như `create_all` đã tạo (chưa sửa các điểm lệch `06` §2.4 – làm ở migration sau) | `07` §1 |
+| CSDL đã tạo bằng `create_all` không có lịch sử migration | Có đủ 4 bảng v1, chưa có `alembic_version` → tự đánh dấu (stamp) `0001`, không tạo lại bảng, giữ dữ liệu; chỉ có một phần bảng → dừng, báo lỗi để kiểm tra thủ công. Đã chạy trên `logistics_3pl_dev`: `0001 (head)`, `alembic check` không lệch | Chuyển tiếp không mất dữ liệu |
+| Test: `drop_all`/`create_all` trước mỗi test | Mỗi phiên test: xóa schema `public` của CSDL test rồi `upgrade head`; mỗi test `TRUNCATE … RESTART IDENTITY`. `tests/test_migrations.py`: 8 test (1 head, upgrade từ trống, schema khớp model, downgrade base rồi upgrade lại, chạy lặp không đổi, stamp CSDL `create_all` giữ dữ liệu, từ chối schema thiếu bảng, lifespan tự migrate) | `07` §6 điểm 3 |
+| Docker image chỉ chép `app/` | Chép thêm `alembic.ini`, `migrations/` | Ứng dụng trong container tự migrate; dùng được `alembic` CLI |

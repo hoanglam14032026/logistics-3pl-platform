@@ -10,6 +10,9 @@ COPY requirements-lock.txt .
 RUN pip install --no-cache-dir -r requirements-lock.txt
 
 COPY app ./app
+# Ứng dụng tự chạy alembic upgrade head khi khởi động (lifespan); alembic.ini cho lệnh CLI trong container.
+COPY alembic.ini ./
+COPY migrations ./migrations
 
 RUN mkdir -p /app/data/uploads
 VOLUME ["/app/data/uploads"]
