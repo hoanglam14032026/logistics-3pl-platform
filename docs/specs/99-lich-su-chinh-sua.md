@@ -144,3 +144,12 @@ Phiên bản `1.1.0` (07/11/2026). Trạng thái trước khi chỉnh sửa (cod
 | CSDL mặc định SQLite `./business_guide.db`; test trên file SQLite tạm | Mặc định PostgreSQL `logistics_3pl_dev`; test trên `logistics_3pl_test` (`TEST_DATABASE_URL`, chặn chạy nếu tên CSDL không kết thúc `_test`); dọn thư mục tạm sau phiên test | Mục 10.10 (điểm 3) |
 | `docker-compose.yml` chỉ có dịch vụ `api`, dữ liệu SQLite trong `./data/` | Thêm dịch vụ `db` (`postgres:17`, healthcheck, volume `pgdata`, script tạo CSDL test); `api` chờ `db` sẵn sàng; Dockerfile `python:3.12-slim`, cài từ `requirements-lock.txt` | Mục 10.10; đã chạy thử `docker compose up` |
 | `status.HTTP_422_UNPROCESSABLE_ENTITY` | `status.HTTP_422_UNPROCESSABLE_CONTENT` | Hằng số cũ deprecated trong Starlette 1.x |
+
+### 10.12. Chốt lại thư viện JWT, băm mật khẩu; khóa phụ thuộc dev (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `07` §2 (mục 10.10): `python-jose[cryptography]==3.5.0`, `passlib[argon2]==1.7.4` | `pyjwt==2.15.1`, `argon2-cffi==25.1.0` (quay về đặc tả gốc); gỡ `python-jose`, `passlib`, `ecdsa` cùng các gói bắc cầu chỉ chúng dùng (`rsa`, `pyasn1`, `six`, `cryptography`) khỏi `requirements-lock.txt` | `passlib` ngừng bảo trì từ 2020, dựa vào module `crypt` đã bị gỡ ở Python 3.13; `python-jose` kéo theo `ecdsa` dính CVE-2024-23342 – quyết định của chủ dự án |
+| Phụ thuộc dev chỉ chốt `==` trong `pyproject.toml`, phụ thuộc bắc cầu không khóa; cài `pip install -r requirements-lock.txt --group dev` | Thêm `requirements-dev-lock.txt` (pip freeze phụ thuộc chạy + nhóm `dev` trên venv sạch); máy dev cài từ file này | Khóa đủ cả môi trường dev – quyết định của chủ dự án |
+| – | Giữ `POSTGRES_PASSWORD` mặc định `logistics` trong `docker-compose.yml`, chỉ dùng cho máy dev, không dùng cho môi trường thật | Quyết định của chủ dự án |
+

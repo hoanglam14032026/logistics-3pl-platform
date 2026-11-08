@@ -1,5 +1,6 @@
 # Khóa phụ thuộc chạy (runtime): cài các gói [project.dependencies] của pyproject.toml vào venv sạch rồi pip freeze.
 # Python 3.12, ngày 08/11/2026. Không sửa tay; tạo lại khi đổi phiên bản trong pyproject.toml.
+# Docker cài từ file này. Máy dev cài requirements-dev-lock.txt (đã gồm toàn bộ file này).
 alembic==1.20.1
 annotated-doc==0.0.5
 annotated-types==0.8.0
@@ -8,8 +9,6 @@ argon2-cffi==25.1.0
 argon2-cffi-bindings==26.1.0
 cffi==2.1.1
 click==8.5.1
-cryptography==50.0.2
-ecdsa==0.19.2
 fastapi==0.162.2
 h11==0.16.0
 httptools==0.9.0
@@ -17,19 +16,16 @@ idna==3.20
 Mako==1.4.3
 MarkupSafe==3.0.4
 opentelemetry-api==1.45.2
-passlib==1.7.4
 psycopg==3.3.8
 psycopg-binary==3.3.8
-pyasn1==0.6.5
 pycparser==3.12
 pydantic==2.14.3
+pydantic-settings==2.16.2
 pydantic_core==2.50.4
+PyJWT==2.15.1
 python-dotenv==1.2.4
-python-jose==3.5.0
 python-multipart==0.0.33
 PyYAML==6.0.3
-rsa==4.9.1
-six==1.17.0
 SQLAlchemy==2.0.57
 starlette==1.10.0
 typing-inspection==0.4.5

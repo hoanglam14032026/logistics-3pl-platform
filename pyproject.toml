@@ -5,20 +5,22 @@ description = "Nền tảng vận hành và đào tạo nghiệp vụ Logistics 
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 # Phụ thuộc chạy – chốt cứng (đặc tả 07 §2). Phụ thuộc bắc cầu khóa trong requirements-lock.txt.
+# JWT: PyJWT (HS256, không cần extra [crypto]); băm mật khẩu: argon2-cffi trực tiếp.
 dependencies = [
     "fastapi==0.162.2",
     "pydantic==2.14.3",
+    "pydantic-settings==2.16.2",
     "sqlalchemy==2.0.57",
     "alembic==1.20.1",
     "uvicorn[standard]==0.54.0",
     "psycopg[binary]==3.3.8",
-    "python-jose[cryptography]==3.5.0",
-    "passlib[argon2]==1.7.4",
+    "pyjwt==2.15.1",
+    "argon2-cffi==25.1.0",
     "python-multipart==0.0.33",
 ]
 
 [dependency-groups]
-# Cài bằng: pip install -r requirements-lock.txt --group dev   (pip >= 25.1)
+# Khóa cùng phụ thuộc chạy trong requirements-dev-lock.txt. Cài: pip install -r requirements-dev-lock.txt
 dev = [
     "pytest==9.2.0",
     "pytest-cov==7.1.0",

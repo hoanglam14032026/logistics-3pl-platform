@@ -43,7 +43,7 @@ Yêu cầu: Python 3.12 (`.python-version`), Docker (PostgreSQL 17), pip ≥ 25.
 cd logistics-3pl-platform
 docker compose up -d db                                  # PostgreSQL 17: logistics_3pl_dev, logistics_3pl_test
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-lock.txt --group dev         # phụ thuộc chạy (khóa) + công cụ dev
+pip install -r requirements-dev-lock.txt                # phụ thuộc chạy + công cụ dev (đều đã khóa)
 uvicorn app.main:app --reload                            # http://127.0.0.1:8000/docs (CSDL logistics_3pl_dev)
 pytest                                                   # 18 test trên logistics_3pl_test
 ruff check . && ruff format --check .
@@ -54,7 +54,8 @@ Toàn bộ bằng Docker: `docker compose up -d --build` (dữ liệu CSDL trong
 | File | Vai trò |
 |---|---|
 | `pyproject.toml` | Phụ thuộc chốt cứng `==`, nhóm `dev`, cấu hình pytest, ruff |
-| `requirements-lock.txt` | `pip freeze` phụ thuộc chạy; Docker cài từ file này. Đổi phiên bản trong `pyproject.toml` thì tạo lại file này |
+| `requirements-lock.txt` | `pip freeze` phụ thuộc chạy; Docker cài từ file này |
+| `requirements-dev-lock.txt` | `pip freeze` phụ thuộc chạy + nhóm `dev`; máy dev cài từ file này. Đổi phiên bản trong `pyproject.toml` thì tạo lại **cả hai** file lock |
 | `deploy/postgres/init/` | Script tạo CSDL test khi khởi tạo volume lần đầu |
 
 Biến môi trường: `DATABASE_URL` (mặc định CSDL dev ở trên), `TEST_DATABASE_URL` (tên CSDL bắt buộc kết thúc `_test`), `UPLOAD_DIR`, `POSTGRES_PASSWORD`, `POSTGRES_PORT`. Mã v1.1.0 nằm tại `app/legacy_v1/`, API `/api/v1/*` đánh dấu deprecated; mô tả chi tiết: [`90-hien-trang-v1.1.md`](docs/specs/90-hien-trang-v1.1.md).
