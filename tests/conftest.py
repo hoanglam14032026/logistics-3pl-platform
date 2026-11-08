@@ -106,6 +106,19 @@ def make_user(client):
 
 
 @pytest.fixture()
+def make_party(client):
+    """make_party("Cty A", party_type="customer", tax_code=...) → MdParty (tạo trực tiếp, không qua API)."""
+    from app.shared.masterdata import service as md_service
+    from app.shared.masterdata.schemas import PartyCreate
+
+    def _make(name: str = "Công ty TNHH Minh An", party_type: str = "customer", **fields):
+        with SessionLocal() as db:
+            return md_service.create_party(db, PartyCreate(name=name, party_type=party_type, **fields), actor_id=0)
+
+    return _make
+
+
+@pytest.fixture()
 def login(client):
     """login("an") → phản hồi JSON của POST /api/v2/auth/login (gồm access_token, refresh_token)."""
 

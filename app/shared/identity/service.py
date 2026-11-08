@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError, ErrorCode
-from app.core.pagination import PageParams, order_by_clause, paginate
+from app.core.pagination import PageParams, like_pattern, order_by_clause, paginate
 from app.core.rbac import Role, forbidden
 from app.core.security import (
     create_access_token,
@@ -34,6 +34,7 @@ from app.core.security import (
 from app.core.timeutil import now_utc
 from app.shared.identity.models import SysRefreshToken, SysUser, SysUserRole
 from app.shared.identity.schemas import UserCreate, UserUpdate
+from app.shared.masterdata.models import MdParty, PartyStatus, PartyType
 
 INVALID_CREDENTIALS = "Sai tên đăng nhập hoặc mật khẩu"
 ACCOUNT_LOCKED = "Tài khoản tạm khóa do đăng nhập sai nhiều lần; thử lại sau"
@@ -216,10 +217,35 @@ def _duplicate_error(exc: IntegrityError) -> AppError:
     )
 
 
-def _like_pattern(text: str) -> str:
-    """Tìm gần đúng: escape ký tự đại diện của LIKE trong chuỗi người dùng nhập."""
-    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
+def _field_error(field: str, message: str, issue: str = "invalid") -> AppError:
+    return AppError(
+        ErrorCode.VALIDATION_ERROR, 422, message, [{"field": f"body.{field}", "issue": issue, "message": message}]
+    )
+
+
+def _check_customer_link(db: Session, roles: list[str], party_id: int | None, is_customer_admin: bool) -> None:
+    """02 §9.2: tài khoản `customer` gắn đúng một khách hàng (party loại `customer`, đang hoạt động) và không kèm
+    vai trò nội bộ (BR-111 – tách dữ liệu khách hàng); tài khoản nội bộ không gắn party.
+
+    Party được khóa `FOR SHARE` tới hết giao dịch: không thể lưu trữ party trong lúc đang tạo tài khoản cho nó.
+    """
+    if Role.CUSTOMER.value not in roles:
+        if party_id is not None:
+            raise _field_error("party_id", "Chỉ tài khoản customer mới gắn khách hàng (party_id)")
+        if is_customer_admin:
+            raise _field_error("is_customer_admin", "Chỉ tài khoản customer mới có is_customer_admin")
+        return
+    if len(roles) > 1:
+        raise _field_error("roles", "Tài khoản customer không được kèm vai trò khác")
+    if party_id is None:
+        raise _field_error("party_id", "Tài khoản customer phải gắn một khách hàng (party_id)", "missing")
+    party = db.scalar(select(MdParty).where(MdParty.id == party_id).with_for_update(read=True))
+    if party is None:
+        raise _field_error("party_id", "Không tìm thấy khách hàng", "not_found")
+    if party.party_type != PartyType.CUSTOMER.value:
+        raise _field_error("party_id", "Đối tác không phải khách hàng (party_type ≠ customer)")
+    if party.status != PartyStatus.ACTIVE.value:
+        raise _field_error("party_id", "Khách hàng đã lưu trữ")
 
 
 def get_user(db: Session, user_id: int) -> SysUser:
@@ -235,8 +261,11 @@ def list_users(
     q: str | None = None,
     role: Role | None = None,
     status: str = "active",
+    party_id: int | None = None,
 ) -> tuple[list[SysUser], int]:
     stmt = select(SysUser)
+    if party_id is not None:
+        stmt = stmt.where(SysUser.party_id == party_id)
     if status == "active":
         stmt = stmt.where(SysUser.is_active.is_(True))
     elif status == "inactive":
@@ -244,7 +273,7 @@ def list_users(
     if role is not None:
         stmt = stmt.where(SysUser.roles.any(SysUserRole.role == role.value))
     if q:
-        pattern = _like_pattern(q)
+        pattern = like_pattern(q)
         stmt = stmt.where(
             or_(
                 SysUser.username.ilike(pattern, escape="\\"),
@@ -257,7 +286,10 @@ def list_users(
 
 
 def create_user(db: Session, data: UserCreate, actor_id: int | None) -> SysUser:
+    _check_customer_link(db, [r.value for r in data.roles], data.party_id, data.is_customer_admin)
     user = SysUser(
+        party_id=data.party_id,
+        is_customer_admin=data.is_customer_admin,
         username=data.username,
         email=data.email,
         full_name=data.full_name,
@@ -289,6 +321,13 @@ def update_user(db: Session, user: SysUser, data: UserUpdate, actor: SysUser, ex
         raise forbidden("Không thể tự vô hiệu hóa tài khoản của mình")
     if is_self and "roles" in fields and Role.ADMIN not in data.roles:
         raise forbidden("Không thể tự bỏ vai trò admin của mình")
+    is_customer = Role.CUSTOMER.value in user.role_codes
+    if "roles" in fields and (Role.CUSTOMER in data.roles) != is_customer:
+        raise _field_error("roles", "Không đổi được tài khoản nội bộ ↔ customer; tạo tài khoản mới")
+    if "roles" in fields and is_customer and len(data.roles) > 1:
+        raise _field_error("roles", "Tài khoản customer không được kèm vai trò khác")
+    if "is_customer_admin" in fields and not is_customer:
+        raise _field_error("is_customer_admin", "Chỉ tài khoản customer mới có is_customer_admin")
 
     if "email" in fields:
         user.email = data.email
@@ -302,6 +341,8 @@ def update_user(db: Session, user: SysUser, data: UserUpdate, actor: SysUser, ex
         user.is_active = data.is_active
         if not data.is_active:
             revoke_all_user_tokens(db, user.id, "deactivated")
+    if "is_customer_admin" in fields:
+        user.is_customer_admin = data.is_customer_admin
     if "password" in fields:
         _set_password(db, user, data.password, actor.id)
     user.updated_by = actor.id

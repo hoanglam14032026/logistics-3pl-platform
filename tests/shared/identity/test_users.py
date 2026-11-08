@@ -44,8 +44,9 @@ def _create(client, admin, **override) -> dict:
 @pytest.mark.parametrize(
     "role", ["ops_staff", "manager", "business_manager", "learner", "instructor", "content_editor", "customer"]
 )
-def test_only_admin_manages_users(client, make_user, auth_headers, role):
-    make_user("nguoidung", roles=[role])
+def test_only_admin_manages_users(client, make_user, make_party, auth_headers, role):
+    extra = {"party_id": make_party().id} if role == "customer" else {}
+    make_user("nguoidung", roles=[role], **extra)
     headers = auth_headers("nguoidung")
     _error(client.get(USERS, headers=headers), 403, "FORBIDDEN")
     _error(client.post(USERS, json=NEW, headers=headers), 403, "FORBIDDEN")

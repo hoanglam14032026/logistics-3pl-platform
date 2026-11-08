@@ -53,3 +53,9 @@ def paginate(db: Session, stmt: Select, params: PageParams) -> tuple[list, int]:
     total = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery())) or 0
     rows = db.scalars(stmt.offset((params.page - 1) * params.page_size).limit(params.page_size)).all()
     return list(rows), total
+
+
+def like_pattern(text: str) -> str:
+    """`q` tìm gần đúng: escape ký tự đại diện của LIKE trong chuỗi người dùng nhập (dùng với `escape="\\"`)."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"

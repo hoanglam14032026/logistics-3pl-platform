@@ -25,6 +25,7 @@ from app.main import create_app
 from tests.conftest import ALL_METADATA, reset_database
 
 IDENTITY_TABLES = {"sys_users", "sys_user_roles", "sys_refresh_tokens"}
+MASTERDATA_TABLES = {"md_parties"}
 
 
 @pytest.fixture(autouse=True)
@@ -50,13 +51,13 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0002"
+    assert head_revision() == "0003"
 
 
 def test_upgrade_from_empty_creates_all_tables():
     reset_database()
     assert upgrade_to_head(engine) == head_revision()
-    assert _tables() == BASELINE_TABLES | IDENTITY_TABLES | {"alembic_version"}
+    assert _tables() == BASELINE_TABLES | IDENTITY_TABLES | MASTERDATA_TABLES | {"alembic_version"}
 
 
 def test_schema_after_upgrade_matches_models():

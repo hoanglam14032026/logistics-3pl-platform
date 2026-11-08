@@ -24,6 +24,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.db import AuditColumnsMixin, Base
 from app.core.rbac import Role
 from app.core.timeutil import now_utc
+from app.shared.masterdata.models import MdParty  # noqa: F401  (đăng ký bảng md_parties trước khóa ngoại)
 
 _ROLE_VALUES = ", ".join(f"'{r.value}'" for r in Role)
 
@@ -34,6 +35,7 @@ class SysUser(AuditColumnsMixin, Base):
         CheckConstraint("username = lower(username)", name="username_lowercase"),
         CheckConstraint("email IS NULL OR email = lower(email)", name="email_lowercase"),
         CheckConstraint("failed_login_count >= 0", name="failed_login_count_non_negative"),
+        CheckConstraint("NOT is_customer_admin OR party_id IS NOT NULL", name="customer_admin_has_party"),
     )
 
     username: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
@@ -50,6 +52,13 @@ class SysUser(AuditColumnsMixin, Base):
     failed_login_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Tài khoản `customer` (02 §9.2): gắn đúng một khách hàng; `is_customer_admin` quản lý tài khoản cùng khách hàng.
+    # Tài khoản nội bộ: party_id NULL. Ràng buộc vai trò ↔ party kiểm tra trong service (khác bảng, không CHECK được).
+    party_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("md_parties.id", ondelete="RESTRICT"), index=True
+    )
+    is_customer_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     # Dự phòng 2FA (Giai đoạn 2) – chưa dùng
     totp_secret: Mapped[str | None] = mapped_column(String(64))

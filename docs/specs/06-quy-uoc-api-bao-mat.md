@@ -10,7 +10,7 @@
 /api/v2/learning/...     Luồng 3
 /api/v2/assessment/...   Luồng 4
 /api/v2/portal/...       Cổng khách hàng (thuộc Luồng 1, chỉ vai trò customer)
-/api/v2/md/...           Danh mục dùng chung (gồm bộ quy tắc, ma trận chứng từ)
+/api/v2/md/...           Danh mục dùng chung (gồm bộ quy tắc, ma trận chứng từ); /api/v2/md/parties (khách hàng, đối tác)
 /api/v2/auth/...         Đăng nhập, làm mới token, đăng xuất, đổi mật khẩu, người dùng hiện tại
 /api/v2/users/...        Quản lý người dùng, vai trò (admin – §4)
 /api/v2/files/{file_id}  Tải file (kiểm quyền theo luồng sở hữu)

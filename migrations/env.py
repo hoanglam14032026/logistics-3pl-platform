@@ -15,6 +15,7 @@ from app.core.db import Base
 from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào LegacyBase.metadata)
 from app.legacy_v1.database import Base as LegacyBase
 from app.shared.identity import models as _identity_models  # noqa: F401  (đăng ký model v2 vào Base.metadata)
+from app.shared.masterdata import models as _masterdata_models  # noqa: F401
 
 config = context.config
 

@@ -72,7 +72,7 @@ flowchart LR
 | Nhóm | Bảng | Nội dung | Chủ ghi |
 |---|---|---|---|
 | Người dùng, vai trò | `sys_users`, `sys_user_roles` | Tài khoản, vai trò (`00` §4) | `admin` |
-| Khách hàng, đối tác | `md_parties` | Khách hàng (chủ hàng), người bán/người mua nước ngoài, hãng tàu, hãng bay, đại lý, nhà vận tải, kho; `party_type`; mã số thuế | `admin`, `manager` |
+| Khách hàng, đối tác | `md_parties` | Khách hàng (chủ hàng), người bán/người mua nước ngoài, hãng tàu, hãng bay, đại lý, nhà vận tải, kho; `party_type`; mã số thuế. **Đã làm (Giai đoạn 1, 08/11/2026)**: `party_type` ∈ `customer`, `foreign_seller`, `foreign_buyer`, `shipping_line`, `airline`, `agent`, `carrier`, `warehouse`; `name`, `tax_code` (duy nhất; VN 10 số hoặc `0101234567-001`), `country_code` (ISO 3166-1 alpha-2, mặc định `VN`), `address`, `contact_name`, `phone`, `email`, `note`; `status` `active`/`archived` (không xóa cứng); API `/api/v2/md/parties` (đọc: vai trò nội bộ; ghi: `manager`, `admin`). Danh sách trường: **CẦN XÁC NHẬN** | `admin`, `manager` |
 | Loại chứng từ | `md_document_types` | Mã (`SC`, `CI`, `PL`, `CO`, `CQ`, `BL`, `AWB`…), tên, trường dữ liệu bắt buộc phải trích xuất | `admin` |
 | Quy trình nghiệp vụ mẫu | `md_process_templates`, `md_process_steps` | Quy trình chuẩn **có phiên bản**, các bước, vai trò thực hiện, chứng từ vào/ra, thời gian chuẩn, cờ điểm kiểm soát (chi tiết `02` §4) | `manager` (phê duyệt), `admin` |
 | Bộ quy tắc kiểm tra chứng từ (có phiên bản) | `md_rule_sets` | Phạm vi `production` / `training` (theo khóa học hoặc tình huống); trạng thái `draft`/`published`/`retired` (`02` §5.3) | `manager` (`production` – công bố cần phê duyệt cấp 2 của `business_manager`), `instructor` (`training`) |

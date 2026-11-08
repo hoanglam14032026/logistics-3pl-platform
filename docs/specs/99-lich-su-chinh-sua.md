@@ -202,3 +202,18 @@ Phiên bản `1.1.0` (07/11/2026). Trạng thái trước khi chỉnh sửa (cod
 | – | `app/core/db.py` (`Base`, `AuditColumnsMixin` – `row_version` là `version_id_col`), `app/core/pagination.py` (`Page[T]`, `page_size` ≤ 100, `sort`), `app/core/timeutil.py` (`now_utc`, xuất ISO 8601 hậu tố `Z`) | `06` §2.3, §2.4; `07` §1 |
 | `/health` một route `GET` + `HEAD` (bước 0.2 – sửa lỗi) | Hai route; `HEAD` ẩn khỏi OpenAPI | Một route hai phương thức sinh trùng `operation_id` trên OpenAPI |
 | – | 98 test mới (31 đơn vị `security`, `rbac`; 67 tích hợp PostgreSQL – đăng nhập, khóa tạm gồm đăng nhập sai song song, refresh xoay vòng/dùng lại, đổi mật khẩu, RBAC 7 vai trò không phải admin, CRUD người dùng, CLI); tổng 160 | `07` §4.1 |
+
+### 10.16. Mã nguồn – Giai đoạn 1: danh mục khách hàng, đối tác `md_parties` (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `01` §4: `md_parties` chỉ nêu loại đối tác, `party_type`, mã số thuế | `app/shared/masterdata/`: bảng `md_parties` (8 `party_type`, `tax_code` duy nhất – kiểm định dạng MST Việt Nam khi `country_code = VN`, liên hệ, `status` `active`/`archived`); danh sách trường **CẦN XÁC NHẬN** | `01` §4; `06` §2.4, §2.5 |
+| – | API `/api/v2/md/parties`: danh sách (`q`, `party_type`, `country_code`, `status`; `06` §2.3), tạo, xem, PATCH (`If-Match`), `:archive`, `:restore`; không có DELETE | `06` §1, §2.1, §2.5 |
+| – | Quyền: đọc – 7 vai trò nội bộ; ghi – `manager`, `admin`; `customer` không truy cập (`403`) | `06` §4 (danh mục `md_*`) |
+| `02` §9.2: tài khoản `customer` gắn một `md_parties.id`, cờ `is_customer_admin` | `sys_users.party_id` (FK → `md_parties`, RESTRICT), `is_customer_admin` (CHECK → có `party_id`). Tài khoản `customer`: bắt buộc gắn party loại `customer` đang hoạt động, **không kèm vai trò khác**; tài khoản nội bộ không gắn party; PATCH không đổi được nội bộ ↔ customer | `02` §9.2; tách dữ liệu khách hàng (BR-111) |
+| `06` §4: `manager` tạo tài khoản `customer` "cho khách hàng của hợp đồng" | `POST /api/v2/md/parties/{id}/users` (`manager`, `admin`): vai trò luôn `customer`, body không nhận `roles`/`party_id`; `GET …/users` xem tài khoản của khách hàng. Chưa có hợp đồng (Luồng 1) nên chưa kiểm "khách hàng của hợp đồng có `portal_enabled`" – bổ sung khi làm hợp đồng | `06` §4; **CẦN XÁC NHẬN** điều kiện khi chưa có hợp đồng |
+| – | Không lưu trữ được khách hàng còn tài khoản `customer` hoạt động; không đổi `party_type` khỏi `customer` khi đã có tài khoản; tạo tài khoản (`FOR SHARE`) và lưu trữ (`FOR UPDATE`) khóa dòng party – không lọt khi chạy song song | Nhất quán tài khoản ↔ khách hàng |
+| – | Migration `0003` (CHECK trên `sys_users` viết tay – autogenerate không phát hiện CHECK thêm vào bảng có sẵn); `app/core/versioning.py` (`ETag`/`If-Match` dùng chung), `like_pattern` chuyển vào `app/core/pagination.py` | `07` §6 điểm 3 |
+| – | 66 test mới (49 `md_parties`, 17 tài khoản customer – gồm RBAC 9 vai trò, ràng buộc CSDL, tạo/lưu trữ song song); tổng 226 | `07` §4.1 |
+
+Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` mời, khóa tài khoản cùng khách hàng (cổng khách hàng – Giai đoạn 2); 2FA bắt buộc cho `customer` (`06` §3, Giai đoạn 2); nhập `md_parties` từ `business_data_records` v1 (`07` §3).

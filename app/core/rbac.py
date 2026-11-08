@@ -24,6 +24,9 @@ class Role(StrEnum):
 
 
 ALL_ROLES: frozenset[str] = frozenset(r.value for r in Role)
+# Vai trò nội bộ (nhân viên, người học, người hướng dẫn…) – mọi vai trò trừ `customer` (06 §4: `customer` chỉ dùng
+# cổng khách hàng, không đọc danh mục nội bộ).
+INTERNAL_ROLES: tuple[Role, ...] = tuple(r for r in Role if r is not Role.CUSTOMER)
 
 
 def forbidden(message: str | None = None) -> AppError:

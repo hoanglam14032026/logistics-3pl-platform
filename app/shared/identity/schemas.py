@@ -82,6 +82,8 @@ class UserOut(BaseModel):
     email: str | None
     full_name: str
     roles: list[str] = Field(validation_alias="role_codes")
+    party_id: int | None
+    is_customer_admin: bool
     is_active: bool
     is_2fa_enabled: bool
     locked_until: UtcDatetime | None
@@ -110,6 +112,9 @@ class UserCreate(BaseModel):
     password: Password
     roles: RoleList
     is_active: bool = True
+    # Bắt buộc khi roles = ["customer"] (02 §9.2); tài khoản nội bộ không có.
+    party_id: int | None = Field(None, gt=0)
+    is_customer_admin: bool = False
 
     @model_validator(mode="after")
     def _validate(self):
@@ -129,13 +134,43 @@ class UserUpdate(BaseModel):
     roles: RoleList | None = None
     is_active: bool | None = None
     password: Password | None = Field(None, description="Đặt lại mật khẩu (thu hồi mọi phiên của người dùng)")
+    is_customer_admin: bool | None = Field(None, description="Chỉ với tài khoản customer")
 
     @model_validator(mode="after")
     def _validate(self):
-        for field in ("full_name", "roles", "is_active", "password"):
+        for field in ("full_name", "roles", "is_active", "password", "is_customer_admin"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"Trường '{field}' không được null")
         # Chỉ gán khi client gửi roles: gán thuộc tính trong validator đánh dấu trường là "đã gửi" (model_fields_set).
         if self.roles is not None:
             self.roles = _unique_roles(self.roles)
+        return self
+
+
+class CustomerAccountCreate(BaseModel):
+    """Tài khoản `customer` cho một khách hàng (`POST /api/v2/md/parties/{id}/users`): vai trò luôn là `customer`."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "username": "minhan.lan",
+                "email": "lan@minhan.vn",
+                "full_name": "Nguyễn Thị Lan",
+                "password": "MatKhau@2026",
+                "is_customer_admin": True,
+            }
+        },
+    )
+
+    username: Username
+    email: Email | None = None
+    full_name: FullName
+    password: Password
+    is_customer_admin: bool = False
+
+    @model_validator(mode="after")
+    def _validate(self):
+        if self.password.lower() == self.username:
+            raise ValueError("Mật khẩu không được trùng tên đăng nhập")
         return self

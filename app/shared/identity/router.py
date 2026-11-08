@@ -10,9 +10,9 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.errors import AppError, ErrorCode
 from app.core.pagination import Page, PageParams
 from app.core.rbac import Role, require_roles
+from app.core.versioning import etag, parse_if_match
 from app.shared.identity import service
 from app.shared.identity.dependencies import get_current_user
 from app.shared.identity.models import SysUser
@@ -51,23 +51,6 @@ def _no_store(response: Response) -> None:
     # Phản hồi có token: không cho proxy/trình duyệt lưu đệm.
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
-
-
-def _etag(user: SysUser) -> str:
-    return f'"{user.row_version}"'
-
-
-def _parse_if_match(if_match: str | None) -> int | None:
-    if if_match is None:
-        return None
-    value = if_match.strip().removeprefix("W/").strip('"')
-    if not value.isdigit():
-        raise AppError(
-            ErrorCode.VALIDATION_ERROR,
-            422,
-            details=[{"field": "header.If-Match", "issue": "invalid", "message": "If-Match phải là ETag của bản ghi"}],
-        )
-    return int(value)
 
 
 # --- /api/v2/auth -----------------------------------------------------------------------------------------
@@ -133,7 +116,7 @@ def create_user(
 ):
     user = service.create_user(db, body, actor.id)
     response.headers["Location"] = f"/api/v2/users/{user.id}"
-    response.headers["ETag"] = _etag(user)
+    response.headers["ETag"] = etag(user.row_version)
     return user
 
 
@@ -145,7 +128,7 @@ def get_user(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     user = service.get_user(db, user_id)
-    response.headers["ETag"] = _etag(user)
+    response.headers["ETag"] = etag(user.row_version)
     return user
 
 
@@ -158,8 +141,8 @@ def update_user(
     actor: SysUser = Depends(_admin),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
-    user = service.update_user(db, service.get_user(db, user_id), body, actor, _parse_if_match(if_match))
-    response.headers["ETag"] = _etag(user)
+    user = service.update_user(db, service.get_user(db, user_id), body, actor, parse_if_match(if_match))
+    response.headers["ETag"] = etag(user.row_version)
     return user
 
 
@@ -171,5 +154,5 @@ def unlock_user(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     user = service.unlock_user(db, service.get_user(db, user_id), actor)
-    response.headers["ETag"] = _etag(user)
+    response.headers["ETag"] = etag(user.row_version)
     return user
