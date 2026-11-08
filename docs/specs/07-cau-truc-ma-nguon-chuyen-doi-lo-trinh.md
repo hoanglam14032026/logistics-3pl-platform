@@ -3,7 +3,7 @@
 ## 1. Cấu trúc thư mục đích (v2.0)
 
 ```
-fastapi-todo/                       # Đổi tên repo: CẦN XÁC NHẬN (đề xuất: logistics-3pl-platform)
+logistics-3pl-platform/             # Tên repo (đổi từ fastapi-todo – đã chốt 08/11/2026)
 ├── app/
 │   ├── main.py                     # create_app(): middleware, exception handler chung, gắn router theo ENABLED_FLOWS
 │   ├── core/                       # Hạ tầng kỹ thuật, không chứa nghiệp vụ
@@ -52,7 +52,9 @@ fastapi-todo/                       # Đổi tên repo: CẦN XÁC NHẬN (đề
 ├── docs/specs/                     # Bộ đặc tả này
 ├── deploy/                         # docker-compose các dịch vụ hạ tầng: PostgreSQL, hàng đợi, máy chủ media WebRTC (SFU + dịch vụ ghi), TURN (coturn)
 ├── Dockerfile  docker-compose.yml  .dockerignore  .gitignore
-├── pyproject.toml                  # Thay requirements*.txt; cấu hình ruff, pytest
+├── pyproject.toml                  # Thay requirements*.txt; khai báo phụ thuộc chốt cứng ==; cấu hình ruff, pytest
+├── requirements-lock.txt           # pip freeze của phụ thuộc chạy (runtime); Docker cài từ file này
+├── .python-version                 # 3.12
 └── README.md
 ```
 
@@ -60,10 +62,10 @@ fastapi-todo/                       # Đổi tên repo: CẦN XÁC NHẬN (đề
 
 | Hạng mục | v1.1.0 | v2.0 | Lý do |
 |---|---|---|---|
-| Phiên bản thư viện | FastAPI 0.104.1, Pydantic 2.5.0, SQLAlchemy 2.0.23 | Bản ổn định hiện hành tại thời điểm bắt đầu Giai đoạn 0, chốt cứng trong `pyproject.toml` – **CẦN XÁC NHẬN** khi lập kế hoạch | Bản 2023, chưa kiểm chứng trên Python ≥ 3.13 |
-| Python | 3.11 (Docker), `venv/` 3.15 rỗng | 3.12 thống nhất local/Docker/CI – **CẦN XÁC NHẬN**; xóa `venv/` | Một phiên bản duy nhất |
-| CSDL | SQLite, `create_all` | SQLite cho dev/test; PostgreSQL cho môi trường thật; **Alembic** quản lý schema | Có migration; hỗ trợ đồng thời nhiều người dùng |
-| Thư viện bổ sung | – | `alembic`, `pydantic-settings`, `PyJWT`, `argon2-cffi`, `pyotp` (xác thực 2 lớp), `filetype` (nhận dạng MIME), `openpyxl` (nhập/xuất XLSX), `psycopg`, `jsonschema` (tham số bộ đánh giá), thư viện JSONLogic (biểu thức điều kiện), `docxtpl` + chuyển PDF (biên bản thanh lý, phụ lục, phiếu thu/chi in), `pypdf` (đếm trang, kiểm tra file scan), hàng đợi tác vụ nền (vd. `arq`/`rq` – **CẦN XÁC NHẬN**); SDK quản trị của máy chủ media (vd. `livekit-api`) để cấp token phòng, điều khiển ghi; `faster-whisper` (hoặc thư viện của mô hình được chọn) cho nhận dạng tiếng nói cục bộ; công cụ hệ thống `ffmpeg` (xử lý media) | 02 §5.3, §3.9; 04 §3.3; 06 |
+| Phiên bản thư viện | FastAPI 0.104.1, Pydantic 2.5.0, SQLAlchemy 2.0.23 | **Đã chốt (08/11/2026)**, ghi cứng `==` trong `pyproject.toml`: `fastapi==0.162.2`, `pydantic==2.14.3`, `sqlalchemy==2.0.57`, `alembic==1.20.1`, `uvicorn[standard]==0.54.0`, `psycopg[binary]==3.3.8`, `python-jose[cryptography]==3.5.0`, `passlib[argon2]==1.7.4`, `python-multipart==0.0.33`; toàn bộ phụ thuộc bắc cầu khóa trong `requirements-lock.txt` (pip freeze) | Bản 2023, chưa kiểm chứng trên Python ≥ 3.13 |
+| Python | 3.11 (Docker), `venv/` 3.15 rỗng | **Đã chốt: 3.12** thống nhất local/Docker/CI – `.python-version = 3.12`, `python:3.12-slim`, `requires-python = ">=3.12,<3.13"`; đã xóa `venv/` | Một phiên bản duy nhất |
+| CSDL | SQLite, `create_all` | **Đã chốt: PostgreSQL 17 ngay từ Giai đoạn 0** cho dev (`logistics_3pl_dev`), test (`logistics_3pl_test`) và môi trường thật, chạy qua `docker-compose`; test tích hợp (có CSDL) **không** dùng SQLite; SQLite chỉ dùng cho test đơn vị không đụng CSDL; **Alembic** quản lý schema | Có migration; hỗ trợ đồng thời nhiều người dùng |
+| Thư viện bổ sung | – | `alembic`, `pydantic-settings`, `python-jose` (JWT – đã chốt thay `PyJWT`), `passlib[argon2]` (băm mật khẩu – đã chốt thay `argon2-cffi` trực tiếp), `pyotp` (xác thực 2 lớp – thêm khi làm cổng khách hàng), `filetype` (nhận dạng MIME), `openpyxl` (nhập/xuất XLSX), `psycopg`, `jsonschema` (tham số bộ đánh giá), thư viện JSONLogic (biểu thức điều kiện), `docxtpl` + chuyển PDF (biên bản thanh lý, phụ lục, phiếu thu/chi in), `pypdf` (đếm trang, kiểm tra file scan), hàng đợi tác vụ nền (vd. `arq`/`rq` – **CẦN XÁC NHẬN**); SDK quản trị của máy chủ media (vd. `livekit-api`) để cấp token phòng, điều khiển ghi; `faster-whisper` (hoặc thư viện của mô hình được chọn) cho nhận dạng tiếng nói cục bộ; công cụ hệ thống `ffmpeg` (xử lý media) | 02 §5.3, §3.9; 04 §3.3; 06 |
 | Hạ tầng phỏng vấn online | – | Máy chủ media WebRTC (SFU + dịch vụ ghi) và TURN/STUN tự triển khai trên máy chủ đơn vị; máy chủ nhận dạng tiếng nói (khuyến nghị có GPU) trong mạng nội bộ; tên miền riêng có chứng chỉ TLS; mở dải cổng UDP cho media và TCP/TLS 443 dự phòng | 04 §3.3.1a |
 | Kiểm tra mã | – | `ruff`, test kiến trúc, `pytest-cov` | §4 |
 

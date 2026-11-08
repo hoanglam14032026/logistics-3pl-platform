@@ -38,7 +38,7 @@ Các điểm **CẦN XÁC NHẬN** được liệt kê ở mục cuối của t�
 ## 4. Chạy và kiểm thử mã nguồn hiện tại (v1.1.0)
 
 ```bash
-cd fastapi-todo
+cd logistics-3pl-platform
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 uvicorn app.main:app --reload        # http://127.0.0.1:8000/docs
@@ -47,7 +47,6 @@ pytest                               # 18 test (đạt 18/18, chạy lại 08/11
 
 Docker: `docker compose up -d --build` (dữ liệu giữ tại `./data/` và `./uploads/`; chưa chạy thử – CẦN XÁC NHẬN). Biến môi trường, API và ví dụ `curl` của v1.1.0: [`90-hien-trang-v1.1.md`](docs/specs/90-hien-trang-v1.1.md).
 
-Thư mục `venv/` (Python 3.15, chưa cài thư viện) không dùng được, sẽ xóa ở Giai đoạn 0. Thư mục `_to_delete/` chứa các tài liệu đặc tả cũ sai lệch với code, chờ xóa.
 
 ## 5. Giấy phép
 

@@ -1,6 +1,6 @@
 # 99 – Lịch sử chỉnh sửa
 
-> Mục 10.1–10.5 trích nguyên văn từ README.md bản 2.1 (07/11/2026). Mục 10.6 ghi đợt tái cấu trúc đặc tả v2.0 (08/11/2026).
+> Mục 10.1–10.5 trích nguyên văn từ README.md bản 2.1 (07/11/2026). Mục 10.6 ghi đợt tái cấu trúc đặc tả v2.0 (08/11/2026). Mục 10.10 ghi các quyết định nền tảng kỹ thuật trước Giai đoạn 0.
 
 ## 10. Bảng chỉnh sửa
 
@@ -123,3 +123,14 @@ Phiên bản `1.1.0` (07/11/2026). Trạng thái trước khi chỉnh sửa (cod
 | `03` §3.2: chính sách phê duyệt do `business_manager` cấu hình; ngưỡng X, Y, Z CẦN XÁC NHẬN | Ngưỡng X, Y, Z là **giá trị giả định do `admin` nhập** (`ctl_approval_thresholds`, có lịch sử); chính sách phê duyệt do `admin` cấu hình, `business_manager` xem; chưa có ngưỡng → áp cấp 2 cho mọi giá trị; API `/approval-thresholds`; RBAC thêm dòng chính sách – ngưỡng | Quyết định của chủ dự án (điểm 2) |
 | `02` §3.10.5, §11: phân bổ chi phí chung CẦN XÁC NHẬN | **Không phân bổ** chi phí chung; kết quả hợp đồng dừng ở lãi gộp trên chi phí trực tiếp | Quyết định của chủ dự án (điểm 3) |
 | `04` §3.3.1, §9; `06` `TRANSCRIPTION_BACKEND`: dịch vụ chuyển giọng nói thành văn bản CẦN XÁC NHẬN | `04` §3.3.1b: nhận dạng tiếng nói **đặt tại máy chủ đơn vị** (mô hình mã nguồn mở hỗ trợ tiếng Việt; ứng viên họ Whisper/`faster-whisper`, PhoWhisper; chọn sau PoC đo WER và thời gian xử lý), `TranscriptionEngine`, từ điển thuật ngữ chuyên ngành, chạy trong mạng nội bộ; `06` biến `TRANSCRIPTION_ENGINE`, `TRANSCRIPTION_MODEL_PATH`, `TRANSCRIPTION_DEVICE`; `07` giai đoạn 1b bổ sung PoC nhận dạng tiếng nói, hạ tầng máy chủ nhận dạng | Quyết định của chủ dự án (điểm 4) |
+
+### 10.10. Chốt nền tảng kỹ thuật trước Giai đoạn 0 (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `07` §2: Python 3.12 – CẦN XÁC NHẬN | Python 3.12: `.python-version`, `python:3.12-slim`, `requires-python = ">=3.12,<3.13"` | Quyết định của chủ dự án (điểm 1) |
+| `07` §2: phiên bản thư viện CẦN XÁC NHẬN | Chốt cứng `==` trong `pyproject.toml` (FastAPI 0.162.2, Pydantic 2.14.3, SQLAlchemy 2.0.57, Alembic, Uvicorn, psycopg, python-jose, passlib); `requirements-lock.txt` từ `pip freeze` | Quyết định của chủ dự án (điểm 2) |
+| `07` §2: `PyJWT`, `argon2-cffi` | `python-jose[cryptography]`, `passlib[argon2]` | Quyết định của chủ dự án (điểm 2) |
+| `07` §2, `06` §6: SQLite cho dev/test, PostgreSQL môi trường thật – CẦN XÁC NHẬN | PostgreSQL 17 cho dev/test/prod (`logistics_3pl_dev`, `logistics_3pl_test`) qua `docker-compose`; SQLite chỉ cho test đơn vị không đụng CSDL; thêm biến `TEST_DATABASE_URL` | Quyết định của chủ dự án (điểm 3) |
+| `06` §3: xác thực 2 lớp ngay từ đầu | Hoãn tới cổng khách hàng; bước 0.6 làm JWT + refresh + RBAC + khóa tạm; có sẵn cột `totp_secret`, `is_2fa_enabled` | Quyết định của chủ dự án (điểm 4) |
+| `07` §1: tên repo `fastapi-todo` – CẦN XÁC NHẬN | `logistics-3pl-platform`; xóa `_to_delete/` (đã lưu trong commit `3600a61`) và `venv/` | Quyết định của chủ dự án (điểm 5) |

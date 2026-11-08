@@ -114,7 +114,7 @@ Phản hồi danh sách:
 - Đăng nhập tài khoản nội bộ, mật khẩu băm Argon2/bcrypt; JWT truy cập (15 phút) + refresh token (7 ngày, thu hồi được).
 - Tích hợp SSO của trường/doanh nghiệp (Google Workspace, Microsoft Entra ID): **CẦN XÁC NHẬN**.
 - Mọi endpoint trừ `/health`, `/ready`, `/api/v2/auth/login`, trang khách mời phỏng vấn (`/api/v2/learning/interview-invitations/{token}` – xác thực bằng token, `04` BR-309) và webhook của máy chủ media phỏng vấn (xác thực bằng chữ ký) yêu cầu xác thực.
-- Tài khoản `customer`: bắt buộc xác thực 2 lớp; khóa tạm sau 5 lần đăng nhập sai; giới hạn tần suất gọi API và tải file theo tài khoản; phiên tối đa 8 giờ. Tài khoản nội bộ có quyền phê duyệt hợp đồng – tài chính (`manager`, `business_manager`) cũng bắt buộc xác thực 2 lớp; thao tác phê duyệt cấp 2 yêu cầu xác thực lại (nhập lại OTP) nếu phiên đã quá 30 phút.
+- Tài khoản `customer`: bắt buộc xác thực 2 lớp; khóa tạm sau 5 lần đăng nhập sai; giới hạn tần suất gọi API và tải file theo tài khoản; phiên tối đa 8 giờ. **Lộ trình (đã chốt 08/11/2026):** Giai đoạn 0 (bước 0.6) chỉ làm JWT + refresh token + RBAC + khóa tạm sau nhiều lần đăng nhập sai; bảng `sys_users` có sẵn cột `totp_secret` (NULL) và `is_2fa_enabled` (mặc định `false`); endpoint và luồng xác thực 2 lớp làm cùng cổng khách hàng (Giai đoạn 2). Tài khoản nội bộ có quyền phê duyệt hợp đồng – tài chính (`manager`, `business_manager`) cũng bắt buộc xác thực 2 lớp; thao tác phê duyệt cấp 2 yêu cầu xác thực lại (nhập lại OTP) nếu phiên đã quá 30 phút.
 
 ## 4. Phân quyền (RBAC)
 
@@ -158,7 +158,8 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
 
 | Biến | Mặc định | Ghi chú |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:///./data/app.db` | Môi trường thật: PostgreSQL (`postgresql+psycopg://…`) – **CẦN XÁC NHẬN** |
+| `DATABASE_URL` | `postgresql+psycopg://logistics:logistics@localhost:5432/logistics_3pl_dev` | PostgreSQL 17 cho mọi môi trường (đã chốt 08/11/2026) |
+| `TEST_DATABASE_URL` | `postgresql+psycopg://logistics:logistics@localhost:5432/logistics_3pl_test` | CSDL riêng cho test tích hợp; bộ test xóa/tạo lại bảng trên CSDL này |
 | `STORAGE_BACKEND` | `local` | `local` / `s3` |
 | `UPLOAD_DIR` | `./data/uploads` | Khi `local` |
 | `JWT_SECRET`, `JWT_ACCESS_TTL_MIN`, `JWT_REFRESH_TTL_DAYS` | – / 15 / 7 | `JWT_SECRET` bắt buộc, không có mặc định |

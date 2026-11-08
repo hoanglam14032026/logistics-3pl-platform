@@ -1,8 +1,8 @@
 services:
   api:
     build: .
-    image: fastapi-todo:latest
-    container_name: fastapi-todo
+    image: logistics-3pl-platform:latest
+    container_name: logistics-3pl-platform
     ports:
       - "8000:8000"
     volumes:
