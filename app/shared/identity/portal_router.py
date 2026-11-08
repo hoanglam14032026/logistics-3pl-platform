@@ -20,7 +20,13 @@ from app.core.rbac import Role, forbidden, require_roles
 from app.core.versioning import etag
 from app.shared.identity import service
 from app.shared.identity.models import SysUser
-from app.shared.identity.schemas import CustomerAccountCreate, PortalAccountCreate, UserOut
+from app.shared.identity.schemas import (
+    CustomerAccountCreate,
+    InvitationResult,
+    InvitedUserOut,
+    PortalAccountCreate,
+    UserOut,
+)
 
 router = APIRouter(prefix="/api/v2/portal/users", tags=["Portal – Users"])
 
@@ -53,7 +59,12 @@ def list_accounts(
     )
 
 
-@router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED, summary="Mời tài khoản mới")
+@router.post(
+    "",
+    response_model=InvitedUserOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Mời tài khoản mới (thư mời qua email)",
+)
 def invite_account(
     body: PortalAccountCreate,
     response: Response,
@@ -63,10 +74,22 @@ def invite_account(
     from app.shared.masterdata import service as md_service  # masterdata phụ thuộc identity – import trong hàm
 
     data = CustomerAccountCreate(**body.model_dump(), is_customer_admin=False)
-    user = md_service.create_customer_account(db, actor.party_id, data, actor.id)
+    user, sent = md_service.create_customer_account(db, actor.party_id, data, actor.id)
     response.headers["Location"] = f"/api/v2/portal/users/{user.id}"
     response.headers["ETag"] = etag(user.row_version)
-    return user
+    return InvitedUserOut.model_validate(user).model_copy(update={"invitation_sent": sent})
+
+
+@router.post("/{user_id:int}:resend-invite", response_model=InvitationResult, summary="Gửi lại thư mời")
+def resend_invitation(
+    user_id: int,
+    actor: SysUser = Depends(get_customer_admin),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    from app.shared.masterdata import service as md_service
+
+    _same_party_account(db, actor, user_id)
+    return InvitationResult(invitation_sent=md_service.resend_invitation(db, actor.party_id, user_id, actor.id))
 
 
 @router.post("/{user_id:int}:deactivate", response_model=UserOut, summary="Khóa tài khoản khác cùng khách hàng")

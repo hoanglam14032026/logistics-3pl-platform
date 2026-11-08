@@ -25,7 +25,10 @@ from app.core.errors import AppError, ErrorCode
 from app.core.pagination import PageParams, like_pattern, order_by_clause, paginate
 from app.core.rbac import Role, forbidden
 from app.core.security import (
+    MFA_SETUP,
+    MFA_VERIFY,
     create_access_token,
+    create_mfa_token,
     generate_refresh_token,
     hash_password,
     hash_refresh_token,
@@ -51,6 +54,15 @@ class ClientInfo:
 
 
 @dataclass(frozen=True)
+class MfaChallenge:
+    """Đúng mật khẩu nhưng còn thiếu lớp 2: `kind` = verify (nhập mã TOTP) / setup (bắt buộc thiết lập 2FA)."""
+
+    kind: str
+    mfa_token: str
+    expires_in: int
+
+
+@dataclass(frozen=True)
 class IssuedTokens:
     access_token: str
     expires_in: int
@@ -72,9 +84,12 @@ def _issue_tokens(
     client: ClientInfo,
     settings: Settings,
     family_id: uuid.UUID | None = None,
+    mfa: bool = False,
 ) -> tuple[IssuedTokens, SysRefreshToken]:
+    # amr (RFC 8176): phương thức đã dùng để xác thực – pwd, hoặc pwd + otp khi qua xác thực 2 lớp
+    amr = ["pwd", "otp"] if mfa else ["pwd"]
     access, expires_in = create_access_token(
-        user.id, user.role_codes, settings, extra_claims={"pwd_at": password_stamp(user)}
+        user.id, user.role_codes, settings, extra_claims={"pwd_at": password_stamp(user), "amr": amr}
     )
     raw_refresh = generate_refresh_token()
     ttl = timedelta(days=settings.jwt_refresh_ttl_days)
@@ -85,6 +100,7 @@ def _issue_tokens(
         expires_at=now_utc() + ttl,
         created_ip=client.ip,
         user_agent=(client.user_agent or "")[:255] or None,
+        mfa=mfa,
     )
     db.add(record)
     db.flush()
@@ -153,20 +169,7 @@ def login(db: Session, username: str, password: str, client: ClientInfo, setting
         raise unauthenticated(ACCOUNT_LOCKED)
 
     if not verify_password(user.password_hash if user else None, password):
-        just_locked = False
-        if user is not None:
-            user.failed_login_count += 1
-            just_locked = user.failed_login_count >= settings.auth_max_failed_logins
-            if just_locked:
-                user.locked_until = now + timedelta(minutes=settings.auth_lockout_minutes)
-                user.failed_login_count = 0  # hết hạn khóa: được thêm đủ N lần thử
-                _audit_user(
-                    db,
-                    "user.lock",
-                    user,
-                    None,
-                    after={"locked_until": user.locked_until, "failed_attempts": settings.auth_max_failed_logins},
-                )
+        just_locked = _count_failure(db, user, settings) if user is not None else False
         _login_failed(db, user, username, "invalid_password" if user else "unknown_user")
         raise unauthenticated(ACCOUNT_LOCKED if just_locked else INVALID_CREDENTIALS)
 
@@ -174,12 +177,45 @@ def login(db: Session, username: str, password: str, client: ClientInfo, setting
         _login_failed(db, user, username, "disabled")
         raise forbidden(ACCOUNT_DISABLED)
 
-    user.failed_login_count = 0
-    user.locked_until = None
-    user.last_login_at = now
     if password_needs_rehash(user.password_hash):
         user.password_hash = hash_password(password)
-    tokens, _ = _issue_tokens(db, user, client, settings)
+    # Còn thiếu lớp 2: CHƯA đặt lại bộ đếm sai – đoán mã TOTP cũng bị khóa tạm như đoán mật khẩu
+    if user.is_2fa_enabled or requires_2fa(user, settings):
+        kind = MFA_VERIFY if user.is_2fa_enabled else MFA_SETUP
+        token, ttl = create_mfa_token(user.id, kind, password_stamp(user), settings)
+        db.commit()
+        return MfaChallenge(kind, token, ttl)
+    return _complete_login(db, user, client, settings, mfa=False)
+
+
+def requires_2fa(user: SysUser, settings: Settings | None = None) -> bool:
+    """Tài khoản phải qua 2 lớp: đã tự bật, hoặc có vai trò bắt buộc (AUTH_2FA_REQUIRED_ROLES – mặc định customer)."""
+    settings = settings or get_settings()
+    return user.is_2fa_enabled or bool(set(user.role_codes) & settings.auth_2fa_required_roles)
+
+
+def _count_failure(db: Session, user: SysUser, settings: Settings) -> bool:
+    """Một lần xác thực sai (mật khẩu hoặc mã TOTP): tăng bộ đếm, tới ngưỡng thì khóa tạm. Trả True nếu vừa khóa."""
+    user.failed_login_count += 1
+    if user.failed_login_count < settings.auth_max_failed_logins:
+        return False
+    user.locked_until = now_utc() + timedelta(minutes=settings.auth_lockout_minutes)
+    user.failed_login_count = 0  # hết hạn khóa: được thêm đủ N lần thử
+    _audit_user(
+        db,
+        "user.lock",
+        user,
+        None,
+        after={"locked_until": user.locked_until, "failed_attempts": settings.auth_max_failed_logins},
+    )
+    return True
+
+
+def _complete_login(db: Session, user: SysUser, client: ClientInfo, settings: Settings, mfa: bool) -> IssuedTokens:
+    user.failed_login_count = 0
+    user.locked_until = None
+    user.last_login_at = now_utc()
+    tokens, _ = _issue_tokens(db, user, client, settings, mfa=mfa)
     db.commit()
     return tokens
 
@@ -209,8 +245,13 @@ def refresh(db: Session, raw_token: str, client: ClientInfo, settings: Settings 
         _revoke(db, "deactivated", SysRefreshToken.family_id == record.family_id)
         db.commit()
         raise unauthenticated()
+    if requires_2fa(user, settings) and not record.mfa:
+        # Phiên cấp trước khi bắt buộc 2FA / trước khi bật 2FA: không cấp access token mới
+        _revoke(db, "mfa_required", SysRefreshToken.family_id == record.family_id)
+        db.commit()
+        raise unauthenticated("Cần đăng nhập lại với xác thực 2 lớp")
 
-    tokens, new_record = _issue_tokens(db, user, client, settings, family_id=record.family_id)
+    tokens, new_record = _issue_tokens(db, user, client, settings, family_id=record.family_id, mfa=record.mfa)
     record.revoked_at = now
     record.revoked_reason = "rotated"
     record.replaced_by_id = new_record.id

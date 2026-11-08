@@ -36,6 +36,7 @@ OPS_TABLES = {
     "ops_contract_versions",
     "ops_contract_attachments",
     "sys_files",
+    "sys_user_tokens",
 }
 
 
@@ -62,7 +63,7 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0006"
+    assert head_revision() == "0007"
 
 
 def test_upgrade_from_empty_creates_all_tables():

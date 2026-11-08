@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     auth_login_rate_limit_per_ip: int = Field(default=20, gt=0)
     auth_login_rate_limit_per_username: int = Field(default=10, gt=0)
     auth_login_rate_window_sec: int = Field(default=60, gt=0)
+    # Xác thực 2 lớp TOTP (06 §3): vai trò bắt buộc bật; mfa_token (bước 2 của đăng nhập) sống N giây
+    auth_2fa_required_roles: Annotated[frozenset[str], NoDecode] = frozenset({"customer"})
+    auth_mfa_token_ttl_sec: int = Field(default=300, gt=0)
+    totp_issuer: str = "Logistics 3PL"
+    # Thư mời (đặt mật khẩu lần đầu), đặt lại mật khẩu qua email: hạn token
+    invite_token_ttl_hours: int = Field(default=72, gt=0)
+    password_reset_token_ttl_min: int = Field(default=30, gt=0)
+    # Địa chỉ giao diện web – dùng trong đường dẫn gửi qua email
+    public_base_url: str = "http://localhost:5173"
 
     # Module (N6)
     enabled_flows: Annotated[frozenset[Flow], NoDecode] = frozenset(ALL_FLOWS)
@@ -68,6 +77,10 @@ class Settings(BaseSettings):
     smtp_username: str | None = None
     smtp_password: SecretStr | None = None
     smtp_from: str | None = None
+    smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
+    smtp_timeout_sec: int = Field(default=10, gt=0)
+    # auto: smtp nếu có SMTP_HOST, ngược lại console (ghi log – chỉ dùng cho máy dev); memory: dùng trong test
+    mail_backend: Literal["auto", "smtp", "console", "memory"] = "auto"
 
     # Phỏng vấn online (04 §3.3.1a)
     media_server: Literal["livekit", "jitsi"] = "livekit"
@@ -87,10 +100,35 @@ class Settings(BaseSettings):
     # Hàng đợi tác vụ nền
     job_queue_url: str | None = None
 
-    @field_validator("enabled_flows", "cors_origins", "turn_urls", mode="before")
+    @field_validator("enabled_flows", "cors_origins", "turn_urls", "auth_2fa_required_roles", mode="before")
     @classmethod
     def _parse_csv(cls, value: object) -> object:
         return _split_csv(value)
+
+    @field_validator("auth_2fa_required_roles")
+    @classmethod
+    def _known_roles(cls, value: frozenset[str]) -> frozenset[str]:
+        known = {
+            "ops_staff",
+            "manager",
+            "business_manager",
+            "learner",
+            "instructor",
+            "content_editor",
+            "customer",
+            "admin",
+        }
+        unknown = sorted(value - known)
+        if unknown:
+            raise ValueError(f"Vai trò không tồn tại: {', '.join(unknown)}")
+        return value
+
+    @field_validator("public_base_url")
+    @classmethod
+    def _base_url(cls, value: str) -> str:
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("PUBLIC_BASE_URL phải bắt đầu bằng http:// hoặc https://")
+        return value.rstrip("/")
 
     @field_validator("jwt_secret")
     @classmethod

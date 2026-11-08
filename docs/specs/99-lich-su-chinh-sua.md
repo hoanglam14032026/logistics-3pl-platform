@@ -257,3 +257,15 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | `tests/conftest.py` xóa thư mục tạm trong fixture phiên | `atexit` – `pytest --co` không để lại thư mục `l3pl_test_*` | Phát hiện 26 thư mục tạm bị bỏ lại |
 | – | Migration `0006` (6 bảng, 4 cột, 2 function + 6 trigger viết tay) | `07` §6 điểm 3 |
 | – | 84 test mới (32 chi tiết/phiên bản/thanh lý/đóng – gồm 8 câu SQL bị trigger chặn; 15 file hợp đồng – gồm Range, 413/415/422, không file mồ côi khi lỗi CSDL; 24 kho lưu trữ/nhận dạng; 13 cổng xem hợp đồng); 4 test cũ cập nhật (kích hoạt cần phạm vi, biểu giá, file); tổng 426 | `07` §4.1 |
+
+### 10.20. Mã nguồn – Giai đoạn 5: xác thực 2 lớp, SMTP, thư mời, quên/đặt lại mật khẩu (08/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `06` §3: `customer` bắt buộc 2FA (Giai đoạn 0–4: chỉ có cột `totp_secret`, `is_2fa_enabled`) | TOTP RFC 6238 (`app/core/totp.py`, thư viện chuẩn – không thêm `pyotp`); đăng nhập 2 bước (`mfa_token`); bắt buộc theo `AUTH_2FA_REQUIRED_ROLES` (mặc định `customer`); claim `amr`, refresh token `mfa`; bật/tắt; `admin` xóa 2FA; mã sai tính vào khóa tạm, chặn dùng lại mã | `06` §3; `02` §9.2 |
+| – | `totp_secret` lưu dạng rõ | Chưa có `cryptography` – **CẦN XÁC NHẬN** thêm thư viện để mã hóa |
+| Giai đoạn 1–2: `manager`, customer admin tạo tài khoản customer **kèm mật khẩu ban đầu** | Không mật khẩu, `email` bắt buộc; thư mời có đường dẫn đặt mật khẩu (72 giờ, dùng một lần); `:resend-invite`; `invitation_sent` trong phản hồi | Yêu cầu Giai đoạn 5 (thay quyết định tạm ở 10.17) |
+| – | Quên/đặt lại mật khẩu qua email (30 phút, dùng một lần; không lộ tài khoản; giới hạn tần suất; thu hồi phiên, mở khóa tạm) | Yêu cầu Giai đoạn 5 |
+| `SMTP_*` có trong cấu hình, chưa dùng | `app/shared/notifications/mail.py`: `smtp` (STARTTLS/SSL, timeout), `console` (máy dev), `memory` (test); thêm `SMTP_SECURITY`, `SMTP_TIMEOUT_SEC`, `MAIL_BACKEND`, `PUBLIC_BASE_URL` | `06` §6 |
+| – | Migration `0007`: `sys_user_tokens`; `sys_users.totp_enabled_at`, `totp_last_step`; `sys_refresh_tokens.mfa`. Nâng cấp hệ thống đang chạy: customer phải đăng nhập lại và thiết lập 2FA | `07` §6 điểm 3 |
+| – | 55 test mới (16 TOTP – vector RFC 4226/6238; 15 2FA – gồm mfa_token không thay access token, token chỉ có mật khẩu, refresh cũ, dùng lại mã, 5 mã sai khóa tạm; 24 email – gồm token chỉ lưu hash, dùng một lần, hết hạn, sai mục đích, không lộ tài khoản, lỗi SMTP, SMTP giả lập); fixture `login` đi hết bước 2FA; 22 test cũ cập nhật (tạo tài khoản customer không kèm mật khẩu); tổng 481 | `07` §4.1 |

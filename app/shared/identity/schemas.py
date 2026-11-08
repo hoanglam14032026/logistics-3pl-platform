@@ -148,7 +148,9 @@ class UserUpdate(BaseModel):
 
 
 class CustomerAccountCreate(BaseModel):
-    """Tài khoản `customer` cho một khách hàng (`POST /api/v2/md/parties/{id}/users`): vai trò luôn là `customer`."""
+    """Tài khoản `customer` cho một khách hàng (`POST /api/v2/md/parties/{id}/users`): vai trò luôn là `customer`.
+
+    Không có mật khẩu: hệ thống gửi thư mời kèm đường dẫn đặt mật khẩu tới `email` (bắt buộc)."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -157,39 +159,95 @@ class CustomerAccountCreate(BaseModel):
                 "username": "minhan.lan",
                 "email": "lan@minhan.vn",
                 "full_name": "Nguyễn Thị Lan",
-                "password": "MatKhau@2026",
                 "is_customer_admin": True,
             }
         },
     )
 
     username: Username
-    email: Email | None = None
+    email: Email
     full_name: FullName
-    password: Password
     is_customer_admin: bool = False
-
-    @model_validator(mode="after")
-    def _validate(self):
-        if self.password.lower() == self.username:
-            raise ValueError("Mật khẩu không được trùng tên đăng nhập")
-        return self
 
 
 class PortalAccountCreate(BaseModel):
-    """Customer admin mời tài khoản mới cho khách hàng của mình (`POST /api/v2/portal/users`).
+    """Customer admin mời tài khoản mới cho khách hàng của mình (`POST /api/v2/portal/users`) – thư mời qua email.
 
     Không có `is_customer_admin`: chỉ `manager`/`admin` cấp quyền quản trị tài khoản khách hàng."""
 
     model_config = ConfigDict(extra="forbid")
 
     username: Username
-    email: Email | None = None
+    email: Email
     full_name: FullName
-    password: Password
 
-    @model_validator(mode="after")
-    def _validate(self):
-        if self.password.lower() == self.username:
-            raise ValueError("Mật khẩu không được trùng tên đăng nhập")
-        return self
+
+class InvitedUserOut(UserOut):
+    invitation_sent: bool = Field(False, description="false: gửi thư lỗi – tài khoản đã tạo; gửi lại :resend-invite")
+
+
+class InvitationResult(BaseModel):
+    invitation_sent: bool
+
+
+# --- Xác thực 2 lớp, thư mời, đặt lại mật khẩu (Giai đoạn 5) -----------------------------------------------------
+
+TotpCode = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^\d{6}$")]
+MfaToken = Annotated[str, StringConstraints(min_length=1, max_length=2048)]
+EmailToken = Annotated[str, StringConstraints(min_length=1, max_length=256)]
+
+
+class MfaChallengeOut(BaseModel):
+    """Đúng mật khẩu, còn thiếu lớp 2. `mfa_required`: gọi /login/totp. `mfa_setup_required`: gọi /login/2fa-setup
+    rồi /login/2fa-enable."""
+
+    mfa_required: bool = False
+    mfa_setup_required: bool = False
+    mfa_token: str
+    expires_in: int
+
+
+class MfaTokenIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mfa_token: MfaToken
+
+
+class MfaCodeIn(MfaTokenIn):
+    code: TotpCode
+
+
+class CodeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: TotpCode
+
+
+class TotpDisableIn(CodeIn):
+    password: Annotated[str, StringConstraints(min_length=1, max_length=PASSWORD_MAX_LENGTH)]
+
+
+class TotpSetupOut(BaseModel):
+    """Chỉ trả một lần lúc thiết lập: người dùng quét `otpauth_uri` (mã QR) hoặc nhập `secret` vào ứng dụng xác thực."""
+
+    secret: str
+    otpauth_uri: str
+
+
+class SetPasswordIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: EmailToken
+    new_password: Password
+
+
+class ForgotPasswordIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identifier: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=254)] = Field(
+        description="Tên đăng nhập hoặc email"
+    )
+
+
+class ForgotPasswordOut(BaseModel):
+    message: str = "Nếu tài khoản tồn tại và có email, đường dẫn đặt lại mật khẩu đã được gửi"

@@ -7,6 +7,7 @@ khách hàng (Giai đoạn 2). `totp_secret` không bao giờ trả ra API.
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import (
     BigInteger,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Uuid,
@@ -60,9 +62,13 @@ class SysUser(AuditColumnsMixin, Base):
     )
     is_customer_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
-    # Dự phòng 2FA (Giai đoạn 2) – chưa dùng
+    # Xác thực 2 lớp TOTP (Giai đoạn 5). totp_secret: Base32, có giá trị từ lúc thiết lập (chưa bật) – **lưu dạng rõ**,
+    # chưa mã hóa (chưa có thư viện `cryptography` – CẦN XÁC NHẬN). Không bao giờ trả ra API trừ lúc thiết lập.
     totp_secret: Mapped[str | None] = mapped_column(String(64))
     is_2fa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Chu kỳ 30 giây của mã đã dùng gần nhất – chặn dùng lại cùng một mã
+    totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
 
     roles: Mapped[list["SysUserRole"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin", order_by="SysUserRole.role"
@@ -117,5 +123,37 @@ class SysRefreshToken(Base):
     replaced_by_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("sys_refresh_tokens.id"))
     created_ip: Mapped[str | None] = mapped_column(String(45))
     user_agent: Mapped[str | None] = mapped_column(String(255))
+    # Phiên đã qua xác thực 2 lớp – access token cấp lại khi làm mới giữ `amr` = pwd + otp
+    mfa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+    user: Mapped[SysUser] = relationship()
+
+
+class TokenPurpose(StrEnum):
+    INVITE = "invite"  # thư mời: đặt mật khẩu lần đầu
+    PASSWORD_RESET = "password_reset"  # quên mật khẩu
+
+
+class SysUserToken(Base):
+    """Token dùng một lần gửi qua email: chỉ lưu SHA-256, có hạn, `used_at` khi đã dùng. Cấp token mới cùng mục đích
+    → token cũ chưa dùng bị vô hiệu (`revoked_at`)."""
+
+    __tablename__ = "sys_user_tokens"
+    __table_args__ = (
+        CheckConstraint(f"purpose IN ({', '.join(repr(p.value) for p in TokenPurpose)})", name="purpose_valid"),
+        Index("ix_sys_user_tokens_user_purpose", "user_id", "purpose"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("sys_users.id", ondelete="CASCADE"), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(BigInteger)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[SysUser] = relationship()

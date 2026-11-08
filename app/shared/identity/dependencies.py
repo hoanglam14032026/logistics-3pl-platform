@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.security import decode_access_token, unauthenticated
 from app.shared.identity.models import SysUser
-from app.shared.identity.service import password_stamp
+from app.shared.identity.service import password_stamp, requires_2fa
 
 # auto_error=False: thiếu header thì tự trả lỗi theo định dạng thống nhất (06 §2.2), không dùng lỗi mặc định.
 _bearer = HTTPBearer(auto_error=False, description="Access token từ POST /api/v2/auth/login")
@@ -28,4 +28,7 @@ def get_current_user(
     # Khớp chính xác (micro giây) – không so `iat` (giây nguyên: token phát cùng giây trước khi đổi vẫn lọt).
     if claims.get("pwd_at") != password_stamp(user):
         raise unauthenticated("Mật khẩu đã thay đổi; đăng nhập lại")
+    # Tài khoản phải qua 2 lớp (đã bật / vai trò bắt buộc): token chỉ có mật khẩu không dùng được (06 §3)
+    if requires_2fa(user) and "otp" not in (claims.get("amr") or []):
+        raise unauthenticated("Cần đăng nhập lại với xác thực 2 lớp")
     return user

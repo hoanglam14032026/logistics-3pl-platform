@@ -9,7 +9,7 @@ from app.shared.identity import service
 from app.shared.identity.schemas import UserCreate
 
 PORTAL = "/api/v2/portal/users"
-INVITE = {"username": "minhan.hung", "full_name": "Trần Hùng", "password": "MatKhau@2026"}
+INVITE = {"username": "minhan.hung", "full_name": "Trần Hùng", "email": "hung@minhan.vn"}
 
 
 def _error(r, status: int, code: str) -> dict:
@@ -74,12 +74,14 @@ def test_list_only_own_party(client, world):
     assert page["total"] == 3 and {u["party_id"] for u in page["items"]} == {world["a"].id}
 
 
-def test_invite_account_in_own_party(client, world, login):
+def test_invite_account_in_own_party(client, world, login, accept_invite):
     r = client.post(PORTAL, json=INVITE, headers=world["h"]("a_admin"))
     assert r.status_code == 201, r.text
     body = r.json()
     assert r.headers["Location"] == f"{PORTAL}/{body['id']}"
     assert (body["roles"], body["party_id"], body["is_customer_admin"]) == (["customer"], world["a"].id, False)
+    assert body["invitation_sent"] is True
+    accept_invite("hung@minhan.vn")
     assert login("minhan.hung")["access_token"]
     with SessionLocal() as db:
         log = db.scalar(
@@ -105,7 +107,9 @@ def test_invite_cannot_escalate_or_change_party(client, world, extra):
 def test_invite_duplicate_and_validation(client, world):
     _error(client.post(PORTAL, json={**INVITE, "username": "b.user"}, headers=world["h"]("a_admin")), 409, "DUPLICATE")
     _error(
-        client.post(PORTAL, json={**INVITE, "password": "ngan"}, headers=world["h"]("a_admin")), 422, "VALIDATION_ERROR"
+        client.post(PORTAL, json={**INVITE, "email": "khong-phai-email"}, headers=world["h"]("a_admin")),
+        422,
+        "VALIDATION_ERROR",
     )
 
 

@@ -8,6 +8,7 @@ Danh mục khách hàng, đối tác (01 §4; 06 §2.3–2.5, §4) và tài kho�
 - Không đổi `party_type` khỏi `customer` khi đã có tài khoản gắn vào.
 """
 
+import secrets
 from collections.abc import Callable
 
 from sqlalchemy import exists, or_, select
@@ -19,6 +20,7 @@ from app.core.pagination import PageParams, like_pattern, order_by_clause, pagin
 from app.core.rbac import Role
 from app.core.timeutil import now_utc
 from app.shared.audit import service as audit
+from app.shared.identity import email_flows
 from app.shared.identity import service as identity_service
 from app.shared.identity.models import SysUser
 from app.shared.identity.schemas import CustomerAccountCreate, UserCreate
@@ -229,9 +231,14 @@ def restore_party(db: Session, party_id: int, actor_id: int, expected_version: i
 # --- Tài khoản customer của khách hàng (02 §9.2; 06 §4: manager tạo tài khoản customer) -----------------------
 
 
-def create_customer_account(db: Session, party_id: int, data: CustomerAccountCreate, actor_id: int) -> SysUser:
-    """Manager (06 §4) và customer admin (02 §9.2) tạo tài khoản customer. `admin` dùng `/api/v2/users` – không qua
-    `CUSTOMER_ACCOUNT_GUARDS` (06 §4: `admin` toàn quyền người dùng)."""
+def create_customer_account(
+    db: Session, party_id: int, data: CustomerAccountCreate, actor_id: int
+) -> tuple[SysUser, bool]:
+    """Manager (06 §4) và customer admin (02 §9.2) tạo tài khoản customer, gửi thư mời đặt mật khẩu (Giai đoạn 5).
+    Trả (tài khoản, đã gửi thư được không). `admin` dùng `/api/v2/users` – không qua `CUSTOMER_ACCOUNT_GUARDS`
+    (06 §4: `admin` toàn quyền người dùng).
+
+    Mật khẩu lúc tạo là chuỗi ngẫu nhiên không ai biết: chưa đăng nhập được cho tới khi người nhận đặt mật khẩu."""
     party = get_party(db, party_id)  # 404 nếu không có
     # Loại, trạng thái party trước (thông báo đúng nguyên nhân); identity_service kiểm lại khi khóa dòng.
     if party.party_type == PartyType.CUSTOMER.value and party.status == PartyStatus.ACTIVE.value:
@@ -240,12 +247,25 @@ def create_customer_account(db: Session, party_id: int, data: CustomerAccountCre
         username=data.username,
         email=data.email,
         full_name=data.full_name,
-        password=data.password,
+        password=secrets.token_urlsafe(32),
         roles=[Role.CUSTOMER],
         party_id=party_id,
         is_customer_admin=data.is_customer_admin,
     )
-    return identity_service.create_user(db, user_data, actor_id)
+    user = identity_service.create_user(db, user_data, actor_id)
+    return user, email_flows.send_invitation(db, user, actor_id)
+
+
+def resend_invitation(db: Session, party_id: int, user_id: int, actor_id: int) -> bool:
+    """Gửi lại thư mời (token mới, token cũ vô hiệu) – chỉ khi tài khoản cùng khách hàng chưa nhận lời mời."""
+    user = db.get(SysUser, user_id)
+    if user is None or user.party_id != party_id or Role.CUSTOMER.value not in user.role_codes:
+        raise AppError(ErrorCode.NOT_FOUND, 404, "Không tìm thấy người dùng")
+    if not user.is_active or not email_flows.invitation_pending(db, user):
+        raise _conflict("Tài khoản đã nhận lời mời hoặc đã bị vô hiệu hóa; dùng quên mật khẩu nếu cần")
+    if not user.email:
+        raise _conflict("Tài khoản không có email")
+    return email_flows.send_invitation(db, user, actor_id)
 
 
 def list_customer_accounts(db: Session, party_id: int, params: PageParams, status: str) -> tuple[list[SysUser], int]:

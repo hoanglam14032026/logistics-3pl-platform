@@ -20,7 +20,7 @@ from app.shared.masterdata.models import MdParty
 
 TODAY = today_vn()
 NO_CONTRACT = "Khách hàng chưa có hợp đồng đang hiệu lực cho phép dùng cổng (portal_enabled)"
-ACCOUNT = {"username": "minhan.lan", "full_name": "Nguyễn Thị Lan", "password": "MatKhau@2026"}
+ACCOUNT = {"username": "minhan.lan", "full_name": "Nguyễn Thị Lan", "email": "minhan.lan@minhan.vn"}
 
 
 @pytest.fixture()
@@ -36,7 +36,8 @@ def party(make_party):
 
 
 def _create_account(client, headers, party_id, username="minhan.lan"):
-    return client.post(f"/api/v2/md/parties/{party_id}/users", json={**ACCOUNT, "username": username}, headers=headers)
+    body = {**ACCOUNT, "username": username, "email": f"{username}@minhan.vn"}
+    return client.post(f"/api/v2/md/parties/{party_id}/users", json=body, headers=headers)
 
 
 def _rejected(r):
@@ -108,7 +109,7 @@ def test_one_valid_contract_among_others_is_enough(client, manager, party, make_
     assert _create_account(client, manager, party.id).status_code == 201
 
 
-def test_customer_admin_invite_follows_same_rule(client, manager, party, make_contract, auth_headers):
+def test_customer_admin_invite_follows_same_rule(client, manager, party, make_contract, auth_headers, accept_invite):
     c = make_contract(party.id)
     _create_account(client, manager, party.id)
     with SessionLocal() as db:
@@ -116,16 +117,18 @@ def test_customer_admin_invite_follows_same_rule(client, manager, party, make_co
 
         db.execute(update(SysUser).where(SysUser.username == "minhan.lan").values(is_customer_admin=True))
         db.commit()
+    accept_invite("minhan.lan@minhan.vn")
     headers = auth_headers("minhan.lan")
-    invite = {**ACCOUNT, "username": "minhan.hung"}
+    invite = {**ACCOUNT, "username": "minhan.hung", "email": "hung@minhan.vn"}
     assert client.post("/api/v2/portal/users", json=invite, headers=headers).status_code == 201
     client.post(f"/api/v2/ops/service-contracts/{c.id}:suspend", json={"reason": "Khách nợ phí"}, headers=manager)
-    _rejected(client.post("/api/v2/portal/users", json={**invite, "username": "minhan.mai"}, headers=headers))
+    mai = {**invite, "username": "minhan.mai", "email": "mai@minhan.vn"}
+    _rejected(client.post("/api/v2/portal/users", json=mai, headers=headers))
 
 
 def test_admin_is_not_restricted(client, manager, auth_headers, party):
     """06 §4: admin toàn quyền người dùng – tạo tài khoản customer qua /api/v2/users không cần hợp đồng."""
-    body = {**ACCOUNT, "roles": ["customer"], "party_id": party.id}
+    body = {**ACCOUNT, "password": "MatKhau@2026", "roles": ["customer"], "party_id": party.id}
     r = client.post("/api/v2/users", json=body, headers=auth_headers("quantri"))
     assert r.status_code == 201, r.text
 
@@ -178,7 +181,7 @@ def test_suspension_and_account_creation_do_not_race(client, manager, party, mak
 
     def create(i):
         with SessionLocal() as db:
-            data = CustomerAccountCreate(**{**ACCOUNT, "username": f"song.song{i}"})
+            data = CustomerAccountCreate(**{**ACCOUNT, "username": f"song.song{i}", "email": f"ss{i}@minhan.vn"})
             try:
                 md_service.create_customer_account(db, party.id, data, actor_id=1)
             except AppError:

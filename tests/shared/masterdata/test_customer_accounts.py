@@ -13,8 +13,8 @@ ACCOUNT = {
     "username": "minhan.lan",
     "email": "lan@minhan.vn",
     "full_name": "Nguyễn Thị Lan",
-    "password": "MatKhau@2026",
 }
+PASSWORD = "MatKhau@2026"
 
 
 def _error(r, status: int, code: str) -> dict:
@@ -41,7 +41,7 @@ def customer_party(make_party, make_contract):
 
 def _admin_account(client, staff, party_id, username="minhan.lan"):
     """Admin tạo tài khoản customer qua /api/v2/users (không cần hợp đồng – 06 §4: admin toàn quyền người dùng)."""
-    body = {**ACCOUNT, "username": username, "roles": ["customer"], "party_id": party_id}
+    body = {**ACCOUNT, "username": username, "password": PASSWORD, "roles": ["customer"], "party_id": party_id}
     r = client.post("/api/v2/users", json=body, headers=staff["admin"])
     assert r.status_code == 201, r.text
     return r.json()
@@ -55,14 +55,17 @@ def _create_account(client, headers, pid, /, **override):
 
 
 @pytest.mark.parametrize("who", ["manager", "admin"])
-def test_manager_creates_customer_account(client, staff, customer_party, login, who):
+def test_manager_creates_customer_account(client, staff, customer_party, login, accept_invite, who):
     r = _create_account(client, staff[who], customer_party.id, is_customer_admin=True)
     assert r.status_code == 201, r.text
     body = r.json()
     assert r.headers["Location"] == f"/api/v2/users/{body['id']}"
     assert (body["roles"], body["party_id"], body["is_customer_admin"]) == (["customer"], customer_party.id, True)
 
-    # Khách hàng đăng nhập được, thấy khách hàng của mình; không truy cập danh mục nội bộ, quản lý người dùng
+    assert body["invitation_sent"] is True
+    # Nhận lời mời (đặt mật khẩu) → đăng nhập (thiết lập 2FA bắt buộc) → thấy khách hàng của mình; không truy cập
+    # danh mục nội bộ, quản lý người dùng
+    accept_invite("lan@minhan.vn")
     headers = {"Authorization": f"Bearer {login('minhan.lan')['access_token']}"}
     me = client.get("/api/v2/auth/me", headers=headers).json()
     assert (me["party_id"], me["is_customer_admin"]) == (customer_party.id, True)
@@ -106,8 +109,8 @@ def test_many_accounts_per_customer_and_listing(client, staff, customer_party, m
     other = make_party("Khách khác", tax_code="0109999999")
     make_contract(other.id)
     _create_account(client, staff["manager"], customer_party.id, is_customer_admin=True)
-    _create_account(client, staff["manager"], customer_party.id, username="minhan.hung", email=None)
-    _create_account(client, staff["manager"], other.id, username="khac.mot", email=None)
+    _create_account(client, staff["manager"], customer_party.id, username="minhan.hung", email="hung@minhan.vn")
+    _create_account(client, staff["manager"], other.id, username="khac.mot", email="mot@khac.vn")
     _error(_create_account(client, staff["manager"], customer_party.id), 409, "DUPLICATE")
 
     page = client.get(
@@ -131,7 +134,7 @@ def test_many_accounts_per_customer_and_listing(client, staff, customer_party, m
     ],
 )
 def test_admin_create_rules(client, staff, customer_party, override, field):
-    body = {**ACCOUNT, **override}
+    body = {**ACCOUNT, "password": PASSWORD, **override}
     if body.pop("with_party", False):
         body["party_id"] = customer_party.id
     err = _error(client.post("/api/v2/users", json=body, headers=staff["admin"]), 422, "VALIDATION_ERROR")
@@ -139,7 +142,13 @@ def test_admin_create_rules(client, staff, customer_party, override, field):
 
 
 def test_admin_creates_customer_via_users(client, staff, customer_party):
-    body = {**ACCOUNT, "roles": ["customer"], "party_id": customer_party.id, "is_customer_admin": True}
+    body = {
+        **ACCOUNT,
+        "password": PASSWORD,
+        "roles": ["customer"],
+        "party_id": customer_party.id,
+        "is_customer_admin": True,
+    }
     r = client.post("/api/v2/users", json=body, headers=staff["admin"])
     assert r.status_code == 201 and r.json()["party_id"] == customer_party.id
 
@@ -213,7 +222,7 @@ def test_archive_and_account_creation_do_not_race(client, staff, customer_party)
     def create(i):
         with SessionLocal() as db:
             try:
-                data = CustomerAccountCreate(**{**ACCOUNT, "username": f"song.song{i}", "email": None})
+                data = CustomerAccountCreate(**{**ACCOUNT, "username": f"song.song{i}", "email": f"ss{i}@minhan.vn"})
                 service.create_customer_account(db, customer_party.id, data, actor_id=1)
             except AppError:
                 pass

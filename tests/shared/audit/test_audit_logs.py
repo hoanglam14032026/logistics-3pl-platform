@@ -79,7 +79,7 @@ def test_account_creation_and_deactivation_are_logged(client, staff, make_party,
     make_contract(party.id)
     r = client.post(
         f"{PARTIES}/{party.id}/users",
-        json={"username": "minhan.lan", "full_name": "Lan", "password": "MatKhau@2026", "is_customer_admin": True},
+        json={"username": "minhan.lan", "full_name": "Lan", "email": "lan@minhan.vn", "is_customer_admin": True},
         headers=staff["manager"],
     )
     uid = r.json()["id"]
@@ -90,6 +90,7 @@ def test_account_creation_and_deactivation_are_logged(client, staff, make_party,
     logs = [log for log in _logs() if log.entity_type == "user" and log.entity_id == uid]
     assert [log.action for log in logs] == [
         "user.create",
+        "user.invite_sent",
         "user.deactivate",
         "user.update",
         "user.activate",
@@ -99,16 +100,17 @@ def test_account_creation_and_deactivation_are_logged(client, staff, make_party,
     assert create.actor_id == _me(client, staff["manager"])
     assert create.after == {
         "username": "minhan.lan",
-        "email": None,
+        "email": "lan@minhan.vn",
         "full_name": "Lan",
         "role_codes": ["customer"],
         "is_active": True,
         "party_id": party.id,
         "is_customer_admin": True,
     }
-    assert (logs[1].before, logs[1].after) == ({"is_active": True}, {"is_active": False})
-    assert (logs[2].before, logs[2].after) == ({"full_name": "Lan"}, {"full_name": "Nguyễn Thị Lan"})
-    assert logs[4].before is None and logs[4].after is None
+    assert logs[1].after == {"email": "lan@minhan.vn"}  # thư mời
+    assert (logs[2].before, logs[2].after) == ({"is_active": True}, {"is_active": False})
+    assert (logs[3].before, logs[3].after) == ({"full_name": "Lan"}, {"full_name": "Nguyễn Thị Lan"})
+    assert logs[5].before is None and logs[5].after is None
 
 
 def test_lock_unlock_and_password_change_are_logged(client, staff, make_user, auth_headers):

@@ -12,15 +12,25 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.pagination import Page, PageParams
 from app.core.rbac import Role, require_roles
+from app.core.security import MFA_SETUP, MFA_VERIFY
 from app.core.versioning import etag, parse_if_match
-from app.shared.identity import service
+from app.shared.identity import email_flows, service, twofactor
 from app.shared.identity.dependencies import get_current_user
 from app.shared.identity.models import SysUser
 from app.shared.identity.schemas import (
     ChangePasswordRequest,
+    CodeIn,
+    ForgotPasswordIn,
+    ForgotPasswordOut,
     LoginRequest,
+    MfaChallengeOut,
+    MfaCodeIn,
+    MfaTokenIn,
     RefreshRequest,
+    SetPasswordIn,
     TokenResponse,
+    TotpDisableIn,
+    TotpSetupOut,
     UserCreate,
     UserOut,
     UserUpdate,
@@ -58,15 +68,48 @@ def _no_store(response: Response) -> None:
 
 @auth_router.post(
     "/login",
-    response_model=TokenResponse,
-    summary="Đăng nhập, nhận access token + refresh token",
-    description="Giới hạn tần suất theo IP và tên đăng nhập; vượt ngưỡng → 429 RATE_LIMITED + Retry-After.",
+    response_model=TokenResponse | MfaChallengeOut,
+    summary="Đăng nhập (bước 1): token, hoặc yêu cầu mã xác thực 2 lớp",
+    description=(
+        "Giới hạn tần suất theo IP và tên đăng nhập; vượt ngưỡng → 429 RATE_LIMITED + Retry-After. "
+        "Đã bật 2FA → `mfa_required` + `mfa_token` (gọi /login/totp). Vai trò bắt buộc 2FA mà chưa bật → "
+        "`mfa_setup_required` + `mfa_token` (gọi /login/2fa-setup, /login/2fa-enable)."
+    ),
 )
 def login(body: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):  # noqa: B008
     _no_store(response)
     client = _client(request)
     service.check_login_rate(body.username, client.ip)  # 429 trước khi băm mật khẩu
-    return _tokens(service.login(db, body.username, body.password, client))
+    result = service.login(db, body.username, body.password, client)
+    if isinstance(result, service.MfaChallenge):
+        return MfaChallengeOut(
+            mfa_required=result.kind == MFA_VERIFY,
+            mfa_setup_required=result.kind == MFA_SETUP,
+            mfa_token=result.mfa_token,
+            expires_in=result.expires_in,
+        )
+    return _tokens(result)
+
+
+@auth_router.post("/login/totp", response_model=TokenResponse, summary="Đăng nhập (bước 2): mã TOTP")
+def login_totp(body: MfaCodeIn, request: Request, response: Response, db: Session = Depends(get_db)):  # noqa: B008
+    _no_store(response)
+    return _tokens(twofactor.login_totp(db, body.mfa_token, body.code, _client(request)))
+
+
+@auth_router.post(
+    "/login/2fa-setup", response_model=TotpSetupOut, summary="Đăng nhập: thiết lập 2FA bắt buộc (lấy secret, mã QR)"
+)
+def login_2fa_setup(body: MfaTokenIn, response: Response, db: Session = Depends(get_db)):  # noqa: B008
+    _no_store(response)
+    result = twofactor.login_setup(db, body.mfa_token)
+    return TotpSetupOut(secret=result.secret, otpauth_uri=result.otpauth_uri)
+
+
+@auth_router.post("/login/2fa-enable", response_model=TokenResponse, summary="Đăng nhập: bật 2FA bằng mã đầu tiên")
+def login_2fa_enable(body: MfaCodeIn, request: Request, response: Response, db: Session = Depends(get_db)):  # noqa: B008
+    _no_store(response)
+    return _tokens(twofactor.login_enable(db, body.mfa_token, body.code, _client(request)))
 
 
 @auth_router.post("/refresh", response_model=TokenResponse, summary="Đổi refresh token lấy cặp token mới")
@@ -161,5 +204,78 @@ def unlock_user(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     user = service.unlock_user(db, service.get_user(db, user_id), actor)
+    response.headers["ETag"] = etag(user.row_version)
+    return user
+
+
+# --- Xác thực 2 lớp của người đã đăng nhập ----------------------------------------------------------------------
+
+
+@auth_router.post("/2fa/setup", response_model=TotpSetupOut, summary="Thiết lập 2FA (lấy secret, mã QR)")
+def setup_2fa(response: Response, user: SysUser = Depends(get_current_user), db: Session = Depends(get_db)):  # noqa: B008
+    _no_store(response)
+    result = twofactor.setup(db, user)
+    return TotpSetupOut(secret=result.secret, otpauth_uri=result.otpauth_uri)
+
+
+@auth_router.post(
+    "/2fa/enable", response_model=TokenResponse, summary="Bật 2FA bằng mã đầu tiên (thu hồi phiên cũ, trả token mới)"
+)
+def enable_2fa(
+    body: CodeIn,
+    request: Request,
+    response: Response,
+    user: SysUser = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    _no_store(response)
+    return _tokens(twofactor.enable(db, user, body.code, _client(request)))
+
+
+@auth_router.post("/2fa/disable", status_code=status.HTTP_204_NO_CONTENT, summary="Tắt 2FA (cần mật khẩu + mã)")
+def disable_2fa(
+    body: TotpDisableIn,
+    user: SysUser = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    twofactor.disable(db, user, body.password, body.code)
+
+
+# --- Thư mời, quên / đặt lại mật khẩu (không cần đăng nhập) -----------------------------------------------------
+
+
+@auth_router.post(
+    "/invitations/accept", status_code=status.HTTP_204_NO_CONTENT, summary="Nhận lời mời: đặt mật khẩu lần đầu"
+)
+def accept_invitation(body: SetPasswordIn, db: Session = Depends(get_db)):  # noqa: B008
+    email_flows.accept_invitation(db, body.token, body.new_password)
+
+
+@auth_router.post(
+    "/password/forgot",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=ForgotPasswordOut,
+    summary="Quên mật khẩu: gửi đường dẫn đặt lại tới email của tài khoản",
+    description="Luôn trả 202 cùng nội dung – không cho biết tài khoản/email có tồn tại không.",
+)
+def forgot_password(body: ForgotPasswordIn, request: Request, db: Session = Depends(get_db)):  # noqa: B008
+    email_flows.check_forgot_rate(body.identifier, _client(request).ip)
+    email_flows.request_password_reset(db, body.identifier)
+    return ForgotPasswordOut()
+
+
+@auth_router.post("/password/reset", status_code=status.HTTP_204_NO_CONTENT, summary="Đặt lại mật khẩu bằng đường dẫn")
+def reset_password(body: SetPasswordIn, db: Session = Depends(get_db)):  # noqa: B008
+    email_flows.reset_password(db, body.token, body.new_password)
+
+
+@users_router.post("/{user_id:int}:reset-2fa", response_model=UserOut, summary="Xóa 2FA của người dùng mất thiết bị")
+def reset_2fa(
+    user_id: int,
+    response: Response,
+    actor: SysUser = Depends(_admin),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    user = twofactor.admin_reset(db, service.get_user(db, user_id), actor)
     response.headers["ETag"] = etag(user.row_version)
     return user

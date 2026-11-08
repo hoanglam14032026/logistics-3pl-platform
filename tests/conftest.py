@@ -19,6 +19,8 @@ from sqlalchemy.engine import make_url
 
 # Khóa ký JWT chỉ dùng cho test (06 §6: JWT_SECRET bắt buộc) – đặt trước khi đọc Settings.
 os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-" + "x" * 32)
+# Thư không gửi thật: giữ trong app.shared.notifications.mail.OUTBOX để test đọc đường dẫn
+os.environ["MAIL_BACKEND"] = "memory"
 
 from app.core.config import Settings, get_settings  # noqa: E402
 
@@ -76,9 +78,43 @@ def _database():
 
 @pytest.fixture(autouse=True)
 def _fresh_settings():
-    """Test đổi biến môi trường (monkeypatch) không để lại Settings đã cache cho test sau."""
+    """Test đổi biến môi trường (monkeypatch) không để lại Settings đã cache cho test sau; hộp thư trống mỗi test."""
+    from app.shared.notifications import mail
+
+    mail.OUTBOX.clear()
     yield
     get_settings.cache_clear()
+    mail.OUTBOX.clear()
+
+
+def link_token(to: str, path: str) -> str:
+    """Token trong đường dẫn …/<path>#token=… của thư gần nhất gửi tới `to`."""
+    import re
+
+    from app.shared.notifications import mail
+
+    for m in reversed(mail.OUTBOX):
+        if m.to == to:
+            found = re.search(rf"/{path}#token=([A-Za-z0-9_-]+)", m.body)
+            if found:
+                return found.group(1)
+    raise AssertionError(f"Không có thư {path} gửi tới {to}")
+
+
+def totp_now(username: str) -> str:
+    """Mã TOTP hiện tại của người dùng (đọc secret trong CSDL). Chỉ dùng trong test: xóa totp_last_step để đăng
+    nhập nhiều lần trong cùng chu kỳ 30 giây không bị coi là dùng lại mã."""
+    from sqlalchemy import select, update
+
+    from app.core import totp
+    from app.core.timeutil import now_utc
+    from app.shared.identity.models import SysUser
+
+    with SessionLocal() as db:
+        db.execute(update(SysUser).where(SysUser.username == username).values(totp_last_step=None))
+        db.commit()
+        secret = db.scalar(select(SysUser.totp_secret).where(SysUser.username == username))
+    return totp.code_at(secret, now_utc())
 
 
 @pytest.fixture()
@@ -193,11 +229,36 @@ def login(client):
     """login("an") → phản hồi JSON của POST /api/v2/auth/login (gồm access_token, refresh_token)."""
 
     def _login(username: str, password: str = DEFAULT_PASSWORD) -> dict:
+        """Đi hết các bước: mật khẩu → (thiết lập 2FA lần đầu | mã TOTP) → token."""
         r = client.post("/api/v2/auth/login", json={"username": username, "password": password})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        if body.get("mfa_setup_required"):
+            setup = client.post("/api/v2/auth/login/2fa-setup", json={"mfa_token": body["mfa_token"]})
+            assert setup.status_code == 200, setup.text
+            r = client.post(
+                "/api/v2/auth/login/2fa-enable", json={"mfa_token": body["mfa_token"], "code": totp_now(username)}
+            )
+        elif body.get("mfa_required"):
+            r = client.post(
+                "/api/v2/auth/login/totp", json={"mfa_token": body["mfa_token"], "code": totp_now(username)}
+            )
         assert r.status_code == 200, r.text
         return r.json()
 
     return _login
+
+
+@pytest.fixture()
+def accept_invite(client):
+    """accept_invite("lan@minhan.vn") → đặt mật khẩu DEFAULT_PASSWORD bằng đường dẫn trong thư mời gần nhất."""
+
+    def _accept(email: str, password: str = DEFAULT_PASSWORD) -> None:
+        token = link_token(email, "accept-invite")
+        r = client.post("/api/v2/auth/invitations/accept", json={"token": token, "new_password": password})
+        assert r.status_code == 204, r.text
+
+    return _accept
 
 
 @pytest.fixture()

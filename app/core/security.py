@@ -113,3 +113,47 @@ def generate_refresh_token() -> str:
 def hash_refresh_token(token: str) -> str:
     """SHA-256 (token đủ ngẫu nhiên 384 bit – không cần băm chậm); CSDL lộ cũng không dùng lại được token."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+# --- Token bước 2 của đăng nhập (xác thực 2 lớp) ---------------------------------------------------------------
+
+MFA_TOKEN_TYPE = "mfa"
+MFA_VERIFY = "verify"  # đã bật 2FA: nhập mã TOTP
+MFA_SETUP = "setup"  # bắt buộc 2FA nhưng chưa bật: thiết lập rồi nhập mã
+
+
+def create_mfa_token(user_id: int, purpose: str, pwd_at: int, settings: Settings | None = None) -> tuple[str, int]:
+    """Sau khi đúng mật khẩu, trước khi đủ 2 lớp. Không dùng được như access token (`type = mfa`)."""
+    settings = settings or get_settings()
+    issued_at = now_utc()
+    ttl = timedelta(seconds=settings.auth_mfa_token_ttl_sec)
+    claims = {
+        "iss": JWT_ISSUER,
+        "sub": str(user_id),
+        "type": MFA_TOKEN_TYPE,
+        "purpose": purpose,
+        "pwd_at": pwd_at,
+        "iat": issued_at,
+        "exp": issued_at + ttl,
+        "jti": uuid.uuid4().hex,
+    }
+    return jwt.encode(claims, settings.jwt_secret.get_secret_value(), algorithm=JWT_ALGORITHM), int(ttl.total_seconds())
+
+
+def decode_mfa_token(token: str, purpose: str, settings: Settings | None = None) -> dict[str, Any]:
+    settings = settings or get_settings()
+    try:
+        claims = jwt.decode(
+            token,
+            settings.jwt_secret.get_secret_value(),
+            algorithms=[JWT_ALGORITHM],
+            issuer=JWT_ISSUER,
+            options={"require": ["exp", "iat", "sub", "iss", "type", "purpose", "pwd_at"]},
+        )
+    except jwt.ExpiredSignatureError as exc:
+        raise unauthenticated("Hết thời gian nhập mã xác thực; đăng nhập lại") from exc
+    except jwt.PyJWTError as exc:
+        raise unauthenticated() from exc
+    if claims["type"] != MFA_TOKEN_TYPE or claims["purpose"] != purpose or not str(claims["sub"]).isdigit():
+        raise unauthenticated()
+    return claims

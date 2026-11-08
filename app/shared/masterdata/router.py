@@ -15,7 +15,7 @@ from app.core.pagination import Page, PageParams
 from app.core.rbac import INTERNAL_ROLES, Role, require_roles
 from app.core.versioning import etag, parse_if_match
 from app.shared.identity.models import SysUser
-from app.shared.identity.schemas import CustomerAccountCreate, UserOut
+from app.shared.identity.schemas import CustomerAccountCreate, InvitationResult, InvitedUserOut, UserOut
 from app.shared.masterdata import service
 from app.shared.masterdata.models import PartyType
 from app.shared.masterdata.schemas import PartyCreate, PartyOut, PartyUpdate
@@ -121,9 +121,9 @@ def list_customer_accounts(
 
 @router.post(
     "/{party_id:int}/users",
-    response_model=UserOut,
+    response_model=InvitedUserOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Tạo tài khoản customer cho khách hàng (vai trò luôn là customer)",
+    summary="Tạo tài khoản customer, gửi thư mời đặt mật khẩu (vai trò luôn là customer)",
 )
 def create_customer_account(
     party_id: int,
@@ -132,7 +132,22 @@ def create_customer_account(
     actor: SysUser = Depends(_writer),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
-    user = service.create_customer_account(db, party_id, body, actor.id)
+    user, sent = service.create_customer_account(db, party_id, body, actor.id)
     response.headers["Location"] = f"/api/v2/users/{user.id}"
     response.headers["ETag"] = etag(user.row_version)
-    return user
+    return InvitedUserOut.model_validate(user).model_copy(update={"invitation_sent": sent})
+
+
+@router.post(
+    "/{party_id:int}/users/{user_id:int}:resend-invite",
+    response_model=InvitationResult,
+    summary="Gửi lại thư mời (tài khoản chưa đặt mật khẩu)",
+)
+def resend_invitation(
+    party_id: int,
+    user_id: int,
+    actor: SysUser = Depends(_writer),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    service.get_party(db, party_id)
+    return InvitationResult(invitation_sent=service.resend_invitation(db, party_id, user_id, actor.id))
