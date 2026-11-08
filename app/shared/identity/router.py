@@ -6,7 +6,7 @@ Không cần access token: `login`, `refresh`, `logout` (xác thực bằng mậ
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -258,15 +258,20 @@ def accept_invitation(body: SetPasswordIn, db: Session = Depends(get_db)):  # no
     summary="Quên mật khẩu: gửi đường dẫn đặt lại tới email của tài khoản",
     description="Luôn trả 202 cùng nội dung – không cho biết tài khoản/email có tồn tại không.",
 )
-def forgot_password(body: ForgotPasswordIn, request: Request, db: Session = Depends(get_db)):  # noqa: B008
+def forgot_password(
+    body: ForgotPasswordIn,
+    request: Request,
+    tasks: BackgroundTasks,
+    db: Session = Depends(get_db),  # noqa: B008
+):
     email_flows.check_forgot_rate(body.identifier, _client(request).ip)
-    email_flows.request_password_reset(db, body.identifier)
+    email_flows.request_password_reset(db, body.identifier, tasks)
     return ForgotPasswordOut()
 
 
 @auth_router.post("/password/reset", status_code=status.HTTP_204_NO_CONTENT, summary="Đặt lại mật khẩu bằng đường dẫn")
-def reset_password(body: SetPasswordIn, db: Session = Depends(get_db)):  # noqa: B008
-    email_flows.reset_password(db, body.token, body.new_password)
+def reset_password(body: SetPasswordIn, tasks: BackgroundTasks, db: Session = Depends(get_db)):  # noqa: B008
+    email_flows.reset_password(db, body.token, body.new_password, tasks)
 
 
 @users_router.post("/{user_id:int}:reset-2fa", response_model=UserOut, summary="Xóa 2FA của người dùng mất thiết bị")

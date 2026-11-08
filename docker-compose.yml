@@ -1,4 +1,5 @@
-# Giá trị mặc định chỉ dùng cho máy dev. Môi trường thật: đặt POSTGRES_PASSWORD, DATABASE_URL, JWT_SECRET qua file .env
+# Giá trị mặc định chỉ dùng cho máy dev. Môi trường thật: đặt POSTGRES_PASSWORD, DATABASE_URL, JWT_SECRET,
+# TOTP_ENCRYPTION_KEY qua file .env
 # (mẫu: .env.example).
 name: logistics-3pl-platform
 services:
@@ -29,6 +30,7 @@ services:
       DATABASE_URL: postgresql+psycopg://logistics:${POSTGRES_PASSWORD:-logistics}@db:5432/logistics_3pl_dev
       # Bắt buộc (06 §6), đặt trong .env; thiếu thì dịch vụ api dừng ngay khi khởi động.
       JWT_SECRET: ${JWT_SECRET:-}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-}
     depends_on:
       db:
         condition: service_healthy

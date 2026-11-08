@@ -7,7 +7,7 @@ Tài khoản `customer` của khách hàng: `manager`, `admin` tạo và xem (06
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -15,7 +15,7 @@ from app.core.pagination import Page, PageParams
 from app.core.rbac import INTERNAL_ROLES, Role, require_roles
 from app.core.versioning import etag, parse_if_match
 from app.shared.identity.models import SysUser
-from app.shared.identity.schemas import CustomerAccountCreate, InvitationResult, InvitedUserOut, UserOut
+from app.shared.identity.schemas import CustomerAccountCreate, InvitationQueued, UserOut
 from app.shared.masterdata import service
 from app.shared.masterdata.models import PartyType
 from app.shared.masterdata.schemas import PartyCreate, PartyOut, PartyUpdate
@@ -121,33 +121,38 @@ def list_customer_accounts(
 
 @router.post(
     "/{party_id:int}/users",
-    response_model=InvitedUserOut,
+    response_model=UserOut,
     status_code=status.HTTP_201_CREATED,
     summary="Tạo tài khoản customer, gửi thư mời đặt mật khẩu (vai trò luôn là customer)",
+    description="Thư mời gửi nền sau khi trả response; gửi lỗi ghi nhật ký `user.mail_failed`.",
 )
 def create_customer_account(
     party_id: int,
     body: CustomerAccountCreate,
     response: Response,
+    tasks: BackgroundTasks,
     actor: SysUser = Depends(_writer),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
-    user, sent = service.create_customer_account(db, party_id, body, actor.id)
+    user = service.create_customer_account(db, party_id, body, actor.id, tasks)
     response.headers["Location"] = f"/api/v2/users/{user.id}"
     response.headers["ETag"] = etag(user.row_version)
-    return InvitedUserOut.model_validate(user).model_copy(update={"invitation_sent": sent})
+    return user
 
 
 @router.post(
     "/{party_id:int}/users/{user_id:int}:resend-invite",
-    response_model=InvitationResult,
+    response_model=InvitationQueued,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Gửi lại thư mời (tài khoản chưa đặt mật khẩu)",
 )
 def resend_invitation(
     party_id: int,
     user_id: int,
+    tasks: BackgroundTasks,
     actor: SysUser = Depends(_writer),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
     service.get_party(db, party_id)
-    return InvitationResult(invitation_sent=service.resend_invitation(db, party_id, user_id, actor.id))
+    service.resend_invitation(db, party_id, user_id, actor.id, tasks)
+    return InvitationQueued()

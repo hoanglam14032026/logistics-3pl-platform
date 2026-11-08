@@ -1,5 +1,5 @@
 # Khóa phụ thuộc dev: cài [project.dependencies] + nhóm dev ([dependency-groups].dev) của pyproject.toml vào venv sạch rồi pip freeze.
-# Python 3.12, ngày 08/11/2026. Không sửa tay; tạo lại cùng lúc với requirements-lock.txt (phiên bản gói chạy phải trùng).
+# Python 3.12, ngày 09/11/2026. Không sửa tay; tạo lại cùng lúc với requirements-lock.txt (phiên bản gói chạy phải trùng).
 # Cài: pip install -r requirements-dev-lock.txt
 alembic==1.20.1
 annotated-doc==0.0.5
@@ -11,6 +11,7 @@ certifi==2026.10.23
 cffi==2.1.1
 click==8.5.1
 coverage==7.17.2
+cryptography==50.0.2
 fastapi==0.162.2
 h11==0.16.0
 httpcore==1.0.9

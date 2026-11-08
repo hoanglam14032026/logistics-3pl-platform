@@ -232,10 +232,10 @@ def restore_party(db: Session, party_id: int, actor_id: int, expected_version: i
 
 
 def create_customer_account(
-    db: Session, party_id: int, data: CustomerAccountCreate, actor_id: int
-) -> tuple[SysUser, bool]:
-    """Manager (06 §4) và customer admin (02 §9.2) tạo tài khoản customer, gửi thư mời đặt mật khẩu (Giai đoạn 5).
-    Trả (tài khoản, đã gửi thư được không). `admin` dùng `/api/v2/users` – không qua `CUSTOMER_ACCOUNT_GUARDS`
+    db: Session, party_id: int, data: CustomerAccountCreate, actor_id: int, tasks: email_flows.TaskQueue
+) -> SysUser:
+    """Manager (06 §4) và customer admin (02 §9.2) tạo tài khoản customer, gửi thư mời đặt mật khẩu (Giai đoạn 5)
+    – thư gửi nền qua `tasks` (Giai đoạn 6). `admin` dùng `/api/v2/users` – không qua `CUSTOMER_ACCOUNT_GUARDS`
     (06 §4: `admin` toàn quyền người dùng).
 
     Mật khẩu lúc tạo là chuỗi ngẫu nhiên không ai biết: chưa đăng nhập được cho tới khi người nhận đặt mật khẩu."""
@@ -253,10 +253,11 @@ def create_customer_account(
         is_customer_admin=data.is_customer_admin,
     )
     user = identity_service.create_user(db, user_data, actor_id)
-    return user, email_flows.send_invitation(db, user, actor_id)
+    email_flows.send_invitation(db, user, actor_id, tasks)
+    return user
 
 
-def resend_invitation(db: Session, party_id: int, user_id: int, actor_id: int) -> bool:
+def resend_invitation(db: Session, party_id: int, user_id: int, actor_id: int, tasks: email_flows.TaskQueue) -> None:
     """Gửi lại thư mời (token mới, token cũ vô hiệu) – chỉ khi tài khoản cùng khách hàng chưa nhận lời mời."""
     user = db.get(SysUser, user_id)
     if user is None or user.party_id != party_id or Role.CUSTOMER.value not in user.role_codes:
@@ -265,7 +266,7 @@ def resend_invitation(db: Session, party_id: int, user_id: int, actor_id: int) -
         raise _conflict("Tài khoản đã nhận lời mời hoặc đã bị vô hiệu hóa; dùng quên mật khẩu nếu cần")
     if not user.email:
         raise _conflict("Tài khoản không có email")
-    return email_flows.send_invitation(db, user, actor_id)
+    email_flows.send_invitation(db, user, actor_id, tasks)
 
 
 def list_customer_accounts(db: Session, party_id: int, params: PageParams, status: str) -> tuple[list[SysUser], int]:

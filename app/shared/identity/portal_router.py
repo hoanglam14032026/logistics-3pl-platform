@@ -10,7 +10,7 @@ Customer admin quản lý tài khoản của **chính khách hàng mình** qua c
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -22,8 +22,7 @@ from app.shared.identity import service
 from app.shared.identity.models import SysUser
 from app.shared.identity.schemas import (
     CustomerAccountCreate,
-    InvitationResult,
-    InvitedUserOut,
+    InvitationQueued,
     PortalAccountCreate,
     UserOut,
 )
@@ -61,35 +60,43 @@ def list_accounts(
 
 @router.post(
     "",
-    response_model=InvitedUserOut,
+    response_model=UserOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Mời tài khoản mới (thư mời qua email)",
+    summary="Mời tài khoản mới (thư mời qua email, gửi nền)",
 )
 def invite_account(
     body: PortalAccountCreate,
     response: Response,
+    tasks: BackgroundTasks,
     actor: SysUser = Depends(get_customer_admin),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
     from app.shared.masterdata import service as md_service  # masterdata phụ thuộc identity – import trong hàm
 
     data = CustomerAccountCreate(**body.model_dump(), is_customer_admin=False)
-    user, sent = md_service.create_customer_account(db, actor.party_id, data, actor.id)
+    user = md_service.create_customer_account(db, actor.party_id, data, actor.id, tasks)
     response.headers["Location"] = f"/api/v2/portal/users/{user.id}"
     response.headers["ETag"] = etag(user.row_version)
-    return InvitedUserOut.model_validate(user).model_copy(update={"invitation_sent": sent})
+    return user
 
 
-@router.post("/{user_id:int}:resend-invite", response_model=InvitationResult, summary="Gửi lại thư mời")
+@router.post(
+    "/{user_id:int}:resend-invite",
+    response_model=InvitationQueued,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Gửi lại thư mời",
+)
 def resend_invitation(
     user_id: int,
+    tasks: BackgroundTasks,
     actor: SysUser = Depends(get_customer_admin),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
     from app.shared.masterdata import service as md_service
 
     _same_party_account(db, actor, user_id)
-    return InvitationResult(invitation_sent=md_service.resend_invitation(db, actor.party_id, user_id, actor.id))
+    md_service.resend_invitation(db, actor.party_id, user_id, actor.id, tasks)
+    return InvitationQueued()
 
 
 @router.post("/{user_id:int}:deactivate", response_model=UserOut, summary="Khóa tài khoản khác cùng khách hàng")

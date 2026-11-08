@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
+from fastapi import BackgroundTasks
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
@@ -183,7 +184,7 @@ def test_suspension_and_account_creation_do_not_race(client, manager, party, mak
         with SessionLocal() as db:
             data = CustomerAccountCreate(**{**ACCOUNT, "username": f"song.song{i}", "email": f"ss{i}@minhan.vn"})
             try:
-                md_service.create_customer_account(db, party.id, data, actor_id=1)
+                md_service.create_customer_account(db, party.id, data, actor_id=1, tasks=BackgroundTasks())
             except AppError:
                 pass
 

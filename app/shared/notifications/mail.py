@@ -6,8 +6,9 @@ Backend theo `MAIL_BACKEND`:
 - `console` (mặc định khi chưa cấu hình SMTP – **chỉ dùng cho máy dev**): ghi thư ra log, kể cả đường dẫn.
 - `memory`: giữ thư trong `OUTBOX` – dùng cho test.
 
-Gửi đồng bộ, **sau khi commit**; lỗi gửi không làm hỏng thao tác chính (nơi gọi ghi nhật ký, cho gửi lại). Chuyển sang
-hàng đợi tác vụ nền khi có (`JOB_QUEUE_URL`).
+`send()` gửi đồng bộ; nơi gọi chạy nó trong tác vụ nền sau khi đã commit và trả response
+(`app.shared.identity.email_flows.deliver`, Giai đoạn 6) – lỗi gửi ghi log + nhật ký, không làm lỗi request. Hàng đợi
+bền vững (`JOB_QUEUE_URL`): chưa làm.
 """
 
 import logging

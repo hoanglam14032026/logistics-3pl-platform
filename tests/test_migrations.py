@@ -63,7 +63,7 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0007"
+    assert head_revision() == "0008"
 
 
 def test_upgrade_from_empty_creates_all_tables():
@@ -124,3 +124,27 @@ def test_lifespan_runs_migrations_on_empty_database():
     with TestClient(create_app()) as c:
         assert c.get("/api/v1/guide").status_code == 200
     assert _revision() == head_revision()
+
+
+def test_0008_encrypts_existing_totp_secrets_and_downgrade_decrypts():
+    """Secret dạng rõ từ 0007 được mã hóa khi lên 0008 (giá trị đã mã hóa giữ nguyên); downgrade trả về dạng rõ."""
+    from app.core import secretbox
+
+    upgrade_to_head(engine)
+    _alembic(command.downgrade, "0007")
+    plain = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sys_users (username, full_name, password_hash, totp_secret, is_2fa_enabled) VALUES "
+                "('a', 'A', 'x', :s, true), ('b', 'B', 'x', NULL, false)"
+            ),
+            {"s": plain},
+        )
+    _alembic(command.upgrade, "0008")
+    with engine.connect() as conn:
+        rows = dict(conn.execute(text("SELECT username, totp_secret FROM sys_users")).all())
+    assert rows["b"] is None and rows["a"].startswith("gAAAAA") and secretbox.decrypt(rows["a"]) == plain
+    _alembic(command.downgrade, "0007")
+    with engine.connect() as conn:
+        assert conn.scalar(text("SELECT totp_secret FROM sys_users WHERE username = 'a'")) == plain

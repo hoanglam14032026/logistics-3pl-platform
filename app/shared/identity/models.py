@@ -38,6 +38,8 @@ class SysUser(AuditColumnsMixin, Base):
         CheckConstraint("email IS NULL OR email = lower(email)", name="email_lowercase"),
         CheckConstraint("failed_login_count >= 0", name="failed_login_count_non_negative"),
         CheckConstraint("NOT is_customer_admin OR party_id IS NOT NULL", name="customer_admin_has_party"),
+        # totp_secret chỉ chứa bản mã Fernet (Giai đoạn 6) – chặn ghi nhầm dạng rõ
+        CheckConstraint("totp_secret IS NULL OR totp_secret LIKE 'gAAAAA%'", name="totp_secret_encrypted"),
     )
 
     username: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
@@ -62,9 +64,10 @@ class SysUser(AuditColumnsMixin, Base):
     )
     is_customer_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
-    # Xác thực 2 lớp TOTP (Giai đoạn 5). totp_secret: Base32, có giá trị từ lúc thiết lập (chưa bật) – **lưu dạng rõ**,
-    # chưa mã hóa (chưa có thư viện `cryptography` – CẦN XÁC NHẬN). Không bao giờ trả ra API trừ lúc thiết lập.
-    totp_secret: Mapped[str | None] = mapped_column(String(64))
+    # Xác thực 2 lớp TOTP (Giai đoạn 5). totp_secret: bản mã Fernet của secret Base32 (Giai đoạn 6,
+    # `app.core.secretbox`, khóa TOTP_ENCRYPTION_KEY), có giá trị từ lúc thiết lập (chưa bật). Không bao giờ trả ra API
+    # (secret dạng rõ chỉ trả một lần lúc thiết lập).
+    totp_secret: Mapped[str | None] = mapped_column(String(255))
     is_2fa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Chu kỳ 30 giây của mã đã dùng gần nhất – chặn dùng lại cùng một mã

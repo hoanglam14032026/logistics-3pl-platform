@@ -152,15 +152,21 @@ Phản hồi danh sách:
     Refresh token lưu `mfa`; phiên chưa qua 2 lớp của tài khoản bắt buộc 2FA không làm mới được.
   - Người đã đăng nhập: `POST /2fa/setup`, `/2fa/enable` (thu hồi phiên cũ, trả token mới), `/2fa/disable` (mật khẩu +
     mã). `admin`: `POST /api/v2/users/{id}:reset-2fa` (mất thiết bị – thu hồi phiên, thiết lập lại lần sau).
-  - `totp_secret` **lưu dạng rõ** (chưa có thư viện `cryptography` để mã hóa) – **CẦN XÁC NHẬN** (đề xuất thêm
-    `cryptography`, mã hóa Fernet với khóa riêng). OTP qua email (02 §9.2 "hoặc"): chưa làm.
+  - `totp_secret` **mã hóa Fernet** (Giai đoạn 6, 09/11/2026 – `app/core/secretbox.py`, thư viện `cryptography`) bằng
+    khóa riêng `TOTP_ENCRYPTION_KEY` (không dùng lại `JWT_SECRET`); chỉ giải mã lúc kiểm mã. CHECK CSDL chặn ghi dạng
+    rõ. Xoay khóa: `<khóa mới>,<khóa cũ>`. Sai khóa → `500 INTERNAL_ERROR`, không tính là nhập sai mã. Mất khóa: mọi
+    người dùng phải được `admin` `:reset-2fa` rồi thiết lập lại. OTP qua email (02 §9.2 "hoặc"): chưa làm.
 - **Thư mời, quên/đặt lại mật khẩu (Giai đoạn 5)** – `app/shared/identity/email_flows.py`, `app/shared/notifications/`:
   token 256 bit, chỉ lưu SHA-256 (`sys_user_tokens`), dùng một lần, có hạn (`INVITE_TOKEN_TTL_HOURS` = 72,
   `PASSWORD_RESET_TOKEN_TTL_MIN` = 30); cấp token mới → token cũ cùng mục đích vô hiệu; đường dẫn
   `PUBLIC_BASE_URL/accept-invite#token=…`, `/reset-password#token=…` (token sau `#` – không lọt log máy chủ).
   `POST /api/v2/auth/invitations/accept`, `/password/forgot` (luôn `202` cùng nội dung; giới hạn tần suất như đăng nhập),
-  `/password/reset` (thu hồi mọi phiên, mở khóa tạm; 2FA giữ nguyên). Gửi thư đồng bộ sau commit (`smtplib`,
-  STARTTLS/SSL); lỗi gửi → tài khoản vẫn tạo, `invitation_sent = false`, gửi lại `:resend-invite`.
+  `/password/reset` (thu hồi mọi phiên, mở khóa tạm, gửi thư báo mật khẩu đã đổi; 2FA giữ nguyên).
+  **Gửi thư là tác vụ nền** (Giai đoạn 6): commit token rồi xếp thư vào FastAPI `BackgroundTasks` – chạy sau khi đã trả
+  response (`smtplib`, STARTTLS/SSL), request không chờ SMTP (quên mật khẩu trả về cùng thời gian dù tài khoản có tồn
+  tại hay không). Lỗi gửi → log + nhật ký `user.mail_failed` (`purpose`: `invite` / `password_reset` /
+  `password_changed`, `error`), request không lỗi; gửi lại `:resend-invite` (`202`) hoặc quên mật khẩu lần nữa. Không
+  có hàng đợi bền vững: tiến trình dừng giữa chừng thì thư chưa gửi bị mất (token chỉ lưu hash – không gửi lại từ CSDL).
 - Tích hợp SSO của trường/doanh nghiệp (Google Workspace, Microsoft Entra ID): **CẦN XÁC NHẬN**.
 - Mọi endpoint trừ `/health`, `/ready`, `/api/v2/auth/login`, trang khách mời phỏng vấn (`/api/v2/learning/interview-invitations/{token}` – xác thực bằng token, `04` BR-309) và webhook của máy chủ media phỏng vấn (xác thực bằng chữ ký) yêu cầu xác thực.
 - Tài khoản `customer`: bắt buộc xác thực 2 lớp; khóa tạm sau 5 lần đăng nhập sai; giới hạn tần suất gọi API và tải file theo tài khoản; phiên tối đa 8 giờ. **Lộ trình (đã chốt 08/11/2026):** Giai đoạn 0 (bước 0.6) chỉ làm JWT + refresh token + RBAC + khóa tạm sau nhiều lần đăng nhập sai; bảng `sys_users` có sẵn cột `totp_secret` (NULL) và `is_2fa_enabled` (mặc định `false`); endpoint và luồng xác thực 2 lớp làm cùng cổng khách hàng (Giai đoạn 2). Tài khoản nội bộ có quyền phê duyệt hợp đồng – tài chính (`manager`, `business_manager`) cũng bắt buộc xác thực 2 lớp; thao tác phê duyệt cấp 2 yêu cầu xác thực lại (nhập lại OTP) nếu phiên đã quá 30 phút.
@@ -221,6 +227,7 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
 | `STORAGE_BACKEND` | `local` | `local` / `s3` |
 | `UPLOAD_DIR` | `./data/uploads` | Khi `local` |
 | `JWT_SECRET`, `JWT_ACCESS_TTL_MIN`, `JWT_REFRESH_TTL_DAYS` | – / 15 / 7 | `JWT_SECRET` bắt buộc, không có mặc định, tối thiểu 32 ký tự; thiếu thì ứng dụng không khởi động |
+| `TOTP_ENCRYPTION_KEY` | – | Bắt buộc (Giai đoạn 6). Khóa Fernet (32 byte base64 url-safe – `python -m app.core.secretbox`) mã hóa `totp_secret`; khác `JWT_SECRET`; nhiều khóa cách dấu phẩy để xoay khóa (khóa đầu mã hóa) |
 | `AUTH_MAX_FAILED_LOGINS`, `AUTH_LOCKOUT_MINUTES` | 5 / 15 | Khóa tạm sau N lần đăng nhập sai liên tiếp (§3) |
 | `AUTH_LOGIN_RATE_LIMIT_PER_IP`, `AUTH_LOGIN_RATE_LIMIT_PER_USERNAME`, `AUTH_LOGIN_RATE_WINDOW_SEC` | 20 / 10 / 60 | Giới hạn tần suất đăng nhập, quên mật khẩu (§3) |
 | `AUTH_2FA_REQUIRED_ROLES`, `AUTH_MFA_TOKEN_TTL_SEC`, `TOTP_ISSUER` | `customer` / 300 / `Logistics 3PL` | Xác thực 2 lớp (§3) |

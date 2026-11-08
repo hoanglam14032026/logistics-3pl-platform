@@ -19,6 +19,8 @@ from sqlalchemy.engine import make_url
 
 # Khóa ký JWT chỉ dùng cho test (06 §6: JWT_SECRET bắt buộc) – đặt trước khi đọc Settings.
 os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-" + "x" * 32)
+# Khóa Fernet mã hóa totp_secret chỉ dùng cho test (Giai đoạn 6) – khóa cố định, không phải khóa thật.
+os.environ.setdefault("TOTP_ENCRYPTION_KEY", "dGVzdC1vbmx5LXRvdHAta2V5LTMyLWJ5dGVzLWxvbmc=")
 # Thư không gửi thật: giữ trong app.shared.notifications.mail.OUTBOX để test đọc đường dẫn
 os.environ["MAIL_BACKEND"] = "memory"
 
@@ -106,7 +108,7 @@ def totp_now(username: str) -> str:
     nhập nhiều lần trong cùng chu kỳ 30 giây không bị coi là dùng lại mã."""
     from sqlalchemy import select, update
 
-    from app.core import totp
+    from app.core import secretbox, totp
     from app.core.timeutil import now_utc
     from app.shared.identity.models import SysUser
 
@@ -114,7 +116,7 @@ def totp_now(username: str) -> str:
         db.execute(update(SysUser).where(SysUser.username == username).values(totp_last_step=None))
         db.commit()
         secret = db.scalar(select(SysUser.totp_secret).where(SysUser.username == username))
-    return totp.code_at(secret, now_utc())
+    return totp.code_at(secretbox.decrypt(secret), now_utc())
 
 
 @pytest.fixture()

@@ -1,4 +1,5 @@
-"""Thư mời đặt mật khẩu, quên/đặt lại mật khẩu qua email (Giai đoạn 5), trên PostgreSQL. Thư: MAIL_BACKEND=memory."""
+"""Thư mời đặt mật khẩu, quên/đặt lại mật khẩu qua email (Giai đoạn 5), gửi nền (Giai đoạn 6), trên PostgreSQL.
+Thư: MAIL_BACKEND=memory. TestClient chạy tác vụ nền trước khi trả response cho test."""
 
 from datetime import timedelta
 
@@ -14,6 +15,7 @@ from tests.conftest import DEFAULT_PASSWORD, link_token
 
 ACCEPT, FORGOT, RESET = "/api/v2/auth/invitations/accept", "/api/v2/auth/password/forgot", "/api/v2/auth/password/reset"
 NEW = "MatKhauMoi@2026"
+QUEUED = {"message": "Thư mời đã được xếp vào hàng gửi"}
 
 
 def _error(r, status: int, code: str) -> dict:
@@ -52,7 +54,7 @@ def _invite(client, world, username="kh.lan", email="lan@a.vn", party="a"):
 
 def test_invitation_mail_and_accept(client, world, login):
     user = _invite(client, world)
-    assert user["invitation_sent"] is True
+    assert "invitation_sent" not in user
     [m] = [m for m in mail.OUTBOX if m.to == "lan@a.vn"]
     assert "kh.lan" in m.body and "http://localhost:5173/accept-invite#token=" in m.body  # token sau '#'
     token = link_token("lan@a.vn", "accept-invite")
@@ -117,7 +119,7 @@ def test_resend_invitation(client, world, accept_invite):
     user = _invite(client, world)
     first = link_token("lan@a.vn", "accept-invite")
     r = client.post(f"/api/v2/md/parties/{world['a'].id}/users/{user['id']}:resend-invite", headers=world["manager"])
-    assert r.status_code == 200 and r.json() == {"invitation_sent": True}
+    assert r.status_code == 202 and r.json() == QUEUED
     second = link_token("lan@a.vn", "accept-invite")
     assert first != second
     _error(client.post(ACCEPT, json={"token": first, "new_password": NEW}), 422, "VALIDATION_ERROR")  # token cũ vô hiệu
@@ -140,9 +142,9 @@ def test_customer_admin_invite_sends_mail(client, world, accept_invite, login):
         json={"username": "kh.hung", "full_name": "Hùng", "email": "hung@a.vn"},
         headers=world["a_admin"],
     )
-    assert r.status_code == 201 and r.json()["invitation_sent"] is True
+    assert r.status_code == 201 and [m.to for m in mail.OUTBOX] == ["hung@a.vn"]
     assert (
-        client.post(f"/api/v2/portal/users/{r.json()['id']}:resend-invite", headers=world["a_admin"]).status_code == 200
+        client.post(f"/api/v2/portal/users/{r.json()['id']}:resend-invite", headers=world["a_admin"]).status_code == 202
     )
     accept_invite("hung@a.vn")
     assert login("kh.hung")["access_token"]
@@ -150,17 +152,33 @@ def test_customer_admin_invite_sends_mail(client, world, accept_invite, login):
     _error(client.post(f"/api/v2/portal/users/{other['id']}:resend-invite", headers=world["a_admin"]), 404, "NOT_FOUND")
 
 
-def test_mail_failure_keeps_account_and_allows_resend(client, world, monkeypatch):
+@pytest.mark.parametrize(
+    ("exc", "reason"),
+    [
+        (mail.MailError("Gửi thư thất bại: SMTPServerDisconnected"), "Gửi thư thất bại: SMTPServerDisconnected"),
+        (RuntimeError("bất ngờ"), "Lỗi không xác định: RuntimeError"),
+    ],
+)
+def test_mail_failure_keeps_account_and_allows_resend(client, world, monkeypatch, caplog, exc, reason):
+    """Gửi nền lỗi (kể cả lỗi bất ngờ): request vẫn 201, ghi log + nhật ký user.mail_failed; gửi lại được."""
+
     def broken(_mail, settings=None):
-        raise mail.MailError("SMTP không phản hồi")
+        raise exc
 
     monkeypatch.setattr(mail, "send", broken)
-    user = _invite(client, world)
-    assert user["invitation_sent"] is False
-    assert [log.entity_id for log in _actions("user.invite_failed")] == [user["id"]]
+    user = _invite(client, world)  # 201 – lỗi gửi không làm lỗi request
+    [log] = _actions("user.mail_failed")
+    assert (log.entity_id, log.actor_id, log.after) == (
+        user["id"],
+        _user("quan.ly").id,
+        {"purpose": "invite", "error": reason},
+    )
+    assert log.request_id  # cùng request_id với request tạo tài khoản
+    assert "Không gửi được thư invite" in caplog.text or "Lỗi không xác định khi gửi thư invite" in caplog.text
+    assert [a.action for a in _actions("user.invite_sent")] == ["user.invite_sent"]
     monkeypatch.undo()
     r = client.post(f"/api/v2/md/parties/{world['a'].id}/users/{user['id']}:resend-invite", headers=world["manager"])
-    assert r.json() == {"invitation_sent": True}
+    assert r.status_code == 202 and [m.to for m in mail.OUTBOX] == ["lan@a.vn"]
 
 
 # --- Quên / đặt lại mật khẩu ------------------------------------------------------------------------------------------
@@ -269,6 +287,87 @@ def test_forgot_rate_limited(client, staff, monkeypatch):
 def _user(username: str) -> SysUser:
     with SessionLocal() as db:
         return db.scalar(select(SysUser).where(SysUser.username == username))
+
+
+# --- Gửi nền (Giai đoạn 6) ---------------------------------------------------------------------------------------
+
+
+class _Queue:
+    """Thay BackgroundTasks: giữ tác vụ để kiểm tra hàm nghiệp vụ không gửi thư trong request."""
+
+    def __init__(self):
+        self.tasks = []
+
+    def add_task(self, func, *args, **kwargs):
+        self.tasks.append((func, args, kwargs))
+
+    def run(self):
+        return [func(*args, **kwargs) for func, args, kwargs in self.tasks]
+
+
+def test_service_queues_mail_instead_of_sending(client, staff):
+    """Hàm nghiệp vụ commit token rồi chỉ xếp thư – không gọi SMTP trong request; tác vụ nền gửi sau."""
+    from app.shared.identity import email_flows
+
+    queue = _Queue()
+    with SessionLocal() as db:
+        email_flows.request_password_reset(db, "nhan.vien", queue)
+    assert mail.OUTBOX == [] and len(queue.tasks) == 1
+    with SessionLocal() as db:  # token đã commit trước khi thư được gửi
+        assert db.scalar(select(SysUserToken.id).where(SysUserToken.purpose == "password_reset")) is not None
+    assert queue.run() == [True]
+    assert [m.to for m in mail.OUTBOX] == ["nv@cty.vn"]
+
+
+def test_reset_sends_password_changed_notice(client, staff):
+    client.post(FORGOT, json={"identifier": "nhan.vien"})
+    token = link_token("nv@cty.vn", "reset-password")
+    mail.OUTBOX.clear()
+    assert client.post(RESET, json={"token": token, "new_password": NEW}).status_code == 204
+    [m] = mail.OUTBOX
+    assert m.to == "nv@cty.vn" and m.subject == "Mật khẩu của bạn đã được đặt lại"
+    assert "#token=" not in m.body and NEW not in m.body
+
+
+def test_forgot_and_reset_mail_failure_do_not_fail_request(client, staff, monkeypatch):
+    sent = []
+
+    def flaky(m, settings=None):
+        if sent:  # thư đầu (đường dẫn) gửi được, thư báo đổi mật khẩu lỗi
+            raise mail.MailError("Gửi thư thất bại: TimeoutError")
+        sent.append(m)
+
+    monkeypatch.setattr(mail, "send", flaky)
+    assert client.post(FORGOT, json={"identifier": "nhan.vien"}).status_code == 202
+    token = sent[0].body.split("#token=")[1].split()[0]
+    assert client.post(RESET, json={"token": token, "new_password": NEW}).status_code == 204
+    [log] = _actions("user.mail_failed")
+    assert log.after == {"purpose": "password_changed", "error": "Gửi thư thất bại: TimeoutError"}
+    sent.clear()
+
+    def broken(m, settings=None):
+        raise mail.MailError("Gửi thư thất bại: SMTPAuthenticationError")
+
+    monkeypatch.setattr(mail, "send", broken)
+    r = client.post(FORGOT, json={"identifier": "nhan.vien"})
+    assert r.status_code == 202  # cùng phản hồi như khi gửi được
+    assert [log.after["purpose"] for log in _actions("user.mail_failed")] == ["password_changed", "password_reset"]
+
+
+def test_audit_failure_in_background_is_swallowed(client, staff, monkeypatch, caplog):
+    """Gửi lỗi và ghi nhật ký cũng lỗi (CSDL mất kết nối): tác vụ nền chỉ ghi log, không ném lỗi."""
+    from app.shared.identity import email_flows
+
+    def broken(m, settings=None):
+        raise mail.MailError("x")
+
+    def no_db():
+        raise RuntimeError("CSDL không kết nối được")
+
+    monkeypatch.setattr(mail, "send", broken)
+    monkeypatch.setattr(email_flows, "SessionLocal", no_db)
+    assert email_flows.deliver(mail.Mail("a@b.vn", "s", "b"), 1, "invite", None) is False
+    assert "Không ghi được nhật ký lỗi gửi thư user_id=1" in caplog.text
 
 
 # --- Backend SMTP --------------------------------------------------------------------------------------------------

@@ -62,7 +62,7 @@ def test_manager_creates_customer_account(client, staff, customer_party, login, 
     assert r.headers["Location"] == f"/api/v2/users/{body['id']}"
     assert (body["roles"], body["party_id"], body["is_customer_admin"]) == (["customer"], customer_party.id, True)
 
-    assert body["invitation_sent"] is True
+    assert "invitation_sent" not in body  # thư gửi nền (Giai đoạn 6)
     # Nhận lời mời (đặt mật khẩu) → đăng nhập (thiết lập 2FA bắt buộc) → thấy khách hàng của mình; không truy cập
     # danh mục nội bộ, quản lý người dùng
     accept_invite("lan@minhan.vn")
@@ -215,6 +215,8 @@ def test_archive_and_account_creation_do_not_race(client, staff, customer_party)
     đã lưu trữ."""
     from concurrent.futures import ThreadPoolExecutor
 
+    from fastapi import BackgroundTasks
+
     from app.core.errors import AppError
     from app.shared.identity.schemas import CustomerAccountCreate
     from app.shared.masterdata import service
@@ -223,7 +225,7 @@ def test_archive_and_account_creation_do_not_race(client, staff, customer_party)
         with SessionLocal() as db:
             try:
                 data = CustomerAccountCreate(**{**ACCOUNT, "username": f"song.song{i}", "email": f"ss{i}@minhan.vn"})
-                service.create_customer_account(db, customer_party.id, data, actor_id=1)
+                service.create_customer_account(db, customer_party.id, data, actor_id=1, tasks=BackgroundTasks())
             except AppError:
                 pass
 

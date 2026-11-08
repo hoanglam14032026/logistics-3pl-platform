@@ -269,3 +269,13 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | `SMTP_*` có trong cấu hình, chưa dùng | `app/shared/notifications/mail.py`: `smtp` (STARTTLS/SSL, timeout), `console` (máy dev), `memory` (test); thêm `SMTP_SECURITY`, `SMTP_TIMEOUT_SEC`, `MAIL_BACKEND`, `PUBLIC_BASE_URL` | `06` §6 |
 | – | Migration `0007`: `sys_user_tokens`; `sys_users.totp_enabled_at`, `totp_last_step`; `sys_refresh_tokens.mfa`. Nâng cấp hệ thống đang chạy: customer phải đăng nhập lại và thiết lập 2FA | `07` §6 điểm 3 |
 | – | 55 test mới (16 TOTP – vector RFC 4226/6238; 15 2FA – gồm mfa_token không thay access token, token chỉ có mật khẩu, refresh cũ, dùng lại mã, 5 mã sai khóa tạm; 24 email – gồm token chỉ lưu hash, dùng một lần, hết hạn, sai mục đích, không lộ tài khoản, lỗi SMTP, SMTP giả lập); fixture `login` đi hết bước 2FA; 22 test cũ cập nhật (tạo tài khoản customer không kèm mật khẩu); tổng 481 | `07` §4.1 |
+
+### 10.21. Mã nguồn – Giai đoạn 6: mã hóa totp_secret, gửi email bằng tác vụ nền (09/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `totp_secret` lưu dạng rõ (Giai đoạn 5, **CẦN XÁC NHẬN**) | Mã hóa Fernet (`app/core/secretbox.py`) bằng khóa riêng `TOTP_ENCRYPTION_KEY` (bắt buộc, kiểm đúng dạng khóa Fernet, không trùng `JWT_SECRET`; nhiều khóa để xoay khóa); chỉ giải mã lúc kiểm mã; sai khóa → `500`, không tính nhập sai mã | Yêu cầu Giai đoạn 6 – bảo mật |
+| Phụ thuộc chạy không có `cryptography` | Thêm `cryptography==50.0.2` (`pyproject.toml`, hai file lock tạo lại trong venv sạch – chỉ thêm dòng này); `07` §2 cập nhật | Lý do bảo mật (Fernet) |
+| Gửi thư đồng bộ trong request; `invitation_sent` trong phản hồi tạo tài khoản; `:resend-invite` trả `200 {"invitation_sent": …}` | Thư mời, đường dẫn đặt lại mật khẩu, thư báo mật khẩu đã đổi (mới) gửi bằng FastAPI `BackgroundTasks` sau khi trả response; lỗi → log + nhật ký `user.mail_failed` (thay `user.invite_failed`); tạo tài khoản trả `UserOut` (bỏ `invitation_sent`); `:resend-invite` trả `202 {"message": …}` | Yêu cầu Giai đoạn 6; quên mật khẩu không còn lộ tài khoản tồn tại qua thời gian phản hồi |
+| – | Migration `0008`: `totp_secret` VARCHAR(64) → VARCHAR(255), mã hóa secret hiện có, CHECK `ck_sys_users_totp_secret_encrypted`; downgrade giải mã lại. Nâng cấp: đặt `TOTP_ENCRYPTION_KEY` trước khi khởi động | `07` §6 điểm 3 |
+| – | 20 test mới (3 mã hóa/xoay khóa; 8 cấu hình khóa; 3 2FA – CSDL chỉ có bản mã, CHECK chặn dạng rõ, sai khóa không khóa tài khoản; 5 gửi nền – hàm nghiệp vụ chỉ xếp thư, lỗi gửi/lỗi bất ngờ/lỗi ghi nhật ký không làm lỗi request, thư báo đổi mật khẩu; 1 migration dữ liệu 0007 → 0008 → 0007); 7 test cũ cập nhật | `07` §5 |

@@ -2,14 +2,16 @@
 Cấu hình ứng dụng đọc từ biến môi trường và file `.env` (đặc tả 06 §6).
 
 Dùng `get_settings()` (có cache) thay vì đọc `os.environ` trực tiếp. Biến không có
-mặc định trong 06 §6 là tùy chọn (`None`), trừ `JWT_SECRET` – bắt buộc.
+mặc định trong 06 §6 là tùy chọn (`None`), trừ `JWT_SECRET`, `TOTP_ENCRYPTION_KEY` – bắt buộc.
 """
 
+import base64
+import binascii
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Flow = Literal["ops", "control", "learning", "assessment"]
@@ -58,6 +60,9 @@ class Settings(BaseSettings):
     auth_2fa_required_roles: Annotated[frozenset[str], NoDecode] = frozenset({"customer"})
     auth_mfa_token_ttl_sec: int = Field(default=300, gt=0)
     totp_issuer: str = "Logistics 3PL"
+    # Khóa Fernet mã hóa totp_secret (Giai đoạn 6) – riêng, khác JWT_SECRET. Tạo: python -m app.core.secretbox
+    # Xoay khóa: "<khóa mới>,<khóa cũ>" (mã hóa bằng khóa đầu, giải mã thử mọi khóa).
+    totp_encryption_key: SecretStr
     # Thư mời (đặt mật khẩu lần đầu), đặt lại mật khẩu qua email: hạn token
     invite_token_ttl_hours: int = Field(default=72, gt=0)
     password_reset_token_ttl_min: int = Field(default=30, gt=0)
@@ -137,6 +142,35 @@ class Settings(BaseSettings):
         if len(value.get_secret_value().strip()) < 32:
             raise ValueError("JWT_SECRET phải có tối thiểu 32 ký tự không phải khoảng trắng")
         return value
+
+    @field_validator("totp_encryption_key")
+    @classmethod
+    def _fernet_keys(cls, value: SecretStr) -> SecretStr:
+        keys = [k.strip() for k in value.get_secret_value().split(",") if k.strip()]
+        if not keys:
+            raise ValueError("TOTP_ENCRYPTION_KEY bắt buộc; tạo bằng: python -m app.core.secretbox")
+        for key in keys:
+            try:
+                raw = base64.urlsafe_b64decode(key.encode("ascii"))
+            except (binascii.Error, ValueError, UnicodeEncodeError):
+                raw = b""
+            if len(raw) != 32:
+                raise ValueError(
+                    "TOTP_ENCRYPTION_KEY phải là khóa Fernet (32 byte, base64 url-safe); "
+                    "tạo bằng: python -m app.core.secretbox"
+                )
+        return SecretStr(",".join(keys))
+
+    @model_validator(mode="after")
+    def _separate_keys(self) -> "Settings":
+        if self.jwt_secret.get_secret_value().strip() in self.totp_encryption_keys:
+            raise ValueError("TOTP_ENCRYPTION_KEY không được dùng lại JWT_SECRET")
+        return self
+
+    @property
+    def totp_encryption_keys(self) -> tuple[str, ...]:
+        """Khóa đầu tiên dùng để mã hóa; các khóa sau chỉ để giải mã (xoay khóa)."""
+        return tuple(self.totp_encryption_key.get_secret_value().split(","))
 
     @field_validator("cors_origins")
     @classmethod

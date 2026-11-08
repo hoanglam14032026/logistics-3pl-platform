@@ -80,7 +80,7 @@ def test_invite_account_in_own_party(client, world, login, accept_invite):
     body = r.json()
     assert r.headers["Location"] == f"{PORTAL}/{body['id']}"
     assert (body["roles"], body["party_id"], body["is_customer_admin"]) == (["customer"], world["a"].id, False)
-    assert body["invitation_sent"] is True
+    assert "invitation_sent" not in body  # thư gửi nền (Giai đoạn 6)
     accept_invite("hung@minhan.vn")
     assert login("minhan.hung")["access_token"]
     with SessionLocal() as db:

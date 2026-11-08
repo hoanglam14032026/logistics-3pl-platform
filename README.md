@@ -44,10 +44,10 @@ cd logistics-3pl-platform
 docker compose up -d db                                  # PostgreSQL 17: logistics_3pl_dev, logistics_3pl_test
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev-lock.txt                # phụ thuộc chạy + công cụ dev (đều đã khóa)
-cp .env.example .env                                     # rồi điền JWT_SECRET
+cp .env.example .env                                     # rồi điền JWT_SECRET, TOTP_ENCRYPTION_KEY
 uvicorn app.main:create_app --factory --reload           # http://127.0.0.1:8000/docs; tự chạy alembic upgrade head
 python -m app.shared.identity.cli create-admin --username admin --full-name "Quản trị"   # admin đầu tiên
-pytest                                                   # 481 test: 374 tích hợp trên logistics_3pl_test + 107 đơn vị
+pytest                                                   # 501 test: 383 tích hợp trên logistics_3pl_test + 118 đơn vị
 ruff check . && ruff format --check .
 ```
 
@@ -61,7 +61,9 @@ Toàn bộ bằng Docker: `docker compose up -d --build` (dữ liệu CSDL trong
 | `alembic.ini`, `migrations/` | Migration Alembic. Ứng dụng tự `upgrade head` khi khởi động; CSDL cũ tạo bằng `create_all` được đánh dấu revision `0001`. Đổi model: `alembic revision --autogenerate --rev-id 0002 -m "..."`, xem lại file sinh ra; `alembic check` báo model lệch migration |
 | `deploy/postgres/init/` | Script tạo CSDL test khi khởi tạo volume lần đầu |
 
-Cấu hình: sao chép `.env.example` thành `.env` và đặt **`JWT_SECRET`** (bắt buộc, ≥ 32 ký tự; thiếu thì ứng dụng không khởi động). Biến khác: `DATABASE_URL` (mặc định CSDL dev ở trên), `TEST_DATABASE_URL` (tên CSDL bắt buộc kết thúc `_test`), `UPLOAD_DIR` (mặc định `./data/uploads`), `POSTGRES_PASSWORD` (mặc định `logistics` – chỉ cho máy dev), `POSTGRES_PORT`; danh sách đầy đủ: [`06`](docs/specs/06-quy-uoc-api-bao-mat.md) §6, `app/core/config.py`. Mã v1.1.0 nằm tại `app/legacy_v1/`, API `/api/v1/*` đánh dấu deprecated; mô tả chi tiết: [`90-hien-trang-v1.1.md`](docs/specs/90-hien-trang-v1.1.md).
+Cấu hình: sao chép `.env.example` thành `.env` và đặt **`JWT_SECRET`** (bắt buộc, ≥ 32 ký tự) và **`TOTP_ENCRYPTION_KEY`** (bắt buộc, khóa Fernet riêng – sinh bằng `python -m app.core.secretbox`, không dùng lại `JWT_SECRET`); thiếu thì ứng dụng không khởi động. Biến khác: `DATABASE_URL` (mặc định CSDL dev ở trên), `TEST_DATABASE_URL` (tên CSDL bắt buộc kết thúc `_test`), `UPLOAD_DIR` (mặc định `./data/uploads`), `POSTGRES_PASSWORD` (mặc định `logistics` – chỉ cho máy dev), `POSTGRES_PORT`; danh sách đầy đủ: [`06`](docs/specs/06-quy-uoc-api-bao-mat.md) §6, `app/core/config.py`. Mã v1.1.0 nằm tại `app/legacy_v1/`, API `/api/v1/*` đánh dấu deprecated; mô tả chi tiết: [`90-hien-trang-v1.1.md`](docs/specs/90-hien-trang-v1.1.md).
+
+**Thay đổi thư viện (Giai đoạn 6, lý do bảo mật):** thêm `cryptography==50.0.2` vào phụ thuộc chạy để mã hóa `sys_users.totp_secret` bằng Fernet (khóa `TOTP_ENCRYPTION_KEY`) thay vì lưu dạng rõ. Hai file lock tạo lại trong venv sạch – chỉ thêm đúng dòng `cryptography==50.0.2` (`cffi`, `pycparser` đã có sẵn), các gói khác giữ nguyên phiên bản. Nâng cấp hệ thống đang chạy: đặt `TOTP_ENCRYPTION_KEY` **trước** khi khởi động bản mới – migration `0008` mã hóa secret hiện có bằng khóa này.
 
 ## 5. Giấy phép
 

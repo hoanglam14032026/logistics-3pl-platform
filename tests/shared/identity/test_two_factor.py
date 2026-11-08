@@ -341,3 +341,51 @@ def test_admin_reset_2fa(client, customer, make_user, login, auth_headers):
     _error(client.post("/api/v2/auth/refresh", json={"refresh_token": tokens["refresh_token"]}), 401, "UNAUTHENTICATED")
     assert _password_login(client, customer)["mfa_setup_required"] is True  # thiết lập lại
     assert "user.2fa_reset" in _actions()
+
+
+# --- Mã hóa totp_secret (Giai đoạn 6) ---------------------------------------------------------------------------
+
+
+def test_totp_secret_stored_encrypted(client, make_user):
+    from app.core import secretbox
+
+    make_user("nhan.vien")
+    result = _enable_for(client, "nhan.vien")
+    stored = _user("nhan.vien").totp_secret
+    secret = result["setup"]["secret"]
+    assert stored.startswith("gAAAAA") and secret not in stored  # CSDL không có secret dạng rõ
+    assert secretbox.decrypt(stored) == secret
+    # Mã sinh từ secret trả cho ứng dụng xác thực vẫn đăng nhập được
+    challenge = _password_login(client, "nhan.vien")
+    with SessionLocal() as db:
+        db.execute(update(SysUser).where(SysUser.username == "nhan.vien").values(totp_last_step=None))
+        db.commit()
+    code = totp.code_at(secret, now_utc())
+    r = client.post("/api/v2/auth/login/totp", json={"mfa_token": challenge["mfa_token"], "code": code})
+    assert r.status_code == 200, r.text
+
+
+def test_database_rejects_plaintext_totp_secret(client, make_user):
+    from sqlalchemy.exc import IntegrityError
+
+    make_user("nhan.vien")
+    with SessionLocal() as db, pytest.raises(IntegrityError, match="ck_sys_users_totp_secret_encrypted"):
+        db.execute(update(SysUser).where(SysUser.username == "nhan.vien").values(totp_secret="JBSWY3DPEHPK3PXP"))
+        db.commit()
+
+
+def test_wrong_encryption_key_is_server_error_not_failed_login(client, make_user, monkeypatch, caplog):
+    """Đổi TOTP_ENCRYPTION_KEY mà không giữ khóa cũ: 500 lỗi hệ thống, không tính là nhập sai mã (không khóa tạm)."""
+    from app.core import secretbox
+    from app.core.config import get_settings
+
+    make_user("nhan.vien")
+    _enable_for(client, "nhan.vien")
+    challenge = _password_login(client, "nhan.vien")
+    monkeypatch.setenv("TOTP_ENCRYPTION_KEY", secretbox.generate_key())
+    get_settings.cache_clear()
+    r = client.post("/api/v2/auth/login/totp", json={"mfa_token": challenge["mfa_token"], "code": "123456"})
+    err = _error(r, 500, "INTERNAL_ERROR")
+    assert err["message"] == "Không kiểm tra được mã xác thực; liên hệ quản trị hệ thống"
+    assert _user("nhan.vien").failed_login_count == 0
+    assert "kiểm tra TOTP_ENCRYPTION_KEY" in caplog.text

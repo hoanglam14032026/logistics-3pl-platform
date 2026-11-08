@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from app.core.config import ALL_FLOWS, Settings, get_settings
 
 SECRET = "s" * 32
+FERNET_KEY = "dGVzdC1vbmx5LXRvdHAta2V5LTMyLWJ5dGVzLWxvbmc="
 
 
 @pytest.fixture()
@@ -15,6 +16,7 @@ def clean_env(monkeypatch):
     """Xóa mọi biến cấu hình trong môi trường (conftest đã đặt DATABASE_URL, UPLOAD_DIR, JWT_SECRET)."""
     for name in Settings.model_fields:
         monkeypatch.delenv(name.upper(), raising=False)
+    monkeypatch.setenv("TOTP_ENCRYPTION_KEY", FERNET_KEY)  # bắt buộc (Giai đoạn 6); test riêng xóa đi khi cần
     return monkeypatch
 
 
@@ -141,3 +143,36 @@ def test_cors_wildcard_is_rejected(clean_env):
     clean_env.setenv("CORS_ORIGINS", "http://localhost:5173,*")
     with pytest.raises(ValidationError, match="không được chứa"):
         make()
+
+
+# --- TOTP_ENCRYPTION_KEY (Giai đoạn 6) ---------------------------------------------------------------------------
+
+
+def test_totp_encryption_key_required(clean_env):
+    clean_env.setenv("JWT_SECRET", SECRET)
+    clean_env.delenv("TOTP_ENCRYPTION_KEY")
+    with pytest.raises(ValidationError, match="totp_encryption_key"):
+        make()
+
+
+@pytest.mark.parametrize("value", ["", " , ", "khong-phai-khoa", "s" * 44, FERNET_KEY[:-4]])
+def test_totp_encryption_key_must_be_fernet_key(clean_env, value):
+    clean_env.setenv("JWT_SECRET", SECRET)
+    clean_env.setenv("TOTP_ENCRYPTION_KEY", value)
+    with pytest.raises(ValidationError, match="TOTP_ENCRYPTION_KEY"):
+        make()
+
+
+def test_totp_encryption_key_must_differ_from_jwt_secret(clean_env):
+    clean_env.setenv("JWT_SECRET", FERNET_KEY)  # khóa Fernet hợp lệ cũng đủ 32 ký tự cho JWT_SECRET
+    with pytest.raises(ValidationError, match="không được dùng lại JWT_SECRET"):
+        make()
+
+
+def test_totp_encryption_key_list_for_rotation(clean_env):
+    other = "b3RoZXItdGVzdC10b3RwLWtleS0zMi1ieXRlcy1sb24="
+    clean_env.setenv("JWT_SECRET", SECRET)
+    clean_env.setenv("TOTP_ENCRYPTION_KEY", f" {other} , {FERNET_KEY} ")
+    s = make()
+    assert s.totp_encryption_keys == (other, FERNET_KEY)
+    assert FERNET_KEY not in repr(s)  # SecretStr – không lộ khóa trong log

@@ -182,12 +182,10 @@ class PortalAccountCreate(BaseModel):
     full_name: FullName
 
 
-class InvitedUserOut(UserOut):
-    invitation_sent: bool = Field(False, description="false: gửi thư lỗi – tài khoản đã tạo; gửi lại :resend-invite")
+class InvitationQueued(BaseModel):
+    """Thư mời gửi nền (Giai đoạn 6): kết quả gửi xem ở nhật ký (`user.mail_failed` nếu lỗi)."""
 
-
-class InvitationResult(BaseModel):
-    invitation_sent: bool
+    message: str = "Thư mời đã được xếp vào hàng gửi"
 
 
 # --- Xác thực 2 lớp, thư mời, đặt lại mật khẩu (Giai đoạn 5) -----------------------------------------------------

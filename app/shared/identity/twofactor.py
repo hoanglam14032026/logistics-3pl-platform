@@ -10,16 +10,19 @@ Người đã đăng nhập: `setup` → `enable` (thu hồi các phiên cũ ch�
 mã; tài khoản bắt buộc 2FA không tắt được). `admin` xóa 2FA của người dùng mất thiết bị: `admin_reset` (thu hồi phiên;
 lần đăng nhập sau thiết lập lại).
 
+`totp_secret` lưu bản mã Fernet (`app.core.secretbox`, Giai đoạn 6): chỉ giải mã lúc kiểm mã.
+
 Mã sai được tính như đăng nhập sai (khóa tạm sau `AUTH_MAX_FAILED_LOGINS` lần) – 10⁶ khả năng không dò được. Mã đã
 dùng không dùng lại được (`totp_last_step`).
 """
 
+import logging
 from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core import totp
+from app.core import secretbox, totp
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError, ErrorCode
 from app.core.rbac import forbidden
@@ -27,6 +30,8 @@ from app.core.security import MFA_SETUP, MFA_VERIFY, decode_mfa_token, unauthent
 from app.core.timeutil import now_utc
 from app.shared.identity import service
 from app.shared.identity.models import SysUser
+
+logger = logging.getLogger("app.identity.2fa")
 
 INVALID_CODE = "Mã xác thực không đúng hoặc đã dùng"
 
@@ -47,10 +52,26 @@ def _code_error() -> AppError:
 
 
 def _new_secret(db: Session, user: SysUser, settings: Settings) -> TotpSetup:
-    user.totp_secret = totp.generate_secret()
+    secret = totp.generate_secret()
+    user.totp_secret = secretbox.encrypt(secret)
     user.totp_last_step = None
     db.commit()
-    return TotpSetup(user.totp_secret, totp.provisioning_uri(user.totp_secret, user.username, settings.totp_issuer))
+    return TotpSetup(secret, totp.provisioning_uri(secret, user.username, settings.totp_issuer))
+
+
+def _check_code(user: SysUser, code: str) -> int | None:
+    """Chu kỳ của mã nếu đúng (chưa dùng), ngược lại None. Không giải mã được secret (sai khóa) → 500 lỗi hệ thống,
+    không coi là mã sai (không tính vào khóa tạm tài khoản)."""
+    if not user.totp_secret:
+        return None
+    try:
+        secret = secretbox.decrypt(user.totp_secret)
+    except secretbox.SecretDecryptError as exc:
+        logger.error("Không giải mã được totp_secret của user_id=%s – kiểm tra TOTP_ENCRYPTION_KEY", user.id)
+        raise AppError(
+            ErrorCode.INTERNAL_ERROR, 500, "Không kiểm tra được mã xác thực; liên hệ quản trị hệ thống"
+        ) from exc
+    return totp.verify(secret, code, now_utc(), user.totp_last_step)
 
 
 def _user_from_mfa_token(db: Session, mfa_token: str, purpose: str) -> SysUser:
@@ -65,7 +86,7 @@ def _user_from_mfa_token(db: Session, mfa_token: str, purpose: str) -> SysUser:
 
 
 def _verify_or_count(db: Session, user: SysUser, code: str, settings: Settings) -> int:
-    step = totp.verify(user.totp_secret or "", code, now_utc(), user.totp_last_step) if user.totp_secret else None
+    step = _check_code(user, code)
     if step is None:
         just_locked = service._count_failure(db, user, settings)
         service._login_failed(db, user, user.username, "invalid_totp")
@@ -122,7 +143,7 @@ def enable(db: Session, user: SysUser, code: str, client: service.ClientInfo) ->
     settings = get_settings()
     if user.is_2fa_enabled or not user.totp_secret:
         raise AppError(ErrorCode.INVALID_STATE_TRANSITION, 409, "Chưa thiết lập (gọi /2fa/setup trước) hoặc đã bật")
-    step = totp.verify(user.totp_secret, code, now_utc(), user.totp_last_step)
+    step = _check_code(user, code)
     if step is None:
         raise _code_error()
     user.totp_last_step = step
@@ -147,7 +168,7 @@ def disable(db: Session, user: SysUser, password: str, code: str) -> None:
             "Mật khẩu không đúng",
             [{"field": "body.password", "issue": "invalid", "message": "Mật khẩu không đúng"}],
         )
-    step = totp.verify(user.totp_secret or "", code, now_utc(), user.totp_last_step)
+    step = _check_code(user, code)
     if step is None:
         raise _code_error()
     _clear(user)
