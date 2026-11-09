@@ -113,6 +113,8 @@ Khóa ngoại chỉ trong nội bộ Luồng 1 và tới `md_*`/`sys_*` (N3). Tr
 
 `ops_document_lines` – dòng hàng: `document_id`, `line_no`, `description`, `hs_code` (VARCHAR(10), chỉ số), `quantity` NUMERIC(18,3), `unit_code`, `net_weight_kg`, `gross_weight_kg`, `packages`, `package_type`, `unit_price` NUMERIC(18,4), `amount` NUMERIC(18,2), `origin_country`, `origin_criterion` (C/O), `marks_numbers`.
 
+**Đã làm (Giai đoạn 16, 09/11/2026)** – `app/flows/operations/document_*.py`, migration `0017`: `ops_documents` (`doc_type` – danh mục rút gọn `bill_of_lading`, `air_waybill`, `commercial_invoice`, `packing_list`, `certificate_of_origin`, `customs_declaration`, `delivery_order`, `sales_contract`, `other` – **CẦN XÁC NHẬN**; `version_no`; `file_id` → `sys_files` mục đích `shipment_document` – pdf, jpg, png, docx, xlsx ≤ 20 MB; `status` `current` / `superseded`, không xóa – BR-03). `POST /api/v2/ops/shipments/{id}/documents` (multipart, `ops_staff` phụ trách lô) → EV-121. Chưa có: trích dữ liệu đầu chứng từ, dòng hàng, khách hàng gửi qua cổng, quay về `docs_collecting` khi tải chứng từ mới sau `docs_verified`.
+
 ### 3.4. Kiểm tra chứng từ
 
 `ops_document_checks`: `shipment_id`, `run_no`, `ruleset_code`, `ruleset_version`, `document_versions` (JSON: doc_id → version_no đã dùng), `result` (`passed`, `passed_with_warnings`, `failed`), `blocking_count`, `warning_count`, `run_by`, `run_at`.
@@ -432,6 +434,7 @@ Quy định thực thi:
 - **BR-101**: Bộ đánh giá là hàm thuần (pure function) nhận dữ liệu chứng từ + tham số, trả danh sách sai lệch; mỗi bộ đánh giá có test đơn vị với ca đạt, ca vi phạm, ca biên dung sai; mỗi quy tắc khởi tạo R-01…R-14 có test cấu hình mẫu.
 - **BR-102**: Mỗi lần chạy lưu `ruleset_code`, `ruleset_version` và phiên bản chứng từ đã dùng để tái lập kết quả.
 - **BR-106**: Quy tắc mà tham số không còn hợp lệ với JSON Schema của bộ đánh giá (do nâng cấp bộ đánh giá) bị đánh dấu `invalid`, không chạy, hiển thị cho người quản lý bộ quy tắc.
+- **Đã làm (Giai đoạn 16) – BR-103 bản kiểm tra thủ công**: tải chứng từ lên tạo `ops_document_checks` `pending` (chưa có lần đang chờ; `run_no` tăng dần); `ops_staff` phụ trách lô ghi kết quả từng loại (`ok` – đủ / `missing` – thiếu / `invalid` – sai, lý do bắt buộc khi không đạt) qua `POST /api/v2/ops/document-checks/{id}:complete` → `passed` / `failed`, `blocking_count`, chụp phiên bản đã kiểm, EV-122 (`discrepancies` `source = manual`, `rule_code` `DOC_MISSING` / `DOC_INVALID`). `:verify-documents` chỉ chuyển khi lần kiểm tra mới nhất `passed` và không có lần đang chờ. Chưa có bộ quy tắc tự động, trạng thái từng sai lệch (`customer_corrected`, `waived`, `false_positive`).
 - **BR-103**: Lô hàng chỉ chuyển `docs_verified` khi lần kiểm tra mới nhất không còn sai lệch `blocking` ở trạng thái `open` (mọi sai lệch chặn đã `customer_corrected`, `waived` qua phê duyệt hoặc `false_positive` do `manager` xác nhận).
 - **BR-104**: Nhân viên không được tự đặt `waived`; chỉ hệ thống đặt khi nhận EV-203 `approved`.
 - **BR-105**: Lô `training` sinh từ tình huống có `auto_check_visible = false` (`05` BR-402): người học ghi nhận sai lệch thủ công (`source = manual`, chọn `rule_code`, chứng từ, trường, mô tả); bộ quy tắc vẫn chạy nhưng kết quả `auto` ẩn với người học, chỉ `instructor` xem. Điều kiện BR-103 áp dụng cho sai lệch `manual` mà người học đã ghi nhận. Ở `production` cũng cho phép ghi nhận `manual` (sai lệch bộ quy tắc chưa bao quát).
@@ -576,6 +579,10 @@ Cấu hình ma trận và quy tắc (§5.3) – thuộc danh mục dùng chung:
 | GET/POST | `/api/v2/md/rule-sets/{id}/rules` · PATCH/DELETE `/rules/{rule_id}` | Quy tắc |
 | GET | `/api/v2/md/rule-sets/{id}/diff?against={other_id}` | So sánh hai phiên bản |
 | POST | `/api/v2/md/rule-sets/import` · GET `/rule-sets/{id}/export` | Nhập/xuất bộ quy tắc dạng XLSX hoặc JSON (sao chép giữa môi trường, giữa các khóa học) |
+
+## 8b. Điểm kiểm soát của lô (Giai đoạn 16)
+
+`ops_checkpoints` – nhận hàng (`cargo_receipt`), thông quan (`customs_clearance`), xuất kho (`warehouse_release`), giao hàng (`delivery`); mỗi loại một điểm / lô, kèm thời điểm dự kiến, địa điểm (`md_locations`). `ops_staff` phụ trách lô tạo (`POST /api/v2/ops/shipments/{id}/checkpoints`, mặc định đủ 4 loại) và xác nhận `passed` (qua) / `failed` (trượt – bắt buộc ghi chú) với thời điểm thực tế (`POST /api/v2/ops/checkpoints/{id}:evaluate`); `failed` xác nhận lại được, `passed` khóa. Thông quan đạt cần số tờ khai, luồng xanh / vàng / đỏ, thời điểm nộp. Mỗi lần xác nhận ghi `ops_checkpoint_evaluations` (chỉ thêm) → sự kiện `ops.checkpoint.evaluated` (Luồng 4 – KPI-05); thông quan đạt → EV-141 (KPI-06). Không bắt buộc thứ tự giữa các điểm – **CẦN XÁC NHẬN**. Khác điểm kiểm soát **bước** của Luồng 2 (EV-204 – chưa làm).
 
 ## 9. Cổng khách hàng
 

@@ -487,3 +487,21 @@ class IncidentClosed(EventData):
     compensation_amount: Decimal | None = None
     currency: str | None = None
     closed_at: UtcDatetime
+
+
+class OpsCheckpointEvaluated(EventData):
+    """Điểm kiểm soát của lô được xác nhận ở Luồng 1 (Giai đoạn 16) – nhận hàng / thông quan / xuất kho / giao hàng.
+    01 §5 chưa có mã EV (EV-204 là điểm kiểm soát bước của Luồng 2) – CẦN XÁC NHẬN. Luồng 4 tính KPI-05."""
+
+    code: ClassVar[str] = "ops.checkpoint.evaluated"
+    name: ClassVar[str] = "ops.checkpoint.evaluated"
+    consumers: ClassVar[tuple[str, ...]] = ("assessment",)
+
+    checkpoint_id: int
+    shipment_id: int
+    checkpoint_type: str
+    attempt_no: int
+    result: str  # passed | failed
+    actual_at: UtcDatetime
+    planned_at: UtcDatetime | None
+    performer_id: int

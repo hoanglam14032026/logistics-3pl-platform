@@ -1,5 +1,5 @@
 """
-Danh mục khách hàng, đối tác `md_parties` (01 §4; 06 §2.4, §2.5; Giai đoạn 1).
+Danh mục khách hàng, đối tác `md_parties` (01 §4; 06 §2.4, §2.5; Giai đoạn 1); địa điểm `md_locations` (Giai đoạn 16).
 
 Chủ ghi: `manager`, `admin` (06 §4). Không xóa cứng – lưu trữ (`archived`). Tài khoản `customer` gắn một party loại
 `customer` qua `sys_users.party_id` (02 §9.2).
@@ -142,3 +142,53 @@ class MdProcessStep(Base):
     depends_on: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     is_checkpoint: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     checkpoint_type: Mapped[str | None] = mapped_column(String(40))
+
+
+# --- Giai đoạn 16: địa điểm ---------------------------------------------------------------------------------------
+
+
+class LocationType(StrEnum):
+    """01 §4: cảng biển, sân bay, ICD, kho, cửa khẩu, điểm giao hàng."""
+
+    SEAPORT = "seaport"
+    AIRPORT = "airport"
+    ICD = "icd"
+    WAREHOUSE = "warehouse"
+    BORDER_GATE = "border_gate"
+    DELIVERY_POINT = "delivery_point"
+
+
+LOCATION_CODE_PATTERN = r"^[A-Z0-9][A-Z0-9-]{1,19}$"  # UN/LOCODE (VNHPH) hoặc mã nội bộ (KHO-HN-01)
+
+
+class MdLocation(AuditColumnsMixin, Base):
+    """Địa điểm (01 §4 "Danh mục tham chiếu"). Ghi: `admin`, `manager`; không xóa cứng – lưu trữ; mã không đổi sau khi
+    tạo. `party_id`: địa điểm của một khách hàng / đối tác (kho khách hàng, điểm giao hàng) – `customer` chỉ xem địa
+    điểm gắn khách hàng của mình."""
+
+    __tablename__ = "md_locations"
+    __table_args__ = (
+        CheckConstraint(f"location_type IN ({_in(LocationType)})", name="location_type_valid"),
+        CheckConstraint(f"status IN ({_in(PartyStatus)})", name="status_valid"),
+        CheckConstraint(f"code ~ '{LOCATION_CODE_PATTERN}'", name="code_format"),
+        CheckConstraint("country_code ~ '^[A-Z]{2}$'", name="country_code_iso2"),
+        CheckConstraint("(status = 'archived') = (archived_at IS NOT NULL)", name="archived_at_matches_status"),
+        CheckConstraint("latitude IS NULL OR latitude BETWEEN -90 AND 90", name="latitude_range"),
+        CheckConstraint("longitude IS NULL OR longitude BETWEEN -180 AND 180", name="longitude_range"),
+        CheckConstraint("(latitude IS NULL) = (longitude IS NULL)", name="coordinates_pair"),
+        Index("ix_md_locations_party_id", "party_id"),
+    )
+
+    code: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    location_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    address: Mapped[str | None] = mapped_column(String(500))
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    party_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("md_parties.id", ondelete="RESTRICT"))
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=PartyStatus.ACTIVE.value, server_default=PartyStatus.ACTIVE.value
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archived_by: Mapped[int | None] = mapped_column(BigInteger)

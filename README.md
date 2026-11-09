@@ -50,7 +50,7 @@ python -m app.worker                                     # worker: email, OCR + 
 python -m app.shared.events.cli dispatch [--failed]      # xếp gửi lại sự kiện còn chờ trong outbox
 python -m app.shared.events.cli replay control           # Luồng 2 xử lý lại sự kiện từ outbox (idempotent, không cần Redis)
 python -m app.shared.identity.cli create-admin --username admin --full-name "Quản trị"   # admin đầu tiên
-pytest                                                   # 814 test: 593 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 220 đơn vị + 1 model thật (bỏ qua mặc định)
+pytest                                                   # 831 test: 610 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 220 đơn vị + 1 model thật (bỏ qua mặc định)
 ruff check . && ruff format --check .
 ```
 
@@ -119,6 +119,8 @@ curl -X POST http://127.0.0.1:8000/api/v2/admin/ai-models/2:probe -H "Authorizat
 **Luồng 4 – KPI vận hành (Giai đoạn 14):** worker nhận sự kiện từ `l3pl:events:assessment`, dựng bảng `asm_fact_*`. Báo cáo (`manager`, `business_manager`, `admin`): `GET /api/v2/assessment/kpi?from=2026-10-01&to=2026-10-31`, theo hợp đồng (kèm so SLA) `/kpi/contracts`, theo lô `/kpi/shipments`, theo nhân viên `/kpi/staff`. Sau khi nâng cấp lên `0015`, dựng dữ kiện từ lịch sử: `python -m app.shared.events.cli replay assessment`.
 
 **KPI-01…14, mục tiêu, tính định kỳ (Giai đoạn 15):** mục tiêu KPI đặt trong kế hoạch hợp đồng (`PUT /api/v2/control/contract-plans/{id}/kpi-targets`, `:submit`) và có hiệu lực khi `business_manager` `:approve` (EV-201). Worker tự tính KPI mỗi ngày lúc `ASSESSMENT_KPI_CALC_HOUR` giờ (mặc định 01:00 giờ Việt Nam) – số đo ở `GET /api/v2/assessment/kpi/measurements`; KPI kém mục tiêu → cảnh báo cho manager, business_manager (`/api/v2/control/alerts?alert_type=kpi_below_target`, email / Zalo). Tính ngay: `POST /api/v2/assessment/kpi/calc-runs` (admin).
+
+**Địa điểm, chứng từ, điểm kiểm soát (Giai đoạn 16):** danh mục `GET|POST /api/v2/md/locations` (admin, manager ghi; khách hàng xem địa điểm của mình). Nhân viên phụ trách lô tải chứng từ `POST /api/v2/ops/shipments/{id}/documents` (multipart `file`, `doc_type`) → lần kiểm tra chờ; ghi kết quả `POST /api/v2/ops/document-checks/{id}:complete` (`ok` / `missing` / `invalid` + lý do). Lô chỉ `:verify-documents` khi lần kiểm tra mới nhất đạt (BR-103). Điểm kiểm soát: `POST /api/v2/ops/shipments/{id}/checkpoints`, xác nhận `POST /api/v2/ops/checkpoints/{id}:evaluate`.
 
 Test với model thật (bỏ qua mặc định): `DOCAI_LIVE_OLLAMA=1 pytest tests/shared/docai/test_live_ollama.py`.
 

@@ -236,20 +236,24 @@ class AsmFactDocCheck(_FactMixin, Base):
 
 
 class AsmFactCheckpoint(_FactMixin, Base):
-    """EV-204 – một lần đánh giá điểm kiểm soát (KPI-05)."""
+    """Một lần đánh giá điểm kiểm soát (KPI-05): `source = control` – EV-204 (điểm kiểm soát bước, Luồng 2);
+    `source = ops` – `ops.checkpoint.evaluated` (điểm kiểm soát của lô ở Luồng 1 – Giai đoạn 16)."""
 
     __tablename__ = "asm_fact_checkpoints"
     __table_args__ = (
         CheckConstraint(MODE_CHECK, name="mode_valid"),
         CheckConstraint("result IN ('passed', 'failed')", name="result_valid"),
+        CheckConstraint("source IN ('control', 'ops')", name="source_valid"),
         Index("ix_asm_fact_checkpoints_at", "evaluated_at"),
     )
 
+    source: Mapped[str] = mapped_column(String(8), primary_key=True, server_default=text("'control'"))
     checkpoint_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     attempt_no: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     shipment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    task_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    step_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    task_id: Mapped[int | None] = mapped_column(BigInteger)
+    step_code: Mapped[str | None] = mapped_column(String(20))
+    checkpoint_type: Mapped[str | None] = mapped_column(String(24))
     result: Mapped[str] = mapped_column(String(8), nullable=False)
     performer_id: Mapped[int | None] = mapped_column(BigInteger)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

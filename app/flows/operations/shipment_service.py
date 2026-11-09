@@ -345,6 +345,10 @@ def _transition(
         )
     if action == "submit":
         _active_contract(db, shipment.contract_id)  # 02 §6.2: hợp đồng active
+    elif action == "verify_documents":
+        from app.flows.operations import document_service
+
+        document_service.ensure_documents_verified(db, shipment.id)  # BR-103 (Giai đoạn 16)
     now = now_utc()
     from_status = shipment.status
     shipment.status = target.value

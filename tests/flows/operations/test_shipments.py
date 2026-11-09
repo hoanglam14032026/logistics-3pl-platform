@@ -95,7 +95,32 @@ def _create(client, world, **overrides) -> dict:
     return r.json()
 
 
+def pass_document_check(client, headers, shipment_id) -> dict:
+    """BR-103 (Giai đoạn 16): tải một chứng từ + ghi kết quả kiểm tra đạt – để chuyển docs_verified được."""
+    from tests.conftest import pdf_bytes
+
+    r = client.post(
+        f"/api/v2/ops/shipments/{shipment_id}/documents",
+        files={"file": ("bl.pdf", pdf_bytes("B/L"), "application/pdf")},
+        data={"doc_type": "bill_of_lading"},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    check = r.json()["check"]
+    done = client.post(
+        f"/api/v2/ops/document-checks/{check['id']}:complete",
+        json={"items": [{"doc_type": "bill_of_lading", "outcome": "ok"}]},
+        headers=headers,
+    )
+    assert done.status_code == 200, done.text
+    return done.json()
+
+
 def _act(client, world, shipment_id, action, json=None, who="ops_staff"):
+    if action == "verify-documents" and who == "ops_staff":
+        status = client.get(f"{URL}/{shipment_id}", headers=world["h"][who]).json().get("status")
+        if status == "docs_collecting":
+            pass_document_check(client, world["h"][who], shipment_id)
     return client.post(f"{URL}/{shipment_id}:{action}", json=json, headers=world["h"][who])
 
 

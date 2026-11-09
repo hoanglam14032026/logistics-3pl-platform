@@ -38,6 +38,8 @@ _DEFAULT_PURPOSES = {
         frozenset({sniff.JPEG, sniff.PNG, sniff.TIFF, sniff.WEBP, sniff.PDF, sniff.DOCX, sniff.XLSX, sniff.TXT}),
         20 * MB,
     ),
+    # Chứng từ của lô hàng (Giai đoạn 16 – ops_documents)
+    "shipment_document": Purpose(frozenset({sniff.PDF, sniff.JPEG, sniff.PNG, sniff.DOCX, sniff.XLSX}), 20 * MB),
 }
 _EXT_TO_MIME = {ext: mime for mime, ext in sniff.EXTENSIONS.items()}
 

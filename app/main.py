@@ -22,7 +22,10 @@ from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
 from app.core.migrations import upgrade_to_head
 from app.flows.assessment.router import router as assessment_router
 from app.flows.control.router import router as control_router
+from app.flows.operations import document_service as ops_document_service
 from app.flows.operations import service as ops_service
+from app.flows.operations.checkpoint_router import router as ops_checkpoints_router
+from app.flows.operations.document_router import router as ops_documents_router
 from app.flows.operations.invoice_router import router as ops_invoices_router
 from app.flows.operations.portal.router import router as portal_contracts_router
 from app.flows.operations.portal.shipments_router import router as portal_shipments_router
@@ -46,6 +49,7 @@ from app.shared.files.router import router as files_router
 from app.shared.identity.portal_router import router as portal_users_router
 from app.shared.identity.router import auth_router, users_router
 from app.shared.identity.throttle import RateLimitMiddleware
+from app.shared.masterdata.location_router import router as locations_router
 from app.shared.masterdata.process_router import router as process_templates_router
 from app.shared.masterdata.router import router as parties_router
 
@@ -130,6 +134,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(users_router)
     app.include_router(parties_router)
     app.include_router(process_templates_router)
+    app.include_router(locations_router)  # Giai đoạn 16
     app.include_router(portal_users_router)
     app.include_router(audit_router)
     app.include_router(files_router)
@@ -139,6 +144,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(doc_types_router)
     app.include_router(doc_jobs_router)
     docai_service.register_file_access()
+    ops_document_service.register_file_access()  # Giai đoạn 16: file chứng từ lô
     # Điều kiện của Luồng 1 với danh mục khách hàng, tài khoản cổng: luôn đăng ký (kể cả khi tắt Luồng 1 – khi đó
     # không có hợp đồng nào nên manager không tạo được tài khoản customer; dữ liệu vẫn nhất quán).
     ops_service.register_guards()
@@ -146,6 +152,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(ops_contracts_router)
         app.include_router(ops_shipments_router)
         app.include_router(ops_tasks_router)  # Giai đoạn 13
+        app.include_router(ops_documents_router)  # Giai đoạn 16: chứng từ + BR-103
+        app.include_router(ops_checkpoints_router)  # Giai đoạn 16: điểm kiểm soát
         app.include_router(ops_invoices_router)  # Giai đoạn 10
         app.include_router(portal_contracts_router)
         app.include_router(portal_shipments_router)

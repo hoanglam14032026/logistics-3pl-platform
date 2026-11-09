@@ -178,6 +178,8 @@ Thang điểm thành phần 0–10. Với mỗi KPI dùng trong bài đánh giá
 - **API**: `kpis` (KPI-01…14) trong mọi báo cáo `/kpi*`; `targets` (mục tiêu hiện hành + trạng thái) trong báo cáo hợp đồng; `GET /kpi/definitions`, `/kpi/targets`, `/kpi/measurements` (mặc định lần tính mới nhất; `history=true`), `/kpi/calc-runs`, `/kpi/alerts`; `POST /kpi/calc-runs` (admin).
 - Chưa làm: `public.get_kpi_values`, phần đánh giá người học (KPI-11/12/13 trên `training`).
 
+**Đã làm (Giai đoạn 16, 09/11/2026)**: nguồn thật cho KPI-01/02 (EV-121, EV-122 từ chứng từ lô + kiểm tra chứng từ), KPI-06 (EV-141 từ điểm kiểm soát thông quan), KPI-05 (`ops.checkpoint.evaluated` – điểm kiểm soát của lô, `asm_fact_checkpoints.source = ops`, thời điểm đo = thời điểm thực tế; EV-204 của Luồng 2 vẫn nhận với `source = control`).
+
 ## 12. Điểm CẦN XÁC NHẬN
 
 1. Danh mục KPI chính thức, ngưỡng `floor`/`target`/cảnh báo cho từng KPI và từng loại hợp đồng.

@@ -26,6 +26,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -500,3 +501,196 @@ class OpsTask(Base):
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_by: Mapped[int | None] = mapped_column(BigInteger)
+
+
+# --- Giai đoạn 16: chứng từ lô + kiểm tra chứng từ (BR-103), điểm kiểm soát ------------------------------------------
+
+
+class DocType(StrEnum):
+    """Loại chứng từ của lô (02 §3.3 – danh mục rút gọn; CẦN XÁC NHẬN danh mục đầy đủ)."""
+
+    BILL_OF_LADING = "bill_of_lading"
+    AIR_WAYBILL = "air_waybill"
+    COMMERCIAL_INVOICE = "commercial_invoice"
+    PACKING_LIST = "packing_list"
+    CERTIFICATE_OF_ORIGIN = "certificate_of_origin"
+    CUSTOMS_DECLARATION = "customs_declaration"
+    DELIVERY_ORDER = "delivery_order"
+    SALES_CONTRACT = "sales_contract"
+    OTHER = "other"
+
+
+class OpsDocument(Base):
+    """Chứng từ của lô (02 §3.3 `ops_documents`). Không xóa; tải lại cùng loại → phiên bản mới, bản cũ `superseded`
+    (BR-03). File ở `sys_files` (owner_type `shipment_document`)."""
+
+    __tablename__ = "ops_documents"
+    __table_args__ = (
+        CheckConstraint(f"doc_type IN ({_in(DocType)})", name="doc_type_valid"),
+        CheckConstraint("status IN ('current', 'superseded')", name="status_valid"),
+        CheckConstraint("version_no >= 1", name="version_positive"),
+        UniqueConstraint("shipment_id", "doc_type", "version_no", name="uq_ops_documents_version"),
+        Index(
+            "uq_ops_documents_current",
+            "shipment_id",
+            "doc_type",
+            unique=True,
+            postgresql_where=text("status = 'current'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    shipment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    doc_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("sys_files.id", ondelete="RESTRICT"), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="current", server_default="current")
+    note: Mapped[str | None] = mapped_column(String(500))
+    uploaded_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+
+
+class DocCheckOutcome(StrEnum):
+    OK = "ok"  # đủ, đúng
+    MISSING = "missing"  # thiếu
+    INVALID = "invalid"  # sai
+
+
+class OpsDocumentCheck(Base):
+    """Lần kiểm tra bộ chứng từ (02 §3.3 `ops_document_checks`) – tạo `pending` khi tải chứng từ lên (chưa có lần
+    đang chờ); `ops_staff` phụ trách lô ghi kết quả từng loại chứng từ → `completed` (`passed` / `failed`), EV-122."""
+
+    __tablename__ = "ops_document_checks"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending', 'completed')", name="status_valid"),
+        CheckConstraint("result IS NULL OR result IN ('passed', 'failed')", name="result_valid"),
+        CheckConstraint("(status = 'completed') = (result IS NOT NULL AND checked_at IS NOT NULL)", name="completed"),
+        UniqueConstraint("shipment_id", "run_no", name="uq_ops_document_checks_run"),
+        Index(
+            "uq_ops_document_checks_pending",
+            "shipment_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    shipment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"), nullable=False
+    )
+    run_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    result: Mapped[str | None] = mapped_column(String(16))
+    blocking_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    document_versions: Mapped[dict[str, Any] | None] = mapped_column(JSONB)  # doc_type → {document_id, version_no}
+    note: Mapped[str | None] = mapped_column(String(1000))
+    triggered_by_document_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ops_documents.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(BigInteger)
+    checked_by: Mapped[int | None] = mapped_column(BigInteger)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OpsDocumentCheckItem(Base):
+    """Kết quả một loại chứng từ trong lần kiểm tra: đủ (`ok`) / thiếu (`missing`) / sai (`invalid` – kèm lý do)."""
+
+    __tablename__ = "ops_document_check_items"
+    __table_args__ = (
+        CheckConstraint(f"doc_type IN ({_in(DocType)})", name="doc_type_valid"),
+        CheckConstraint(f"outcome IN ({_in(DocCheckOutcome)})", name="outcome_valid"),
+        CheckConstraint("outcome = 'ok' OR reason IS NOT NULL", name="reason_required"),
+        CheckConstraint("(outcome = 'missing') = (document_id IS NULL)", name="document_matches_outcome"),
+        UniqueConstraint("check_id", "doc_type", name="uq_ops_document_check_items_type"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    check_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ops_document_checks.id", ondelete="RESTRICT"), nullable=False
+    )
+    doc_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    document_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ops_documents.id", ondelete="RESTRICT"))
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(500))
+
+
+class CheckpointType(StrEnum):
+    CARGO_RECEIPT = "cargo_receipt"  # nhận hàng
+    CUSTOMS_CLEARANCE = "customs_clearance"  # thông quan
+    WAREHOUSE_RELEASE = "warehouse_release"  # xuất kho
+    DELIVERY = "delivery"  # giao hàng
+
+
+CHECKPOINT_SEQ = {t: i for i, t in enumerate(CheckpointType, start=1)}
+
+
+class CustomsChannel(StrEnum):
+    GREEN = "green"
+    YELLOW = "yellow"
+    RED = "red"
+
+
+class OpsCheckpoint(Base):
+    """Điểm kiểm soát của lô (Giai đoạn 16): nhận hàng, thông quan, xuất kho, giao hàng. `ops_staff` phụ trách lô xác
+    nhận đạt / không đạt (ghi thời điểm thực tế); không đạt → xác nhận lại (lần sau). Đã đạt → khóa."""
+
+    __tablename__ = "ops_checkpoints"
+    __table_args__ = (
+        CheckConstraint(f"checkpoint_type IN ({_in(CheckpointType)})", name="checkpoint_type_valid"),
+        CheckConstraint("status IN ('pending', 'passed', 'failed')", name="status_valid"),
+        CheckConstraint("(status = 'pending') = (attempts = 0)", name="attempts_match_status"),
+        UniqueConstraint("shipment_id", "checkpoint_type", name="uq_ops_checkpoints_type"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    shipment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    checkpoint_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    location_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("md_locations.id", ondelete="RESTRICT"))
+    planned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    actual_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # lần xác nhận gần nhất
+    evaluated_by: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(BigInteger)
+
+
+class OpsCheckpointEvaluation(Base):
+    """Một lần xác nhận điểm kiểm soát – chỉ thêm (trigger). Thông quan đạt: số tờ khai, luồng, thời điểm nộp."""
+
+    __tablename__ = "ops_checkpoint_evaluations"
+    __table_args__ = (
+        CheckConstraint("result IN ('passed', 'failed')", name="result_valid"),
+        CheckConstraint("result = 'passed' OR note IS NOT NULL", name="failed_has_note"),
+        CheckConstraint(f"customs_channel IS NULL OR customs_channel IN ({_in(CustomsChannel)})", name="channel_valid"),
+        CheckConstraint(
+            "customs_submitted_at IS NULL OR customs_submitted_at <= actual_at", name="customs_submitted_before"
+        ),
+        UniqueConstraint("checkpoint_id", "attempt_no", name="uq_ops_checkpoint_evaluations_attempt"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    checkpoint_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ops_checkpoints.id", ondelete="RESTRICT"), nullable=False
+    )
+    attempt_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    result: Mapped[str] = mapped_column(String(8), nullable=False)
+    actual_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(1000))
+    declaration_no: Mapped[str | None] = mapped_column(String(40))
+    customs_channel: Mapped[str | None] = mapped_column(String(8))
+    customs_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    evaluated_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )

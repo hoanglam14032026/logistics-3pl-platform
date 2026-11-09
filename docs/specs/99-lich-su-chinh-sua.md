@@ -389,3 +389,15 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | Không có cảnh báo KPI | Kém mục tiêu → `warning`, kém ngưỡng → `critical`; một lần mỗi (KPI, hợp đồng, kỳ); EV-403 + nhật ký `kpi.alert`; Luồng 2 → cảnh báo `kpi_below_target` cho manager + business_manager (email / Zalo) | Yêu cầu Giai đoạn 15 (mục 4) |
 | – | Migration `0016`: 10 bảng `asm_*`, cột KPI-02 của `asm_fact_shipments`, seed danh mục, trigger chỉ thêm; `ctl_alerts.shipment_id` null được + `contract_id`, loại `kpi_below_target`, mục đích thông báo `kpi` | `07` §6 điểm 3 |
 | – | 9 test mới (KPI-01…14 toàn bộ / hợp đồng / nhân viên / lô, danh mục không có mục tiêu, mục tiêu hiện hành từ EV-201, tính định kỳ + cảnh báo + chạy lại không lặp + chỉ thêm + chuỗi EV-403 → Luồng 2 → email, EV-403 trùng / training, tính lỗi, lịch hằng ngày, quyền API, duyệt kế hoạch qua Redis); `test_migrations` head `0016` + vòng 0016 | `07` §5 |
+
+### 10.31. Mã nguồn – Giai đoạn 16: địa điểm, kiểm tra chứng từ BR-103, điểm kiểm soát của lô (09/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Không có danh mục địa điểm | `md_locations` (mã, tên, loại, địa chỉ, tọa độ, `party_id`); admin, manager ghi; customer xem địa điểm của mình; lưu trữ / khôi phục | Yêu cầu Giai đoạn 16 (mục 1) |
+| `:verify-documents` chỉ do nhân viên xác nhận; chưa có chứng từ lô | `ops_documents` (phiên bản, không xóa), tải lên → EV-121 + lần kiểm tra `pending`; ghi đủ / thiếu / sai + lý do → EV-122; BR-103 chặn `docs_verified` khi chưa có / đang chờ / lần mới nhất không đạt | Yêu cầu Giai đoạn 16 (mục 2); `02` BR-103 |
+| Không có điểm kiểm soát lô | `ops_checkpoints` (nhận hàng, thông quan, xuất kho, giao hàng), xác nhận qua / trượt + thời điểm thực tế → `ops.checkpoint.evaluated`; thông quan đạt → EV-141 | Yêu cầu Giai đoạn 16 (mục 3) |
+| `asm_fact_checkpoints` chỉ cho EV-204 | thêm `source` (khóa chính), `checkpoint_type`; Luồng 4 nhận `ops.checkpoint.evaluated` → KPI-05 | KPI-05/06 có nguồn thật |
+| – | Migration `0017`; trigger chỉ thêm / không xóa | `07` §6 điểm 3 |
+| – | 16 test mới (địa điểm: quyền, kiểm tra dữ liệu, khách hàng chỉ thấy của mình, sửa / lưu trữ; chứng từ: phiên bản, quyền, loại file; kiểm tra + BR-103; điểm kiểm soát; chuỗi thật tới KPI-01/02/05/06); test lô hàng cũ thêm bước kiểm tra chứng từ trước `:verify-documents`; `test_migrations` head `0017` | `07` §5 |
+

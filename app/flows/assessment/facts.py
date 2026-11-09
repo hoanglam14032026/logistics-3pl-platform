@@ -394,9 +394,23 @@ def on_checkpoint_evaluated(db: Session, envelope: dict[str, Any]) -> dict[str, 
         "performer_id": d.get("performer_id"),
         "evaluated_at": _dt(envelope["occurred_at"]),
     }
-    _upsert(
-        db, AsmFactCheckpoint, {"checkpoint_id": d["checkpoint_id"], "attempt_no": d["attempt_no"]}, values, envelope
-    )
+    keys = {"source": "control", "checkpoint_id": d["checkpoint_id"], "attempt_no": d["attempt_no"]}
+    _upsert(db, AsmFactCheckpoint, keys, values, envelope)
+    return {"checkpoint_id": d["checkpoint_id"], "attempt_no": d["attempt_no"], "result": d["result"]}
+
+
+def on_ops_checkpoint_evaluated(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    """`ops.checkpoint.evaluated` (Giai đoạn 16) – điểm kiểm soát của lô; thời điểm đo = thời điểm thực tế."""
+    d = envelope["data"]
+    values = {
+        "shipment_id": d["shipment_id"],
+        "checkpoint_type": d["checkpoint_type"],
+        "result": d["result"],
+        "performer_id": d.get("performer_id"),
+        "evaluated_at": _dt(d["actual_at"]),
+    }
+    keys = {"source": "ops", "checkpoint_id": d["checkpoint_id"], "attempt_no": d["attempt_no"]}
+    _upsert(db, AsmFactCheckpoint, keys, values, envelope)
     return {"checkpoint_id": d["checkpoint_id"], "attempt_no": d["attempt_no"], "result": d["result"]}
 
 

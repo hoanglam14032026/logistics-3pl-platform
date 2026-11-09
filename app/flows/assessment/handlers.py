@@ -30,3 +30,4 @@ for _code in ("EV-205", "EV-206"):
     consumer.handler(CONSUMER, _code)(facts.on_incident)
 for _code in ("EV-113", "EV-114"):
     consumer.handler(CONSUMER, _code)(facts.on_service_request)
+consumer.handler(CONSUMER, "ops.checkpoint.evaluated")(facts.on_ops_checkpoint_evaluated)  # Giai đoạn 16
