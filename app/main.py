@@ -20,8 +20,12 @@ from app.core.db import SessionLocal, engine
 from app.core.errors import UnhandledErrorMiddleware, register_exception_handlers
 from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
 from app.core.migrations import upgrade_to_head
+from app.flows.assessment.learning_router import portal_router as learner_scores_portal_router
+from app.flows.assessment.learning_router import router as assessment_learning_router
 from app.flows.assessment.router import router as assessment_router
 from app.flows.control.router import router as control_router
+from app.flows.learning.router import portal_router as learning_portal_router
+from app.flows.learning.router import router as learning_router
 from app.flows.operations import document_service as ops_document_service
 from app.flows.operations import service as ops_service
 from app.flows.operations.checkpoint_router import router as ops_checkpoints_router
@@ -165,5 +169,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(control_router)
     if "assessment" in settings.enabled_flows:  # Luồng 4 – KPI (Giai đoạn 14)
         app.include_router(assessment_router)
+        app.include_router(assessment_learning_router)  # Giai đoạn 18: điểm buổi học, KPI người học
+        app.include_router(learner_scores_portal_router)
+    if "learning" in settings.enabled_flows:  # Luồng 3 – đào tạo (Giai đoạn 18)
+        app.include_router(learning_router)
+        app.include_router(learning_portal_router)
     _include_legacy_v1_routers(app)
     return app

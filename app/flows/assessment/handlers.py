@@ -31,3 +31,10 @@ for _code in ("EV-205", "EV-206"):
 for _code in ("EV-113", "EV-114"):
     consumer.handler(CONSUMER, _code)(facts.on_service_request)
 consumer.handler(CONSUMER, "ops.checkpoint.evaluated")(facts.on_ops_checkpoint_evaluated)  # Giai đoạn 16
+# Giai đoạn 18: đào tạo (Luồng 3)
+for _code in ("lrn.contract.activated", "lrn.contract.closed"):
+    consumer.handler(CONSUMER, _code)(facts.on_training_contract)
+consumer.handler(CONSUMER, "EV-302")(facts.on_enrollment)
+for _code in ("lrn.session.scheduled", "lrn.session.cancelled"):
+    consumer.handler(CONSUMER, _code)(facts.on_training_session)
+consumer.handler(CONSUMER, "EV-303")(facts.on_progress)

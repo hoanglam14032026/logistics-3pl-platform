@@ -3,6 +3,8 @@
 > Module `app/flows/learning` · API `/api/v2/learning` · Bảng `lrn_*` · Mã yêu cầu `LRN-Fxx` · Quy tắc `BR-3xx`
 > Kế thừa và thay thế 3 nhóm chức năng của v1.1.0: Business Guide, Training Documents, Video Resources (ánh xạ: `07` §3).
 
+> **Đã làm (Giai đoạn 18, 09/11/2026)** – `app/flows/learning/`, migration `0019` – **ngoài phạm vi học liệu gốc của tài liệu này** (theo yêu cầu Giai đoạn 18 – **CẦN XÁC NHẬN** vị trí trong đặc tả): hợp đồng đào tạo `lrn_training_contracts` (`DT-yyyy-nnnn`, khách hàng `md_parties` loại customer, người hướng dẫn `instructor`, người học `learner`, thời hạn, lịch học, học phí NUMERIC(18,2) + tiền tệ; `draft → active → completed`, hủy có lý do; `admin`, `manager` ghi; `business_manager` đọc; `instructor` – hợp đồng mình dạy; cổng `GET /api/v2/portal/training-contracts` – `customer` hợp đồng của khách hàng mình, `learner` hợp đồng mình học, không có bản nháp). Buổi học `lrn_sessions` (`admin`, `manager`, người hướng dẫn của hợp đồng tạo / hủy; trong thời hạn hợp đồng; đã điểm danh thì không hủy). Điểm danh + hoàn thành `lrn_attendance` – chỉ người hướng dẫn của hợp đồng, hợp đồng `active`, buổi đã bắt đầu; vắng không thể "hoàn thành"; nhật ký trước / sau. Cổng người học `GET /api/v2/portal/learning/sessions`. Sự kiện (luồng nhận 4, `mode = training`): `lrn.contract.activated`, `lrn.contract.closed`, EV-302 (ghi danh), `lrn.session.scheduled` / `lrn.session.cancelled`, EV-303 (đổi hoàn thành; thêm `completed`). Chấm điểm ở Luồng 4 (§1 – không thuộc Luồng 3).
+
 ## 1. Phạm vi
 
 Cung cấp học liệu cho 3 nhóm đối tượng – **người học**, **người quản lý**, **người hướng dẫn** – được tổ chức theo **chủ đề** và gắn với **bước quy trình nghiệp vụ** của Luồng 1, để:

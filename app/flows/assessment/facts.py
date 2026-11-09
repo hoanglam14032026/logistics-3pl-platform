@@ -442,3 +442,100 @@ def on_service_request(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
         row.shipment_id = d.get("shipment_id")
     _touch(row, envelope)
     return {"request_id": row.request_id, "decision": row.decision}
+
+
+# --- Giai đoạn 18: đào tạo (Luồng 3) --------------------------------------------------------------------------------
+
+
+def on_training_contract(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    """`lrn.contract.activated` / `lrn.contract.closed`."""
+    from app.flows.assessment.models import AsmFactTrainingContract
+
+    d = envelope["data"]
+    if envelope["event_code"] == "lrn.contract.activated":
+        values = {
+            "contract_no": d["contract_no"],
+            "customer_id": d["customer_id"],
+            "instructor_id": d["instructor_id"],
+            "title": d["title"],
+            "status": "active",
+            "last_event_id": envelope["event_id"],
+            "updated_at": now_utc(),
+        }
+        db.execute(
+            insert(AsmFactTrainingContract)
+            .values(contract_id=d["contract_id"], **values)
+            .on_conflict_do_update(index_elements=["contract_id"], set_=values)
+        )
+        return {"contract_id": d["contract_id"], "status": "active"}
+    row = db.get(AsmFactTrainingContract, d["contract_id"], with_for_update=True)
+    if row is None:
+        return {"applied": False, "reason": "contract_not_found"}
+    row.status, row.last_event_id, row.updated_at = d["status"], envelope["event_id"], now_utc()
+    return {"contract_id": row.contract_id, "status": row.status}
+
+
+def on_enrollment(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    from app.flows.assessment.models import AsmFactEnrollment
+
+    d = envelope["data"]
+    db.execute(
+        insert(AsmFactEnrollment)
+        .values(
+            contract_id=d["contract_id"],
+            learner_id=d["learner_id"],
+            enrolled_at=_dt(envelope["occurred_at"]),
+            source_event_id=envelope["event_id"],
+        )
+        .on_conflict_do_nothing()
+    )
+    return {"contract_id": d["contract_id"], "learner_id": d["learner_id"]}
+
+
+def on_training_session(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    """`lrn.session.scheduled` / `lrn.session.cancelled`."""
+    from app.flows.assessment.models import AsmFactTrainingSession
+
+    d = envelope["data"]
+    if envelope["event_code"] == "lrn.session.scheduled":
+        values = {
+            "contract_id": d["contract_id"],
+            "seq": d["seq"],
+            "title": d["title"],
+            "starts_at": _dt(d["starts_at"]),
+            "ends_at": _dt(d["ends_at"]),
+            "is_required": d["is_required"],
+            "status": "scheduled",
+            "last_event_id": envelope["event_id"],
+        }
+        db.execute(
+            insert(AsmFactTrainingSession)
+            .values(session_id=d["session_id"], **values)
+            .on_conflict_do_update(index_elements=["session_id"], set_=values)
+        )
+        return {"session_id": d["session_id"], "status": "scheduled"}
+    row = db.get(AsmFactTrainingSession, d["session_id"], with_for_update=True)
+    if row is None:
+        return {"applied": False, "reason": "session_not_found"}
+    row.status, row.last_event_id = "cancelled", envelope["event_id"]
+    return {"session_id": row.session_id, "status": "cancelled"}
+
+
+def on_progress(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    """EV-303 – hoàn thành (hoặc sửa về chưa hoàn thành) buổi học."""
+    from app.flows.assessment.models import AsmFactLearningProgress
+
+    d = envelope["data"]
+    values = {
+        "contract_id": d["contract_id"],
+        "completed": d.get("completed", True),
+        "attendance": d.get("attendance"),
+        "changed_at": _dt(d["completed_at"]),
+        "last_event_id": envelope["event_id"],
+    }
+    db.execute(
+        insert(AsmFactLearningProgress)
+        .values(session_id=d["resource_id"], learner_id=d["learner_id"], **values)
+        .on_conflict_do_update(index_elements=["session_id", "learner_id"], set_=values)
+    )
+    return {"session_id": d["resource_id"], "learner_id": d["learner_id"], "completed": values["completed"]}

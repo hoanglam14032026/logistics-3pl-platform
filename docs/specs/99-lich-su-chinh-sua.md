@@ -412,3 +412,13 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | Migration `0018` | `07` §6 điểm 3 |
 | – | 6 test mới + cập nhật test cũ (payload lô dùng id địa điểm; kiểm tra chứng từ đủ 3 loại bắt buộc của lô biển nhập khẩu); `test_migrations` head `0018` | `07` §5 |
 
+### 10.33. Mã nguồn – Giai đoạn 18: Luồng 3 đào tạo – hợp đồng đào tạo, buổi học, đánh giá người học (09/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Chưa có Luồng 3 | `app/flows/learning`: hợp đồng đào tạo (khách hàng, người hướng dẫn, người học, lịch, học phí), `admin` / `manager` ghi, cổng khách hàng / người học xem | Yêu cầu Giai đoạn 18 (mục 1) |
+| – | Buổi học, điểm danh, hoàn thành (người hướng dẫn), nhật ký; sự kiện EV-302, EV-303, `lrn.*` | Yêu cầu Giai đoạn 18 (mục 2) |
+| KPI-11/12/13 không đo | Luồng 4: điểm buổi học (người hướng dẫn chấm, người học xem qua cổng), dữ kiện đào tạo, KPI-11/12/13 theo người học / hợp đồng | Yêu cầu Giai đoạn 18 (mục 3); chấm điểm thuộc Luồng 4 (`04` §1, `05` §1) |
+| – | Migration `0019` (9 bảng, trigger không xóa) | `07` §6 điểm 3 |
+| – | 7 test mới (quyền, kiểm tra dữ liệu, hiển thị theo vai trò, buổi học + điểm danh + sự kiện, chấm điểm + cổng + KPI qua chuỗi sự kiện thật, vòng đời hợp đồng, tắt luồng); `test_migrations` head `0019` | `07` §5 |
+

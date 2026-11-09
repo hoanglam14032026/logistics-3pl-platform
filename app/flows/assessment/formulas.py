@@ -297,8 +297,87 @@ def kpi10_incident_rate(db, p, group, key):
 
 
 def training_only(db, p, group, key):
-    """KPI-11, 12, 13 – chỉ chế độ `training` (người học, đáp án tình huống, học liệu) – không đo trên `production`."""
+    """Giữ cho tương thích – KPI chỉ có ở `training` không đo trên `production`."""
     return None
+
+
+# --- KPI người học (chế độ training – Giai đoạn 18): dữ kiện Luồng 3 + điểm buổi học ------------------------------
+
+
+def _score_sum(db, p, group, key, num, den) -> dict | None:
+    from app.flows.assessment.models import AsmFactTrainingSession, AsmSessionScore
+
+    sc, s = AsmSessionScore, AsmFactTrainingSession
+    cols = {"learner": sc.learner_id, "contract": sc.contract_id}
+
+    def build(kcol):
+        return (
+            select(kcol, func.coalesce(func.sum(num), 0).label("num"), func.coalesce(func.sum(den), 0).label("den"))
+            .select_from(sc)
+            .join(s, s.session_id == sc.session_id)
+            .where(
+                sc.seeded_discrepancies.is_not(None),
+                s.status == "scheduled",
+                s.starts_at >= p.start,
+                s.starts_at < p.end,
+            )
+        )
+
+    rows = _run(db, build, cols, group, key)
+    if rows is None:
+        return None
+    return {r.k: Result(int(r.num), int(r.den), round(r.num * 100.0 / r.den, 2)) for r in rows if r.den}
+
+
+def kpi11_discrepancy_detection(db, p, group, key):
+    """Sai lệch cài sẵn được người học phát hiện đúng ÷ sai lệch cài sẵn (người hướng dẫn ghi khi chấm buổi thực
+    hành – Giai đoạn 18; chưa so đáp án tự động)."""
+    from app.flows.assessment.models import AsmSessionScore as sc
+
+    return _score_sum(db, p, group, key, sc.detected_correct, sc.seeded_discrepancies)
+
+
+def kpi12_false_report(db, p, group, key):
+    """Sai lệch người học báo không có trong đáp án ÷ sai lệch người học đã báo. Thấp là tốt."""
+    from app.flows.assessment.models import AsmSessionScore as sc
+
+    return _score_sum(db, p, group, key, sc.false_reports, sc.detected_correct + sc.false_reports)
+
+
+def kpi13_learning_completion(db, p, group, key):
+    """Buổi học bắt buộc đã hoàn thành ÷ buổi học bắt buộc (chưa hủy, đã bắt đầu, bắt đầu trong kỳ) của hợp đồng
+    người học được ghi danh (EV-302, `lrn.session.*`, EV-303)."""
+    from app.flows.assessment.models import AsmFactEnrollment, AsmFactLearningProgress, AsmFactTrainingSession
+
+    e, s, pr = AsmFactEnrollment, AsmFactTrainingSession, AsmFactLearningProgress
+    cols = {"learner": e.learner_id, "contract": e.contract_id}
+
+    def build(kcol):
+        return (
+            select(kcol, func.count().label("den"), func.count().filter(pr.completed.is_(True)).label("num"))
+            .select_from(e)
+            .join(s, s.contract_id == e.contract_id)
+            .outerjoin(pr, and_(pr.session_id == s.session_id, pr.learner_id == e.learner_id))
+            .where(
+                s.is_required.is_(True),
+                s.status == "scheduled",
+                s.starts_at >= p.start,
+                s.starts_at < p.end,
+                s.starts_at <= func.now(),  # buổi chưa bắt đầu chưa thể hoàn thành
+            )
+        )
+
+    rows = _run(db, build, cols, group, key)
+    if rows is None:
+        return None
+    return {r.k: Result(r.num, r.den, round(r.num * 100.0 / r.den, 2)) for r in rows if r.den}
+
+
+TRAINING_FORMULAS = {
+    "discrepancy_detection": kpi11_discrepancy_detection,
+    "false_report": kpi12_false_report,
+    "learning_completion": kpi13_learning_completion,
+}
 
 
 def kpi14_service_request_response(db, p, group, key):
@@ -345,7 +424,7 @@ FORMULAS: dict[str, Formula] = {
     "in_full_damage_free": kpi08_in_full_damage_free,
     "perfect_order": kpi09_perfect_order,
     "incident_rate": kpi10_incident_rate,
-    "discrepancy_detection": training_only,
+    "discrepancy_detection": training_only,  # production: không đo – xem TRAINING_FORMULAS
     "false_report": training_only,
     "learning_completion": training_only,
     "service_request_response": kpi14_service_request_response,
@@ -394,3 +473,18 @@ def kpis_out(computed: dict, k: Any) -> dict[str, dict[str, Any]]:
             **base,
         }
     return out
+
+
+def compute_training(db: Session, p, group: str | None, key: int | None = None) -> dict:
+    """KPI-11/12/13 cho người học (`group` = `learner` / `contract` / None) – dữ liệu `training` (Giai đoạn 18)."""
+    defs = [d for d in definitions(db) if d.formula_key in TRAINING_FORMULAS]
+    out: dict[Any, dict[str, Result]] = {}
+    applicable: set[str] = set()
+    for d in defs:
+        res = TRAINING_FORMULAS[d.formula_key](db, p, group, key)
+        if res is None:
+            continue
+        applicable.add(d.kpi_code)
+        for k, r in res.items():
+            out.setdefault(k, {})[d.kpi_code] = r
+    return {"values": out, "applicable": applicable, "defs": defs}

@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.core.db import Base
 from app.flows.assessment import models as _assessment_models  # noqa: F401
 from app.flows.control import models as _control_models  # noqa: F401
+from app.flows.learning import models as _learning_models  # noqa: F401
 from app.flows.operations import models as _ops_models  # noqa: F401
 from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào LegacyBase.metadata)
 from app.legacy_v1.database import Base as LegacyBase

@@ -505,3 +505,85 @@ class OpsCheckpointEvaluated(EventData):
     actual_at: UtcDatetime
     planned_at: UtcDatetime | None
     performer_id: int
+
+
+# --- Luồng 3 – đào tạo (Giai đoạn 18) – luồng nhận: Luồng 4 (điểm, KPI-11/12/13) -------------------------------------
+# Hợp đồng đào tạo đóng vai "lớp / khóa" (`cohort_id` = `course_id` = id hợp đồng); buổi học là "học liệu bắt buộc"
+# của KPI-13 (`resource_id` = id buổi học). Mã dạng tên chưa có trong 01 §5 – CẦN XÁC NHẬN.
+
+
+class _LearningEvent(EventData):
+    consumers: ClassVar[tuple[str, ...]] = ("assessment",)
+
+
+class TrainingContractActivated(_LearningEvent):
+    code: ClassVar[str] = "lrn.contract.activated"
+    name: ClassVar[str] = "lrn.contract.activated"
+
+    contract_id: int
+    contract_no: str
+    customer_id: int
+    instructor_id: int
+    title: str
+    start_date: date
+    end_date: date
+
+
+class TrainingContractClosed(_LearningEvent):
+    code: ClassVar[str] = "lrn.contract.closed"
+    name: ClassVar[str] = "lrn.contract.closed"
+
+    contract_id: int
+    status: str  # completed | cancelled
+
+
+class EnrollmentCreated(_LearningEvent):
+    """EV-302 – thêm `contract_id`, `instructor_id` (giữ schema_version 1)."""
+
+    code: ClassVar[str] = "EV-302"
+    name: ClassVar[str] = "lrn.enrollment.created"
+
+    cohort_id: int
+    course_id: int
+    learner_id: int
+    required_resource_ids: list[int]
+    contract_id: int
+    instructor_id: int
+
+
+class SessionScheduled(_LearningEvent):
+    code: ClassVar[str] = "lrn.session.scheduled"
+    name: ClassVar[str] = "lrn.session.scheduled"
+
+    session_id: int
+    contract_id: int
+    seq: int
+    title: str
+    starts_at: UtcDatetime
+    ends_at: UtcDatetime
+    is_required: bool
+
+
+class SessionCancelled(_LearningEvent):
+    code: ClassVar[str] = "lrn.session.cancelled"
+    name: ClassVar[str] = "lrn.session.cancelled"
+
+    session_id: int
+    contract_id: int
+    reason: str
+
+
+class ProgressCompleted(_LearningEvent):
+    """EV-303 – người hướng dẫn ghi nhận hoàn thành buổi học. Thêm `completed` (false: sửa về chưa hoàn thành),
+    `contract_id`, `attendance` (giữ schema_version 1)."""
+
+    code: ClassVar[str] = "EV-303"
+    name: ClassVar[str] = "lrn.progress.completed"
+
+    learner_id: int
+    course_id: int
+    resource_id: int
+    completed_at: UtcDatetime
+    completed: bool = True
+    contract_id: int
+    attendance: str

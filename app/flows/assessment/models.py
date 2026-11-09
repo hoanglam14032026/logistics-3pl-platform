@@ -409,3 +409,97 @@ class AsmKpiAlert(Base):
     )
     event_id: Mapped[Any] = mapped_column(Uuid, nullable=False)
     raised_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+# --- Giai đoạn 18: đào tạo (dữ kiện từ Luồng 3) + điểm buổi học ------------------------------------------------------
+
+
+class AsmFactTrainingContract(Base):
+    """`lrn.contract.activated` / `lrn.contract.closed` – hợp đồng đào tạo (lớp / khóa), người hướng dẫn."""
+
+    __tablename__ = "asm_fact_training_contracts"
+
+    contract_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    contract_no: Mapped[str] = mapped_column(String(30), nullable=False)
+    customer_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    instructor_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'active'"))
+    last_event_id: Mapped[Any] = mapped_column(Uuid, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class AsmFactEnrollment(Base):
+    """EV-302 – người học của hợp đồng đào tạo."""
+
+    __tablename__ = "asm_fact_enrollments"
+
+    contract_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    learner_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False, index=True)
+    enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_event_id: Mapped[Any] = mapped_column(Uuid, nullable=False)
+
+
+class AsmFactTrainingSession(Base):
+    """`lrn.session.scheduled` / `lrn.session.cancelled` – buổi học ("học liệu bắt buộc" của KPI-13)."""
+
+    __tablename__ = "asm_fact_training_sessions"
+    __table_args__ = (Index("ix_asm_fact_training_sessions_contract", "contract_id", "starts_at"),)
+
+    session_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    contract_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_required: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'scheduled'"))
+    last_event_id: Mapped[Any] = mapped_column(Uuid, nullable=False)
+
+
+class AsmFactLearningProgress(Base):
+    """EV-303 – hoàn thành buổi học của người học (bản mới nhất)."""
+
+    __tablename__ = "asm_fact_learning_progress"
+
+    session_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    learner_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    contract_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    completed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    attendance: Mapped[str | None] = mapped_column(String(16))
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_event_id: Mapped[Any] = mapped_column(Uuid, nullable=False)
+
+
+class AsmSessionScore(Base):
+    """Điểm người học theo buổi (Giai đoạn 18) – người hướng dẫn của hợp đồng chấm (thang 0–10). Buổi thực hành có
+    thể ghi số sai lệch cài sẵn / phát hiện đúng / báo sai → KPI-11, KPI-12. Chấm lại ghi nhật ký trước / sau."""
+
+    __tablename__ = "asm_session_scores"
+    __table_args__ = (
+        UniqueConstraint("session_id", "learner_id", name="uq_asm_session_scores_learner"),
+        CheckConstraint("score BETWEEN 0 AND 10", name="score_range"),
+        CheckConstraint(
+            "(seeded_discrepancies IS NULL) = (detected_correct IS NULL) "
+            "AND (seeded_discrepancies IS NULL) = (false_reports IS NULL)",
+            name="discrepancy_fields_together",
+        ),
+        CheckConstraint(
+            "seeded_discrepancies IS NULL OR (seeded_discrepancies > 0 AND detected_correct BETWEEN 0 AND "
+            "seeded_discrepancies AND false_reports >= 0)",
+            name="discrepancy_counts_valid",
+        ),
+        Index("ix_asm_session_scores_learner", "learner_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    contract_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    learner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("sys_users.id", ondelete="RESTRICT"), nullable=False)
+    score: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False)
+    comment: Mapped[str | None] = mapped_column(String(1000))
+    seeded_discrepancies: Mapped[int | None] = mapped_column(Integer)
+    detected_correct: Mapped[int | None] = mapped_column(Integer)
+    false_reports: Mapped[int | None] = mapped_column(Integer)
+    graded_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    graded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
