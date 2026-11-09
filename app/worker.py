@@ -7,6 +7,7 @@ Worker tác vụ nền (Giai đoạn 7): `python -m app.worker` – chạy tác 
   dừng và tính là lỗi.
 - Chạy nhiều worker song song được (nhiều container). Dừng bằng SIGTERM: worker chờ tác vụ đang chạy xong.
 - Worker không chạy migration: khởi động sau khi API đã đưa CSDL lên head.
+- Hàng `default` (email, OCR + AI trích xuất) và `events` (gửi outbox sự kiện – Giai đoạn 10).
 """
 
 import logging
@@ -16,6 +17,7 @@ from rq import Worker
 
 from app.core.config import get_settings
 from app.core.jobs import QUEUE_NAME, redis_connection
+from app.shared.events import outbox
 
 
 def main() -> int:
@@ -24,7 +26,9 @@ def main() -> int:
     if not settings.job_queue_url:
         logging.getLogger("app.worker").error("Chưa đặt JOB_QUEUE_URL – không có hàng đợi để chạy")
         return 2
-    worker = Worker([QUEUE_NAME], connection=redis_connection(settings.job_queue_url))
+    # Giai đoạn 10: thêm hàng `events` (gửi outbox sự kiện cho Luồng 2, 4); xếp lại sự kiện còn chờ trong outbox.
+    outbox.schedule_pending()
+    worker = Worker([QUEUE_NAME, outbox.EVENTS_QUEUE], connection=redis_connection(settings.job_queue_url))
     worker.work(with_scheduler=True)
     return 0
 

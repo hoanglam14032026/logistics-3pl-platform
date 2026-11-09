@@ -14,6 +14,7 @@ quyền với job → 404 như không tồn tại. Nhật ký: `file.uploaded`, 
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import UploadFile
@@ -31,6 +32,8 @@ from app.shared.ai_models.models import ModelType
 from app.shared.audit import service as audit
 from app.shared.docai import convert, extract, registry
 from app.shared.docai.models import REVIEWABLE, JobStatus, OcrEngine, SysDocExtraction, SysDocJob
+from app.shared.events import publisher
+from app.shared.events.contracts import DocApprovalPending, DocApproved, DocRejected
 from app.shared.files import service as files
 from app.shared.files.models import SysFile
 from app.shared.files.storage import get_storage
@@ -41,6 +44,7 @@ TARGET_URLS = {
     "party": "/api/v2/md/parties",
     "service_contract": "/api/v2/ops/service-contracts",
     "shipment": "/api/v2/ops/shipments",
+    "commercial_invoice": "/api/v2/ops/commercial-invoices",
 }
 _SORTABLE = {"created_at": SysDocJob.created_at, "status": SysDocJob.status, "doc_type": SysDocJob.doc_type}
 _CAPABILITY = {"pdf": "supports_pdf", "image": "supports_image", "docx": "supports_docx"}
@@ -296,12 +300,40 @@ def review(db: Session, job_id: int, changes: dict[str, Any], actor, expected: i
     return job
 
 
-def approve(db: Session, job_id: int, confirmed: list[str], actor, expected: int | None) -> SysDocJob:
-    job = get_job(db, job_id, actor, for_update=True)
-    _check_version(job, expected)
-    _reviewable(job)
-    schema = schema_of(job)
-    fields = {k: dict(v) for k, v in (job.fields or {}).items()}
+def requires_dual_approval(schema: registry.DocTypeSchema, values: dict[str, Any]) -> bool:
+    """Duyệt 2 người (Giai đoạn 10): theo `dual_approval` của schema – `always`, hoặc số tiền ≥ ngưỡng đồng tiền
+    (`DOCAI_DUAL_APPROVAL_THRESHOLDS`). Thiếu số tiền / đồng tiền không có ngưỡng → cần 2 người (an toàn)."""
+    rule = schema.dual_approval
+    if rule is None:
+        return False
+    if rule.mode == "always":
+        return True
+    try:
+        amount = Decimal(str(values.get(rule.amount_field)))
+    except (InvalidOperation, ValueError):
+        return True
+    currency = str(values.get(rule.currency_field) or "").strip().upper()
+    threshold = get_settings().docai_dual_approval_thresholds.get(currency)
+    return threshold is None or not amount.is_finite() or amount >= threshold
+
+
+def _event_data(job: SysDocJob) -> dict[str, Any]:
+    return {
+        "job_id": job.id,
+        "doc_type": job.doc_type,
+        "status": job.status,
+        "target_type": job.target_type,
+        "ai_model_id": job.ai_model_id,
+        "model_code": job.model_code,
+    }
+
+
+def publish(db: Session, event_cls: type, job: SysDocJob, actor_id: int | None, **extra) -> None:
+    """Sự kiện `doc.*` vào outbox cùng giao dịch – chỉ id, trạng thái, model (không giá trị trích được)."""
+    publisher.publish(db, event_cls(**_event_data(job), **extra), ENTITY, job.id, actor_id)
+
+
+def _check_ready_to_approve(schema, fields: dict[str, dict], confirmed: list[str]) -> dict[str, list[str]]:
     reasons = extract.review_reasons(schema, fields, get_settings().docai_min_confidence)
     if reasons["missing_required"]:
         raise AppError(
@@ -331,8 +363,14 @@ def approve(db: Session, job_id: int, confirmed: list[str], actor, expected: int
                 for k in unconfirmed
             ],
         )
-    for key in reasons["low_confidence"]:
-        fields[key].update(confirmed_by=actor.id, confirmed_at=now_utc().isoformat())
+    return reasons
+
+
+def _second_approver_error(message: str) -> AppError:
+    return AppError(ErrorCode.FORBIDDEN, 403, message)
+
+
+def _finalize(db: Session, job: SysDocJob, fields: dict[str, dict], actor, extra_after: dict) -> SysDocJob:
     values = {k: f.get("value") for k, f in fields.items()}
     old_status = job.status
     job.fields = fields
@@ -350,12 +388,66 @@ def approve(db: Session, job_id: int, confirmed: list[str], actor, expected: int
         before={"status": old_status},
         after={
             "status": job.status,
+            "stage": "second" if job.requires_dual_approval else "single",
             "approved_data": values,
-            "confirmed_fields": reasons["low_confidence"],
             "human_fields": sorted(k for k, f in fields.items() if f.get("source") == "human"),
             "target_type": job.target_type,
+            "requires_dual_approval": job.requires_dual_approval,
+            "first_approved_by": job.first_approved_by,
+            **extra_after,
         },
     )
+    publish(db, DocApproved, job, actor.id, approved_by=actor.id, first_approved_by=job.first_approved_by)
+    db.commit()
+    return job
+
+
+def approve(db: Session, job_id: int, confirmed: list[str], actor, expected: int | None) -> SysDocJob:
+    """Duyệt. Loại chứng từ cần duyệt 2 người (hợp đồng; hóa đơn giá trị lớn): lần 1 → `pending_second_approval`;
+    lần 2 bởi người **khác người tải lên và khác người duyệt đầu** → `approved`."""
+    job = get_job(db, job_id, actor, for_update=True)
+    _check_version(job, expected)
+    schema = schema_of(job)
+    fields = {k: dict(v) for k, v in (job.fields or {}).items()}
+
+    if job.status == JobStatus.PENDING_SECOND_APPROVAL.value:
+        if actor.id == job.created_by:
+            raise _second_approver_error("Người tải chứng từ lên không được là người duyệt thứ 2")
+        if actor.id == job.first_approved_by:
+            raise _second_approver_error("Người duyệt thứ 2 phải khác người duyệt đầu")
+        return _finalize(db, job, fields, actor, {"second_approved_by": actor.id})
+
+    _reviewable(job)
+    reasons = _check_ready_to_approve(schema, fields, confirmed)
+    for key in reasons["low_confidence"]:
+        fields[key].update(confirmed_by=actor.id, confirmed_at=now_utc().isoformat())
+    values = {k: f.get("value") for k, f in fields.items()}
+    job.requires_dual_approval = requires_dual_approval(schema, values)
+    if not job.requires_dual_approval:
+        return _finalize(db, job, fields, actor, {"confirmed_fields": reasons["low_confidence"]})
+
+    old_status = job.status
+    job.fields = fields
+    job.status = JobStatus.PENDING_SECOND_APPROVAL.value
+    job.first_approved_at = now_utc()
+    job.first_approved_by = actor.id
+    job.updated_by = actor.id
+    db.flush()
+    record(
+        db,
+        "doc_job.approve",
+        job,
+        actor.id,
+        before={"status": old_status},
+        after={
+            "status": job.status,
+            "stage": "first",
+            "requires_dual_approval": True,
+            "confirmed_fields": reasons["low_confidence"],
+            "values": values,
+        },
+    )
+    publish(db, DocApprovalPending, job, actor.id, first_approved_by=actor.id)
     db.commit()
     return job
 
@@ -363,7 +455,8 @@ def approve(db: Session, job_id: int, confirmed: list[str], actor, expected: int
 def reject(db: Session, job_id: int, reason: str, actor, expected: int | None) -> SysDocJob:
     job = get_job(db, job_id, actor, for_update=True)
     _check_version(job, expected)
-    _reviewable(job)
+    if job.status != JobStatus.PENDING_SECOND_APPROVAL.value:  # người duyệt thứ 2 từ chối được
+        _reviewable(job)
     old_status = job.status
     job.status = JobStatus.REJECTED.value
     job.rejected_at = now_utc()
@@ -372,6 +465,7 @@ def reject(db: Session, job_id: int, reason: str, actor, expected: int | None) -
     job.updated_by = actor.id
     db.flush()
     record(db, "doc_job.reject", job, actor.id, {"status": old_status}, {"status": job.status, "reason": reason})
+    publish(db, DocRejected, job, actor.id, rejected_by=actor.id)
     db.commit()
     return job
 

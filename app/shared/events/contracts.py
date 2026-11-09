@@ -1,5 +1,8 @@
 """
-Hợp đồng dữ liệu (`data`) của sự kiện tích hợp (01 §5) – Giai đoạn 8: EV-101, EV-111, EV-112, EV-142.
+Hợp đồng dữ liệu (`data`) của sự kiện tích hợp (01 §5) – Giai đoạn 8: EV-101, EV-111, EV-112, EV-142; Giai đoạn 10:
+`doc.*` (job trích xuất chứng từ AI local – chỉ id, trạng thái, model; **không** chứa giá trị trích được).
+
+`consumers`: luồng nhận (01 §5 cột "Luồng nhận") – `control` = Luồng 2, `assessment` = Luồng 4 (mã trong ENABLED_FLOWS).
 
 Quy định 01 §5: thêm trường vào `data` giữ `schema_version`; xóa/đổi nghĩa trường → tăng `schema_version`.
 Trường thêm so với bảng 01 §5 (giữ schema_version 1): `shipment_no`, `customer_id` ở EV-111.
@@ -19,6 +22,7 @@ class EventData(BaseModel):
     code: ClassVar[str]
     name: ClassVar[str]
     schema_version: ClassVar[int] = 1
+    consumers: ClassVar[tuple[str, ...]] = ("control", "assessment")
 
 
 class ContractActivated(EventData):
@@ -85,3 +89,63 @@ class ShipmentDelivered(EventData):
     sla_due_at: UtcDatetime
     in_full: bool
     damage_free: bool
+
+
+# --- doc.* – job trích xuất chứng từ AI local (Giai đoạn 10) -------------------------------------------------------
+
+
+class _DocJobEvent(EventData):
+    job_id: int
+    doc_type: str
+    status: str
+    target_type: str | None
+    ai_model_id: int
+    model_code: str
+
+
+class DocExtracted(_DocJobEvent):
+    code: ClassVar[str] = "doc.extracted"
+    name: ClassVar[str] = "doc.job.extracted"
+
+    overall_confidence: float | None
+    low_confidence_count: int
+    missing_required_count: int
+
+
+class DocFailed(_DocJobEvent):
+    code: ClassVar[str] = "doc.failed"
+    name: ClassVar[str] = "doc.job.failed"
+
+    attempts: int
+
+
+class DocApprovalPending(_DocJobEvent):
+    """Duyệt lần 1 xong, chờ người duyệt thứ 2 (duyệt 2 người)."""
+
+    code: ClassVar[str] = "doc.approval_pending"
+    name: ClassVar[str] = "doc.job.approval_pending"
+
+    first_approved_by: int
+
+
+class DocApproved(_DocJobEvent):
+    code: ClassVar[str] = "doc.approved"
+    name: ClassVar[str] = "doc.job.approved"
+
+    approved_by: int
+    first_approved_by: int | None = None
+
+
+class DocRejected(_DocJobEvent):
+    code: ClassVar[str] = "doc.rejected"
+    name: ClassVar[str] = "doc.job.rejected"
+
+    rejected_by: int
+
+
+class DocLinked(_DocJobEvent):
+    code: ClassVar[str] = "doc.linked"
+    name: ClassVar[str] = "doc.job.linked"
+
+    linked_entity_type: str
+    linked_entity_id: int

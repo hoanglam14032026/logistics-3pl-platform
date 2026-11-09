@@ -206,6 +206,7 @@ hóa đơn…).
 | OCR | Tesseract (`vie+eng`) chạy cục bộ qua tiến trình con; PaddleOCR (tùy chọn) chỉ nạp model tải sẵn (`DOCAI_PADDLE_MODEL_DIR`), tắt kiểm tra/tải model từ Internet; hoặc model loại `ocr` trong danh mục |
 | Chọn model | Người thực hiện **bắt buộc** chọn `model_id` (danh sách `GET /api/v2/ai-models/active`, không có `endpoint`); hệ thống không tự chọn model mặc định. `AI_MODEL_DEFAULT` chỉ đánh dấu gợi ý hiển thị |
 | Duyệt | Upload → OCR → AI trích xuất → tự điền form (không lưu bảng nghiệp vụ) → người duyệt xem, sửa → duyệt/từ chối. Độ tin cậy < `DOCAI_MIN_CONFIDENCE` (0,9) hoặc thiếu trường bắt buộc → `needs_review` (trường thấp phải sửa hoặc xác nhận từng trường); ≥ 0,9 vẫn phải duyệt. Chưa duyệt → không tạo được bản ghi nghiệp vụ (`source_doc_job_id`) |
+| Duyệt 2 người (Giai đoạn 10) | Loại chứng từ có `dual_approval` trong schema JSON: hợp đồng (`service_contract`) luôn; hóa đơn (`commercial_invoice`) khi `total_amount` ≥ ngưỡng của đồng tiền (`DOCAI_DUAL_APPROVAL_THRESHOLDS`, mặc định VND 500.000.000, USD/EUR 20.000 – **CẦN XÁC NHẬN**; đồng tiền không có ngưỡng → luôn 2 người). Lần 1 → `pending_second_approval`; lần 2 phải do người **khác người tải lên và khác người duyệt đầu** (`403`), CSDL kiểm thêm bằng CHECK. Người tải lên được là người duyệt đầu. Đang chờ người thứ 2: không sửa được; người thứ 2 từ chối được |
 | Lời nhắc | Văn bản chứng từ được đánh dấu là **dữ liệu**, model được dặn bỏ qua câu lệnh trong văn bản; đầu ra luôn qua kiểm kiểu + người duyệt |
 
 ## 4. Phân quyền (RBAC)
@@ -242,6 +243,8 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
 
 **Đã làm – AI trích xuất chứng từ (Giai đoạn 9)**: danh mục model `/api/v2/admin/ai-models` – chỉ `admin` (xem đủ, thêm, sửa, xóa mềm, bật/tắt, thử kết nối); `GET /api/v2/ai-models/active` – `ops_staff`, `manager`, `admin` (không có `endpoint`, tên model trong máy chủ); job `/api/v2/doc-jobs`, `/api/v2/doc-types` – `ops_staff` (tải lên, xem, sửa, duyệt/từ chối job **của mình**), `manager` (mọi job); vai trò khác, `customer` → `403`; job không có quyền → `404`. Tạo bản ghi từ job vẫn theo quyền của API tạo (`md_parties`: `manager`, `admin`; hợp đồng: `ops_staff`, `manager`; lô hàng: `ops_staff`) và phải thấy được job.
 
+**Đã làm – Hóa đơn thương mại (Giai đoạn 10)**: `/api/v2/ops/commercial-invoices` – đọc `ops_staff`, `manager`, `business_manager`, `instructor`, `admin`; tạo `ops_staff` (gắn lô **được phân công**), `manager`; không sửa/xóa. Người duyệt thứ 2 của job trích xuất thực tế là `manager` (`ops_staff` chỉ thấy job của mình).
+
 **Đã làm – L1 Lô hàng (Giai đoạn 8)**: đọc `ops_staff`, `manager`, `business_manager`, `instructor`, `admin`; tạo `ops_staff`; sửa nháp, chuyển trạng thái, hủy – `ops_staff` **được phân công** (khác → `403`); `manager` chỉ đọc + phân công lại (tạm); `customer` xem mốc tiến độ lô của khách hàng mình qua cổng; `learner`, `content_editor` → `403`. Gửi chứng từ (`customer` – G): chưa làm.
 
 ## 5. Nhật ký và giám sát
@@ -256,6 +259,7 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
   `expire` (Giai đoạn 3). **API đọc (Giai đoạn 3)**: `GET /api/v2/audit-logs` (`admin`; §2.3 – lọc `action` khớp đúng hoặc
   tiền tố `party.`, `entity_type` + `entity_id`, `actor_id`, `request_id`, `from`/`to` ISO 8601 có múi giờ; mặc định
   `-at`), `GET /api/v2/audit-logs/{id}`; không có API sửa/xóa.
+  **Giai đoạn 10**: `invoice.create`; `doc_job.approve` có `stage` (`single` / `first` / `second`); `outbox.dispatch_failed` (sự kiện hết lượt gửi); mọi sự kiện vẫn có dòng `event.<mã>`.
   **Giai đoạn 9**: `ai_model.create`/`update`/`delete`/`activate`/`deactivate`; `file.uploaded` (sha256, MIME, dung lượng, chủ sở hữu); `doc_job.create` (loại chứng từ, model đã chọn: `ai_model_id`, `model_code`, `model_ref`, OCR), `doc_job.extracted` (AI trích ra gì: giá trị + độ tin cậy từng trường, lần chạy, thời gian OCR/AI – tác vụ nền ghi `request_id`, `ip` của request tải lên), `doc_job.review` (từng trường: giá trị AI / trước / sau), `doc_job.approve` (dữ liệu đã duyệt, trường được xác nhận), `doc_job.reject` (lý do), `doc.failed` (lỗi, số lần thử), `doc_job.linked` (bản ghi nghiệp vụ tạo từ job + trường người tạo đổi khác dữ liệu đã duyệt). Giá trị dài rút gọn trong nhật ký; bản đầy đủ ở `sys_doc_jobs`/`sys_doc_extractions`.
 - Log ứng dụng dạng JSON, có `request_id`.
 - `/ready` kiểm tra kết nối CSDL, kho file và độ trễ outbox (số sự kiện tồn > ngưỡng → `503`).
@@ -291,6 +295,8 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
 | `JOB_MAX_RETRIES`, `JOB_RETRY_INTERVALS`, `JOB_TIMEOUT_SEC`, `JOB_FAILURE_TTL_DAYS` | 5 / `10,30,120,600,1800` / 60 / 30 | Thử lại khi tác vụ lỗi (§3) |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_WINDOW_SEC` | `true` / 60 | Giới hạn tần suất mọi API (§3) |
 | `RATE_LIMIT_API_PER_USER`, `RATE_LIMIT_API_PER_IP`, `RATE_LIMIT_FILE_UPLOAD_PER_USER`, `RATE_LIMIT_FILE_DOWNLOAD_PER_USER` | 300 / 120 / 20 / 120 | Số request tối đa mỗi cửa sổ |
+| `EVENT_STREAM_PREFIX`, `EVENT_STREAM_MAXLEN` | `l3pl:events:` / 100000 | Giai đoạn 10 – Redis Stream gửi sự kiện outbox cho từng luồng nhận (`<prefix>control`, `<prefix>assessment`) trên `JOB_QUEUE_URL`; giữ khoảng N bản ghi mỗi stream |
+| `DOCAI_DUAL_APPROVAL_THRESHOLDS` | `VND:500000000,USD:20000,EUR:20000` | Giai đoạn 10 – hóa đơn có tổng tiền ≥ ngưỡng của đồng tiền cần 2 người duyệt; đồng tiền không có trong danh sách → luôn 2 người |
 | `OLLAMA_URL` | `http://localhost:11434` | Giai đoạn 9 – máy chủ model AI local mặc định (model có `endpoint` NULL). **Chỉ localhost / mạng nội bộ** (§3.1) – sai thì ứng dụng không khởi động. Danh mục model đọc từ bảng `ai_models`, không cấu hình bằng biến |
 | `AI_ALLOWED_HOSTS` | rỗng | Tên máy chủ nội bộ thêm (cách dấu phẩy); lúc gọi vẫn kiểm DNS ra địa chỉ mạng riêng |
 | `AI_MODEL_DEFAULT` | – | `code` model được đánh dấu `suggested` trong `GET /api/v2/ai-models/active` – chỉ gợi ý hiển thị, API vẫn bắt buộc `model_id` |

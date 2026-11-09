@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     Float,
@@ -27,6 +28,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -41,6 +43,7 @@ class JobStatus(StrEnum):
     PROCESSING = "processing"  # OCR + AI đang chạy
     READY_FOR_REVIEW = "ready_for_review"  # mọi trường ≥ ngưỡng, đủ trường bắt buộc – vẫn phải duyệt
     NEEDS_REVIEW = "needs_review"  # có trường < ngưỡng hoặc thiếu trường bắt buộc – bắt buộc người duyệt xử lý
+    PENDING_SECOND_APPROVAL = "pending_second_approval"  # duyệt 2 người: đã duyệt lần 1, chờ người thứ 2 (Giai đoạn 10)
     APPROVED = "approved"
     REJECTED = "rejected"
     FAILED = "failed"
@@ -73,6 +76,16 @@ class SysDocJob(AuditColumnsMixin, Base):
         CheckConstraint("(linked_entity_type IS NULL) = (linked_entity_id IS NULL)", name="linked_entity_together"),
         CheckConstraint("linked_entity_id IS NULL OR status = 'approved'", name="linked_only_when_approved"),
         CheckConstraint("attempts >= 0", name="attempts_non_negative"),
+        # Duyệt 2 người (Giai đoạn 10): người duyệt thứ 2 khác người duyệt đầu và khác người tải lên
+        CheckConstraint(
+            "status <> 'pending_second_approval' OR (requires_dual_approval AND first_approved_by IS NOT NULL)",
+            name="pending_second_has_first_approval",
+        ),
+        CheckConstraint(
+            "NOT (status = 'approved' AND requires_dual_approval) OR (first_approved_by IS NOT NULL "
+            "AND approved_by <> first_approved_by AND approved_by IS DISTINCT FROM created_by)",
+            name="dual_approval_distinct_people",
+        ),
         Index("ix_sys_doc_jobs_created_by_created_at", "created_by", "created_at"),
         Index("ix_sys_doc_jobs_status_created_at", "status", "created_at"),
         Index("ix_sys_doc_jobs_linked_entity", "linked_entity_type", "linked_entity_id"),
@@ -94,7 +107,7 @@ class SysDocJob(AuditColumnsMixin, Base):
     ocr_engine: Mapped[str] = mapped_column(String(20), nullable=False)
     ocr_model_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ai_models.id", ondelete="RESTRICT"))
     ocr_model_ref: Mapped[str | None] = mapped_column(String(200))
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued", server_default="queued")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     last_error: Mapped[str | None] = mapped_column(String(1000))
     # {key: {value, confidence, ai_value, ai_confidence, grounded, source: ai|human, issue}}
@@ -108,6 +121,10 @@ class SysDocJob(AuditColumnsMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Duyệt 2 người (Giai đoạn 10) – xác định lúc duyệt lần 1 theo `dual_approval` của schema loại chứng từ
+    requires_dual_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    first_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_approved_by: Mapped[int | None] = mapped_column(BigInteger)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     approved_by: Mapped[int | None] = mapped_column(BigInteger)
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

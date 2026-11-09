@@ -20,6 +20,7 @@ from app.core.errors import UnhandledErrorMiddleware, register_exception_handler
 from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
 from app.core.migrations import upgrade_to_head
 from app.flows.operations import service as ops_service
+from app.flows.operations.invoice_router import router as ops_invoices_router
 from app.flows.operations.portal.router import router as portal_contracts_router
 from app.flows.operations.portal.shipments_router import router as portal_shipments_router
 from app.flows.operations.router import router as ops_contracts_router
@@ -36,6 +37,7 @@ from app.shared.docai import registry as docai_registry
 from app.shared.docai import service as docai_service
 from app.shared.docai.router import router as doc_jobs_router
 from app.shared.docai.router import types_router as doc_types_router
+from app.shared.events import outbox  # Giai đoạn 10: đăng ký xếp gửi outbox sau mỗi commit
 from app.shared.files.router import router as files_router
 from app.shared.identity.portal_router import router as portal_users_router
 from app.shared.identity.router import auth_router, users_router
@@ -52,6 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     upgrade_to_head(engine)
     with SessionLocal() as db:
         ops_service.expire_due_contracts(db)  # 02 §6.1: hợp đồng quá hạn → expired (tới khi có tác vụ nền)
+    outbox.schedule_pending()  # sự kiện còn chờ (Redis lỗi lúc xếp, tiến trình dừng giữa chừng) – xếp gửi lại
     try:
         yield
     finally:
@@ -136,6 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if "ops" in settings.enabled_flows:
         app.include_router(ops_contracts_router)
         app.include_router(ops_shipments_router)
+        app.include_router(ops_invoices_router)  # Giai đoạn 10
         app.include_router(portal_contracts_router)
         app.include_router(portal_shipments_router)
     _include_legacy_v1_routers(app)

@@ -28,7 +28,7 @@ def spec(type_, **kw) -> FieldSpec:
 def test_builtin_schemas_load():
     schemas = registry.all_schemas()
     assert {"party", "service_contract", "shipment", "commercial_invoice"} <= set(schemas)
-    assert schemas["party"].target == "party" and schemas["commercial_invoice"].target is None
+    assert schemas["party"].target == "party" and schemas["commercial_invoice"].target == "commercial_invoice"
 
 
 def test_new_doc_type_by_adding_a_json_file(tmp_path):

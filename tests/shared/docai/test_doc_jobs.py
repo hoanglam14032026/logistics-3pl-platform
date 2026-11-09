@@ -447,7 +447,9 @@ def test_contract_and_shipment_link(client, users, model, fake_ollama, make_part
         "valid_to": "2027-10-31",
         "payment_due_days": 30,
     }
-    client.post(f"{JOBS}/{job['id']}/approve", headers=users["h"]["ops"])
+    first = client.post(f"{JOBS}/{job['id']}/approve", headers=users["h"]["ops"]).json()
+    assert first["status"] == "pending_second_approval"  # hợp đồng: luôn duyệt 2 người (Giai đoạn 10)
+    assert client.post(f"{JOBS}/{job['id']}/approve", headers=users["h"]["manager"]).json()["status"] == "approved"
     r = client.post(
         f"/api/v2/ops/service-contracts?source_doc_job_id={job['id']}",
         json={**job["form"], "customer_id": customer.id},
@@ -491,23 +493,6 @@ def test_contract_and_shipment_link(client, users, model, fake_ollama, make_part
     assert r.status_code == 201, r.text
     assert r.json()["source_doc_job_id"] == sj["id"]
     assert logs("doc_job.linked", sj["id"])[0].after["overrides"] == {}
-
-
-def test_commercial_invoice_has_no_business_table(client, users, model, fake_ollama):
-    fake_ollama.reply = answer(
-        invoice_no=("INV-01", 0.95),
-        invoice_date=("2026-11-05", 0.95),
-        seller_name=("A", 0.95),
-        buyer_name=("B", 0.95),
-        currency=("USD", 0.95),
-        total_amount=(1250.5, 0.95),
-    )
-    job = _done(
-        client, users["h"]["ops"], model.id, content=b"INV-01 05/11/2026 A B USD 1250.5", doc_type="commercial_invoice"
-    )
-    assert job["target_type"] is None and job["form"] == {}
-    approved = client.post(f"{JOBS}/{job['id']}/approve", headers=users["h"]["ops"]).json()
-    assert approved["approved_data"]["total_amount"] == "1250.5" and approved["create_hint"] is None
 
 
 # --- Phân quyền --------------------------------------------------------------------------------------------------

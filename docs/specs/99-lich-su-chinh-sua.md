@@ -320,3 +320,15 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | Migration `0010`: `ai_models`, `sys_doc_jobs`, `sys_doc_extractions`, cột `source_doc_job_id` ×3; trigger: không xóa model/job, job đã duyệt/từ chối/lỗi không đổi nội dung, `sys_doc_extractions` chỉ ghi thêm. Không sửa `0001`–`0009` | `07` §6 điểm 3 |
 | – | 155 test mới (91 đơn vị: chặn địa chỉ ngoài, cấu hình, schema, chuẩn hóa, độ tin cậy, chuyển đổi, OCR, nhận dạng file; 63 tích hợp PostgreSQL + Redis: quy trình đầy đủ, bắt buộc chọn model, model tắt/xóa, file, sửa/duyệt/từ chối, nối bản ghi ×3, phân quyền, hàng đợi thử lại/hết lượt, Redis lỗi, proxy, DNS ra ngoài, trigger; 1 chạy với model thật – bỏ qua mặc định); `test_storage_sniff` (txt giờ là `text/plain`), `test_migrations` (head `0010`) cập nhật | `07` §5 |
 
+### 10.25. Mã nguồn – Giai đoạn 10: hóa đơn thương mại, outbox sự kiện, duyệt 2 người (09/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Loại chứng từ `commercial_invoice` không có bảng nghiệp vụ | `ops_commercial_invoices` + `ops_commercial_invoice_items` (gắn hợp đồng bắt buộc, lô tùy chọn – có lô thì hợp đồng theo lô; tổng tiền NUMERIC(18,2) trả **chuỗi** "12500.50"; trùng (hợp đồng, người bán, số) → `409`); `/api/v2/ops/commercial-invoices` (GET danh sách/chi tiết, POST, `?source_doc_job_id=`); schema `commercial_invoice` v2 có `target` + `form_field` (gồm dòng hàng) | Yêu cầu Giai đoạn 10 |
+| Sự kiện ghi tạm vào `sys_audit_logs` (`01` §5) | Outbox `sys_events` cùng giao dịch + bộ phát rq (hàng `events`) → Redis Stream cho Luồng 2, 4; thử lại như Giai đoạn 7, hết lượt `failed` + `outbox.dispatch_failed`; luồng tắt → chờ (N6); CLI `python -m app.shared.events.cli dispatch`; worker nghe `default` + `events`. Giữ dòng `event.<mã>` trong nhật ký | `01` N5, N6; yêu cầu Giai đoạn 10 |
+| – | Sự kiện `doc.extracted` / `doc.failed` / `doc.approval_pending` / `doc.approved` / `doc.rejected` / `doc.linked` (không chứa giá trị trích được) | Yêu cầu Giai đoạn 10 ("doc.*") |
+| Job trích xuất: một người duyệt | Duyệt 2 người theo `dual_approval` của schema: hợp đồng luôn, hóa đơn ≥ `DOCAI_DUAL_APPROVAL_THRESHOLDS`; trạng thái `pending_second_approval`; người thứ 2 ≠ người tải lên, ≠ người duyệt đầu (`403` + CHECK CSDL) | Yêu cầu Giai đoạn 10 |
+| `doc_job.linked.overrides` so chuỗi | So số theo giá trị (`1250.5` = `1250.50`), bỏ qua danh sách (dòng hàng) | Tránh báo khác sai |
+| – | Migration `0011`: 3 bảng, 3 cột `sys_doc_jobs`, `status` → 32 ký tự, CHECK trạng thái + duyệt 2 người, trigger (outbox không sửa nội dung/xóa; hóa đơn không xóa; dòng hàng chỉ ghi thêm); chuyển sự kiện cũ từ nhật ký sang outbox | `07` §6 điểm 3 |
+| – | 37 test mới (36 tích hợp, 1 đơn vị – ngưỡng duyệt 2 người; 9 outbox trên Redis thật – cùng giao dịch, rollback, chỉ id trong hàng đợi, gửi Luồng 2/4, gửi lặp, luồng tắt, thử lại, hết lượt + gửi lại, Redis lỗi, trigger; 14 hóa đơn; 12 duyệt 2 người + hóa đơn từ job + sự kiện `doc.*`; 2 migration – chuyển sự kiện cũ, tên CHECK); 3 test cũ cập nhật (hợp đồng cần 2 người, schema hóa đơn có đích, head `0011`) | `07` §5 |
+

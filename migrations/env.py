@@ -20,6 +20,7 @@ from app.legacy_v1.database import Base as LegacyBase
 from app.shared.ai_models import models as _ai_models_models  # noqa: F401
 from app.shared.audit import models as _audit_models  # noqa: F401
 from app.shared.docai import models as _docai_models  # noqa: F401
+from app.shared.events import models as _events_models  # noqa: F401
 from app.shared.files import models as _files_models  # noqa: F401
 from app.shared.identity import models as _identity_models  # noqa: F401  (đăng ký model v2 vào Base.metadata)
 from app.shared.masterdata import models as _masterdata_models  # noqa: F401

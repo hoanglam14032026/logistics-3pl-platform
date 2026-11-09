@@ -42,6 +42,7 @@ OPS_TABLES = {
     "ops_delivery_records",
 }
 DOCAI_TABLES = {"ai_models", "sys_doc_jobs", "sys_doc_extractions"}
+G10_TABLES = {"sys_events", "ops_commercial_invoices", "ops_commercial_invoice_items"}
 
 
 @pytest.fixture(autouse=True)
@@ -67,13 +68,15 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0010"
+    assert head_revision() == "0011"
 
 
 def test_upgrade_from_empty_creates_all_tables():
     reset_database()
     assert upgrade_to_head(engine) == head_revision()
-    expected = BASELINE_TABLES | IDENTITY_TABLES | MASTERDATA_TABLES | AUDIT_TABLES | OPS_TABLES | DOCAI_TABLES
+    expected = (
+        BASELINE_TABLES | IDENTITY_TABLES | MASTERDATA_TABLES | AUDIT_TABLES | OPS_TABLES | DOCAI_TABLES | G10_TABLES
+    )
     assert _tables() == expected | {"alembic_version"}
 
 
@@ -173,7 +176,60 @@ def test_0010_seeds_sample_model_and_downgrade_keeps_old_data():
         cols = {c["name"] for c in inspect(conn).get_columns("md_parties")}
         assert "source_doc_job_id" not in cols
         assert conn.scalar(text("SELECT name FROM md_parties")) == "Cty A"
-    _alembic(command.upgrade, "0010")
+    _alembic(command.upgrade, "head")
     with engine.connect() as conn:
         assert conn.scalar(text("SELECT source_doc_job_id FROM md_parties WHERE name = 'Cty A'")) is None
         assert conn.scalar(text("SELECT count(*) FROM ai_models")) == 1
+
+
+def test_0011_moves_old_events_to_outbox_and_downgrade_reverts_status():
+    """Sự kiện Giai đoạn 8–9 (dòng `event.<mã>` trong nhật ký) chuyển sang outbox `pending`, giữ event_id; job đang chờ
+    người duyệt thứ 2 về needs_review khi hạ xuống 0010."""
+    import json
+    import uuid
+
+    reset_database()
+    upgrade_to_head(engine)
+    _alembic(command.downgrade, "0010")
+    event_id = str(uuid.uuid4())
+    envelope = {
+        "event_id": event_id,
+        "event_code": "EV-112",
+        "event_name": "ops.shipment.status_changed",
+        "schema_version": 1,
+        "occurred_at": "2026-11-09T01:00:00Z",
+        "mode": "production",
+        "actor_id": 7,
+        "data": {"shipment_id": 3, "from": "draft", "to": "docs_collecting"},
+    }
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sys_audit_logs (actor_id, action, entity_type, entity_id, after) "
+                "VALUES (7, 'event.EV-112', 'shipment', 3, CAST(:a AS jsonb)), "
+                "(7, 'party.create', 'party', 1, '{}')"
+            ),
+            {"a": json.dumps(envelope)},
+        )
+    _alembic(command.upgrade, "0011")
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT event_id::text, event_code, entity_id, status, consumers, payload FROM sys_events")
+        ).all()
+    assert rows == [(event_id, "EV-112", 3, "pending", ["control", "assessment"], envelope)]
+
+
+def test_check_constraint_names_match_models():
+    """CHECK do migration tạo đúng tên quy ước của model (compare_metadata không so CHECK)."""
+    reset_database()
+    upgrade_to_head(engine)
+    from app.core.db import Base
+
+    with engine.connect() as conn:
+        inspector = inspect(conn)
+        for table in ("sys_doc_jobs", "sys_events", "ops_commercial_invoices", "ops_commercial_invoice_items"):
+            in_db = {c["name"] for c in inspector.get_check_constraints(table)}
+            in_model = {
+                c.name for c in Base.metadata.tables[table].constraints if c.__class__.__name__ == "CheckConstraint"
+            }
+            assert in_db == in_model, table

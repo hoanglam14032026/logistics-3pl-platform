@@ -11,7 +11,9 @@ tạo khách hàng/đối tác, hợp đồng, lô hàng – **không sửa logi
 Cột `source_doc_job_id` UNIQUE: một job tạo tối đa một bản ghi.
 """
 
+import re
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import event, insert, select, update
@@ -25,6 +27,10 @@ from app.shared.audit.service import _json_value
 from app.shared.docai import extract, registry
 from app.shared.docai import service as docs
 from app.shared.docai.models import JobStatus, SysDocJob
+from app.shared.events import publisher
+from app.shared.events.contracts import DocLinked
+
+_NUMBER = re.compile(r"^-?\d+(\.\d+)?$")
 
 QUERY_DESCRIPTION = (
     "Job trích xuất chứng từ (AI local) **đã duyệt** dùng làm nguồn – nối bản ghi với job để truy vết. "
@@ -44,6 +50,13 @@ def _comparable(value: Any) -> str | None:
         try:
             return to_utc_iso(datetime.fromisoformat(value.replace("Z", "+00:00")))
         except ValueError:
+            pass
+    if isinstance(value, (list, dict)):
+        return None  # danh sách (dòng hàng…) lưu ở bảng con – không so ở đây
+    if isinstance(value, Decimal) or (isinstance(value, str) and _NUMBER.match(value)):
+        try:
+            return format(Decimal(str(value)).normalize(), "f")
+        except InvalidOperation:
             pass
     value = _json_value(value)
     return str(value).lower() if isinstance(value, bool) else str(value)
@@ -119,6 +132,22 @@ def attach(db: Session, job_id: int, target: str, model_cls: type, actor) -> Non
                 ip=current_client_ip(),
                 request_id=current_request_id(),
             )
+        )
+        publisher.publish_in_flush(
+            session,
+            DocLinked(
+                job_id=job_id,
+                doc_type=job.doc_type,
+                status=JobStatus.APPROVED.value,
+                target_type=job.target_type,
+                ai_model_id=job.ai_model_id,
+                model_code=job.model_code,
+                linked_entity_type=target,
+                linked_entity_id=obj.id,
+            ),
+            docs.ENTITY,
+            job_id,
+            actor.id,
         )
 
     event.listen(db, "before_flush", _before_flush)

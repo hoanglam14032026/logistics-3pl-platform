@@ -392,3 +392,62 @@ class OpsDeliveryRecord(Base):
         DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
     )
     created_by: Mapped[int | None] = mapped_column(BigInteger)
+
+
+class OpsCommercialInvoice(AuditColumnsMixin, Base):
+    """Hóa đơn thương mại (Giai đoạn 10) – gắn hợp đồng (bắt buộc) và lô hàng (tùy chọn; có lô thì hợp đồng = hợp đồng
+    của lô). Tạo tay hoặc từ job trích xuất AI loại `commercial_invoice` **đã duyệt** (`source_doc_job_id`). Không sửa,
+    không xóa qua API (trigger chặn xóa; dòng hàng chỉ ghi thêm)."""
+
+    __tablename__ = "ops_commercial_invoices"
+    __table_args__ = (
+        CheckConstraint("total_amount >= 0", name="total_amount_non_negative"),
+        CheckConstraint("currency ~ '^[A-Z]{3}$'", name="currency_iso"),
+        CheckConstraint(
+            f"incoterm IS NULL OR incoterm IN ({', '.join(repr(i) for i in INCOTERMS_2020)})", name="incoterm_valid"
+        ),
+        UniqueConstraint(
+            "contract_id", "seller_name", "invoice_no", name="uq_ops_commercial_invoices_contract_seller_no"
+        ),
+        Index("ix_ops_commercial_invoices_shipment", "shipment_id"),
+        Index("ix_ops_commercial_invoices_contract_date", "contract_id", "invoice_date"),
+    )
+
+    contract_id: Mapped[int] = _contract_fk()
+    shipment_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"))
+    invoice_no: Mapped[str] = mapped_column(String(100), nullable=False)
+    invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
+    seller_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    buyer_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    incoterm: Mapped[str | None] = mapped_column(String(3))
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(1000))
+    source_doc_job_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("sys_doc_jobs.id", ondelete="RESTRICT"), unique=True
+    )
+
+
+class OpsCommercialInvoiceItem(Base):
+    """Dòng hàng của hóa đơn thương mại (Giai đoạn 10) – chỉ ghi thêm."""
+
+    __tablename__ = "ops_commercial_invoice_items"
+    __table_args__ = (
+        UniqueConstraint("invoice_id", "line_no", name="uq_ops_commercial_invoice_items_line"),
+        CheckConstraint("line_no >= 1", name="line_no_positive"),
+        CheckConstraint("quantity IS NULL OR quantity >= 0", name="quantity_non_negative"),
+        CheckConstraint("unit_price IS NULL OR unit_price >= 0", name="unit_price_non_negative"),
+        CheckConstraint("amount IS NULL OR amount >= 0", name="amount_non_negative"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    invoice_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ops_commercial_invoices.id", ondelete="RESTRICT"), nullable=False
+    )
+    line_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str] = mapped_column(String(1000), nullable=False)
+    hs_code: Mapped[str | None] = mapped_column(String(12))
+    quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 3))
+    unit: Mapped[str | None] = mapped_column(String(20))
+    unit_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))

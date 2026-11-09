@@ -6,7 +6,8 @@ không khởi động (báo rõ file, trường lỗi) – không chạy với s
 
 Cấu trúc file (xem `party.json`):
     code, version, name, description, instructions (hướng dẫn thêm cho model),
-    target: "party" | "service_contract" | "shipment" | null (chưa có bảng nghiệp vụ – chỉ trích xuất, duyệt),
+    target: "party" | "service_contract" | "shipment" | "commercial_invoice" | null (chỉ trích xuất, duyệt),
+    dual_approval (Giai đoạn 10): {"mode": "always"} | {"mode": "amount", "amount_field", "currency_field"},
     fields: [{key, label, type, required, description, max_length, values (enum), items (array), form_field}]
 Kiểu trường: string, text, date (YYYY-MM-DD), datetime (ISO 8601, thiếu múi giờ → +07:00), number (thập phân, trả
 dạng chuỗi), integer, boolean, enum (`values`), array (danh sách object, `items` một cấp).
@@ -26,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from app.core.timeutil import VN_TZ
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
-TARGETS = ("party", "service_contract", "shipment")
+TARGETS = ("party", "service_contract", "shipment", "commercial_invoice")
 FieldType = Literal["string", "text", "date", "datetime", "number", "integer", "boolean", "enum", "array"]
 
 
@@ -62,6 +63,23 @@ class FieldSpec(BaseModel):
         return self
 
 
+class DualApproval(BaseModel):
+    """Duyệt 2 người (Giai đoạn 10). `always`: mọi job loại này. `amount`: khi trường số tiền ≥ ngưỡng của đồng tiền
+    (`DOCAI_DUAL_APPROVAL_THRESHOLDS`; đồng tiền không có ngưỡng / thiếu số tiền → cần 2 người)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["always", "amount"]
+    amount_field: str | None = None
+    currency_field: str | None = None
+
+    @model_validator(mode="after")
+    def _fields(self):
+        if (self.mode == "amount") != bool(self.amount_field and self.currency_field):
+            raise ValueError("dual_approval: mode=amount cần amount_field và currency_field (và chỉ khi đó)")
+        return self
+
+
 class DocTypeSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -70,7 +88,8 @@ class DocTypeSchema(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(None, max_length=2000)
     instructions: str | None = Field(None, max_length=4000)
-    target: Literal["party", "service_contract", "shipment"] | None = None
+    target: Literal["party", "service_contract", "shipment", "commercial_invoice"] | None = None
+    dual_approval: DualApproval | None = None
     fields: list[FieldSpec] = Field(min_length=1, max_length=200)
 
     @model_validator(mode="after")
@@ -83,6 +102,13 @@ class DocTypeSchema(BaseModel):
             raise ValueError("Trùng form_field")
         if forms and self.target is None:
             raise ValueError("form_field cần target (bảng nghiệp vụ đích)")
+        dual = self.dual_approval
+        if dual and dual.mode == "amount":
+            by_key = {f.key: f for f in self.fields}
+            if getattr(by_key.get(dual.amount_field), "type", None) not in ("number", "integer"):
+                raise ValueError("dual_approval.amount_field phải là trường số")
+            if getattr(by_key.get(dual.currency_field), "type", None) not in ("string", "enum"):
+                raise ValueError("dual_approval.currency_field phải là trường chuỗi")
         return self
 
     def field(self, key: str) -> FieldSpec | None:

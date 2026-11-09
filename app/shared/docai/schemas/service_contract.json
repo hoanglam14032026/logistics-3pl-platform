@@ -5,6 +5,7 @@
   "description": "Hợp đồng dịch vụ với khách hàng – tự điền form tạo hợp đồng (ops_service_contracts). Khách hàng (customer_id), phạm vi dịch vụ, biểu giá theo mã: người duyệt chọn trên form.",
   "instructions": "Ngày ghi dạng YYYY-MM-DD. valid_from/valid_to là thời hạn hiệu lực của hợp đồng. payment_due_days là số ngày phải thanh toán (vd. 'trong vòng 30 ngày' → 30). Bên khách hàng là bên thuê dịch vụ (không phải công ty logistics).",
   "target": "service_contract",
+  "dual_approval": {"mode": "always"},
   "fields": [
     {"key": "customer_name", "label": "Tên khách hàng (bên thuê dịch vụ)", "type": "string", "required": true, "max_length": 300},
     {"key": "customer_tax_code", "label": "MST khách hàng", "type": "string", "max_length": 32},

@@ -27,6 +27,7 @@ from app.shared.ai_models.models import AiModel
 from app.shared.docai import convert, extract, ocr, registry
 from app.shared.docai import service as docs
 from app.shared.docai.models import JobStatus, SysDocExtraction, SysDocJob
+from app.shared.events.contracts import DocExtracted, DocFailed
 from app.shared.files.models import SysFile
 from app.shared.files.storage import get_storage
 
@@ -189,6 +190,16 @@ def _save(snap: Snapshot, fields: dict, extraction: SysDocExtraction, warnings: 
                     "llm_ms": extraction.llm_ms,
                 },
             )
+            reasons = job.review_reasons or {}
+            docs.publish(
+                db,
+                DocExtracted,
+                job,
+                None,
+                overall_confidence=job.overall_confidence,
+                low_confidence_count=len(reasons.get("low_confidence", [])),
+                missing_required_count=len(reasons.get("missing_required", [])),
+            )
         db.commit()
 
 
@@ -221,6 +232,7 @@ def _fail(job_id: int, message: str, final: bool) -> None:
                     "attempt_no": attempt_no,
                 },
             )
+            docs.publish(db, DocFailed, job, None, attempts=job.attempts)
         db.commit()
 
 

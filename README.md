@@ -46,9 +46,10 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev-lock.txt                # phụ thuộc chạy + công cụ dev (đều đã khóa)
 cp .env.example .env                                     # rồi điền JWT_SECRET, TOTP_ENCRYPTION_KEY
 uvicorn app.main:create_app --factory --reload           # http://127.0.0.1:8000/docs; tự chạy alembic upgrade head
-python -m app.worker                                     # worker: email, OCR + AI trích xuất (cần JOB_QUEUE_URL=redis://localhost:6379/0)
+python -m app.worker                                     # worker: email, OCR + AI, gửi outbox sự kiện (cần JOB_QUEUE_URL=redis://localhost:6379/0)
+python -m app.shared.events.cli dispatch [--failed]      # xếp gửi lại sự kiện còn chờ trong outbox
 python -m app.shared.identity.cli create-admin --username admin --full-name "Quản trị"   # admin đầu tiên
-pytest                                                   # 717 test: 497 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 219 đơn vị + 1 model thật (bỏ qua mặc định)
+pytest                                                   # 753 test: 532 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 220 đơn vị + 1 model thật (bỏ qua mặc định)
 ruff check . && ruff format --check .
 ```
 
@@ -105,6 +106,8 @@ curl -X POST http://127.0.0.1:8000/api/v2/admin/ai-models/2:probe -H "Authorizat
 3. `GET /api/v2/doc-jobs/{id}` → `draft` (giá trị + độ tin cậy từng trường), `form` (body tự điền cho API tạo bản ghi), `status` `ready_for_review` / `needs_review` (có trường < 0,9 hoặc thiếu trường bắt buộc); `GET …/extractions` → văn bản OCR theo trang, bbox.
 4. Sửa: `PATCH /api/v2/doc-jobs/{id}/review` `{"fields": {"tax_code": "0101234567"}}`; duyệt: `POST …/approve` `{"confirmed_fields": [...]}` (trường độ tin cậy thấp giữ nguyên giá trị AI phải xác nhận từng trường); từ chối: `POST …/reject` `{"reason": "…"}`.
 5. Sau khi duyệt: gọi API tạo bản ghi kèm `form` + `?source_doc_job_id={id}` (`create_hint` trong kết quả), vd. `POST /api/v2/md/parties?source_doc_job_id=12`. Job chưa duyệt / khác loại / đã dùng → lỗi, không tạo bản ghi.
+
+**Duyệt 2 người (Giai đoạn 10):** job hợp đồng và hóa đơn giá trị lớn (`DOCAI_DUAL_APPROVAL_THRESHOLDS`) sau lần duyệt đầu ở trạng thái `pending_second_approval`; người duyệt thứ 2 (thường là `manager`) gọi lại `POST …/approve` – phải khác người tải lên và khác người duyệt đầu. Hóa đơn: sau khi duyệt, `POST /api/v2/ops/commercial-invoices?source_doc_job_id={id}` với `form` + `shipment_id` hoặc `contract_id`.
 
 Test với model thật (bỏ qua mặc định): `DOCAI_LIVE_OLLAMA=1 pytest tests/shared/docai/test_live_ollama.py`.
 

@@ -7,6 +7,7 @@ mặc định trong 06 §6 là tùy chọn (`None`), trừ `JWT_SECRET`, `TOTP_E
 
 import base64
 import binascii
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
@@ -122,6 +123,11 @@ class Settings(BaseSettings):
     rate_limit_file_upload_per_user: int = Field(default=20, gt=0)
     rate_limit_file_download_per_user: int = Field(default=120, gt=0)
 
+    # Outbox sự kiện (Giai đoạn 10): worker gửi sự kiện vào Redis Stream `<prefix><luồng>` (control, assessment) trên
+    # JOB_QUEUE_URL; giữ tối đa khoảng N bản ghi mỗi stream (MAXLEN ~).
+    event_stream_prefix: str = Field(default="l3pl:events:", pattern=r"^[A-Za-z0-9:._-]{1,64}$")
+    event_stream_maxlen: int = Field(default=100_000, gt=0)
+
     # AI local trích xuất chứng từ (Giai đoạn 9). Chỉ gọi máy chủ model trong máy / mạng nội bộ: OLLAMA_URL ngoài
     # localhost / mạng riêng → ứng dụng KHÔNG khởi động (app/core/netguard.py). Danh mục model đọc từ bảng `ai_models`
     # (admin quản lý) – không ghi tên model trong mã nghiệp vụ.
@@ -146,6 +152,13 @@ class Settings(BaseSettings):
     docai_llm_timeout_sec: int = Field(default=600, gt=0)
     # Thời gian tối đa một lần chạy tác vụ trích xuất trong worker (OCR + model lớn chạy CPU/GPU cục bộ: lâu hơn email).
     docai_job_timeout_sec: int = Field(default=1800, gt=0)
+    # Duyệt 2 người (Giai đoạn 10): loại chứng từ có `dual_approval` theo số tiền (hóa đơn) cần 2 người duyệt khi tổng
+    # tiền ≥ ngưỡng của đồng tiền đó; đồng tiền không có trong danh sách → luôn 2 người. Dạng: VND:500000000,USD:20000
+    docai_dual_approval_thresholds: Annotated[dict[str, Decimal], NoDecode] = {
+        "VND": Decimal("500000000"),
+        "USD": Decimal("20000"),
+        "EUR": Decimal("20000"),
+    }
 
     @field_validator(
         "enabled_flows",
@@ -229,6 +242,26 @@ class Settings(BaseSettings):
                     "tạo bằng: python -m app.core.secretbox"
                 )
         return SecretStr(",".join(keys))
+
+    @field_validator("docai_dual_approval_thresholds", mode="before")
+    @classmethod
+    def _thresholds(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        out: dict[str, str] = {}
+        for item in _split_csv(value):
+            currency, sep, amount = item.partition(":")
+            if not sep or not currency.strip().isalpha() or len(currency.strip()) != 3:
+                raise ValueError("DOCAI_DUAL_APPROVAL_THRESHOLDS: dạng VND:500000000,USD:20000")
+            out[currency.strip().upper()] = amount.strip()
+        return out
+
+    @field_validator("docai_dual_approval_thresholds")
+    @classmethod
+    def _thresholds_positive(cls, value: dict[str, Decimal]) -> dict[str, Decimal]:
+        if any(v < 0 for v in value.values()):
+            raise ValueError("DOCAI_DUAL_APPROVAL_THRESHOLDS: ngưỡng phải ≥ 0")
+        return value
 
     @field_validator("ai_model_default", mode="before")
     @classmethod
