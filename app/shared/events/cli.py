@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     dispatch.add_argument("--failed", action="store_true", help="Gồm cả sự kiện đã hết lượt thử lại")
     for name in ("consume", "replay"):
         cmd = sub.add_parser(name, help="Xử lý sự kiện cho một luồng nhận")
-        cmd.add_argument("consumer", help="ops | control")
+        cmd.add_argument("consumer", help="ops | control | assessment")
         if name == "replay":
             cmd.add_argument("--dead", action="store_true", help="Xử lý lại sự kiện đã hết lượt")
     args = parser.parse_args(argv)

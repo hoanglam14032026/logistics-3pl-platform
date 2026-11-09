@@ -368,3 +368,13 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | Migration `0014`: `ops_tasks` (chép bước đã có), `ctl_alert_notifications`, cột `revision`, `escalated_at`, `escalated_to_role`, `zalo_user_id`, loại cảnh báo `task_sync_conflict`, trigger không xóa thông báo | `07` §6 điểm 3 |
 | – | 13 test mới (PostgreSQL + Redis thật; Zalo giả lập trên 127.0.0.1): đồng bộ L2 → L1 + EV-13x, L1 → L2, đổi đồng thời hội tụ, Luồng 1 lệch → xung đột → sửa, sự kiện cũ bỏ qua + phân quyền + hủy lô, điều chuyển, `:resync`, leo thang sau 2 giờ + email business_manager, không leo thang cảnh báo đã xử lý, Zalo (token không lọt hàng đợi/log), Zalo lỗi → thử lại → gửi được, email hết lượt → failed + FailedJobRegistry, không hàng đợi → gửi ngay); 3 test cũ cập nhật (head `0014`, kết quả quét có `escalated`, nhật ký hồ sơ có `zalo_user_id`) | `07` §5 |
 
+### 10.29. Mã nguồn – Giai đoạn 14: Luồng 4 – KPI vận hành, báo cáo (09/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Stream `l3pl:events:assessment` có sự kiện nhưng không ai nhận | Luồng 4 đăng ký xử lý EV-101, EV-111/112/142, EV-131/132/133, `ops.task.unblocked`, `ctl.task.*`, `ctl.alert.*` với bộ nhận dùng chung (`sys_event_consumptions` – không xử lý trùng); dựng `asm_fact_*` | Yêu cầu Giai đoạn 14 (mục 1); `05` §6, §11 |
+| EV-133, `ops.task.unblocked`, `ctl.task.synced` không gửi Luồng 4; `ctl.task.*` không có `revision` | Thêm luồng nhận `assessment`; thêm `revision` (giữ `schema_version` 1) – khử trùng một thay đổi đến qua nhiều sự kiện; EV-13x `origin = ops` không đổi trạng thái tới khi Luồng 2 xác nhận | Số bước bị chặn đúng (EV-133 trong yêu cầu); không tính thay đổi bị Luồng 2 từ chối |
+| Chưa có KPI | KPI-07, KPI-03, giờ trễ trung bình, số bước bị chặn, số cảnh báo – theo toàn bộ / hợp đồng (so SLA) / lô / nhân viên, tính khi đọc, chỉ `production` | Yêu cầu Giai đoạn 14 (mục 2); `05` §3 |
+| – | `GET /api/v2/assessment/kpi?from=&to=` + `/kpi/contracts[/{id}]`, `/kpi/shipments[/{id}]`, `/kpi/staff[/{user_id}]` – `manager`, `business_manager`, `admin` | Yêu cầu Giai đoạn 14 (mục 3) |
+| – | Migration `0015`: `asm_fact_contracts`, `asm_fact_shipments`, `asm_fact_tasks`, `asm_fact_task_blocks`, `asm_fact_alerts` | `07` §6 điểm 3 |
+| – | 10 test mới: sự kiện dựng tay (số liệu toàn bộ / hợp đồng + SLA / lô / nhân viên, biên kỳ giờ VN, mẫu số 0 → null, khử trùng chặn, sự kiện cũ / lệch thứ tự, training không tính, gửi lặp), phân quyền + kiểm tham số, tắt Luồng 4 → không có API, chuỗi thật qua Redis Stream + replay; `test_migrations` head `0015` + vòng downgrade/upgrade | `07` §5 |

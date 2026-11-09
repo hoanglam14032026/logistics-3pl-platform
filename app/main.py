@@ -20,6 +20,7 @@ from app.core.db import SessionLocal, engine
 from app.core.errors import UnhandledErrorMiddleware, register_exception_handlers
 from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
 from app.core.migrations import upgrade_to_head
+from app.flows.assessment.router import router as assessment_router
 from app.flows.control.router import router as control_router
 from app.flows.operations import service as ops_service
 from app.flows.operations.invoice_router import router as ops_invoices_router
@@ -150,5 +151,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(portal_shipments_router)
     if "control" in settings.enabled_flows:  # Luồng 2 (Giai đoạn 11)
         app.include_router(control_router)
+    if "assessment" in settings.enabled_flows:  # Luồng 4 – KPI (Giai đoạn 14)
+        app.include_router(assessment_router)
     _include_legacy_v1_routers(app)
     return app

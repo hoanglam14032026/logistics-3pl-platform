@@ -126,6 +126,9 @@ class _CtlTaskEvent(EventData):
     assignee_id: int | None
     planned_start: UtcDatetime
     planned_end: UtcDatetime
+    # Thêm Giai đoạn 14 (giữ schema_version 1): revision của bước sau thay đổi – Luồng 4 khử trùng với
+    # `ctl.task.synced` / EV-13x của cùng thay đổi. Sự kiện cũ không có → null.
+    revision: int | None = None
 
 
 class CtlTaskStarted(_CtlTaskEvent):
@@ -169,7 +172,7 @@ class CtlTaskSynced(EventData):
 
     code: ClassVar[str] = "ctl.task.synced"
     name: ClassVar[str] = "ctl.task.synced"
-    consumers: ClassVar[tuple[str, ...]] = ("ops",)
+    consumers: ClassVar[tuple[str, ...]] = ("ops", "assessment")  # Giai đoạn 14: Luồng 4 dựng dữ kiện bước
 
     task_id: int
     shipment_id: int
@@ -257,7 +260,7 @@ class OpsTaskCompleted(_OpsTaskEvent):
 class OpsTaskBlocked(_OpsTaskEvent):
     code: ClassVar[str] = "EV-133"
     name: ClassVar[str] = "ops.task.blocked"
-    consumers: ClassVar[tuple[str, ...]] = ("control",)
+    consumers: ClassVar[tuple[str, ...]] = ("control", "assessment")  # Giai đoạn 14: + Luồng 4 (số bước bị chặn)
 
     reason_code: str
     note: str | None
@@ -268,7 +271,7 @@ class OpsTaskUnblocked(_OpsTaskEvent):
 
     code: ClassVar[str] = "ops.task.unblocked"
     name: ClassVar[str] = "ops.task.unblocked"
-    consumers: ClassVar[tuple[str, ...]] = ("control",)
+    consumers: ClassVar[tuple[str, ...]] = ("control", "assessment")
 
     note: str | None
 

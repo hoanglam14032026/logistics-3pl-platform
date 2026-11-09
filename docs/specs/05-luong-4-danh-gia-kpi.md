@@ -161,6 +161,13 @@ Thang điểm thành phần 0–10. Với mỗi KPI dùng trong bài đánh giá
 - **Phát**: EV-401, EV-402, EV-403.
 - **Nhận**: EV-101, EV-102, EV-103, EV-113, EV-114, EV-111, EV-112, EV-121, EV-122, EV-131, EV-132, EV-141, EV-142 (Luồng 1); EV-201, EV-204, EV-205, EV-206 (Luồng 2); EV-302, EV-303 (Luồng 3).
 
+**Đã làm (Giai đoạn 14, 09/11/2026)** – `app/flows/assessment/`:
+- **Nhận sự kiện** từ Redis Stream `l3pl:events:assessment` qua bộ nhận dùng chung (consumer `assessment`, `sys_event_consumptions` – không xử lý trùng): EV-101, EV-111, EV-112, EV-142, EV-131, EV-132, EV-133, `ops.task.unblocked`, `ctl.task.started|completed|blocked|delayed|synced`, `ctl.alert.raised|escalated`. Sự kiện khác gửi tới Luồng 4 → `skipped` (chưa có xử lý).
+- **Bảng dữ kiện** (migration `0015`, không FK sang bảng luồng khác): `asm_fact_contracts` (SLA từ EV-101), `asm_fact_shipments`, `asm_fact_tasks` (khóa theo id bước Luồng 2), `asm_fact_task_blocks` (mỗi lần bị chặn, UNIQUE bước + `revision`), `asm_fact_alerts`. Khử trùng giữa các sự kiện của cùng một thay đổi theo `revision` của bước (Luồng 2 nguồn chuẩn): sự kiện cũ hơn bỏ qua; EV-13x `origin = ops` (Luồng 1 tự đổi, Luồng 2 chưa xác nhận) chỉ lưu `performer_id`, `sequence_ok`, `evidence_ok` – trạng thái đợi `ctl.task.synced`.
+- **KPI tính khi đọc** (chưa có `asm_measurements`, `asm_calc_runs`, lịch BR-407, EV-403), chỉ `production`: lô – KPI-07 tỉ lệ giao đúng hạn (`delivered_at ≤ sla_due_at`), giờ trễ trung bình / lớn nhất của lô trễ; bước – KPI-03 tỉ lệ đúng hạn (`actual_end ≤ planned_end`), giờ trễ trung bình / lớn nhất của bước trễ; số bước bị chặn, số lần chặn; số cảnh báo, critical, đã leo thang. Mẫu số 0 → `null`. Theo toàn bộ / hợp đồng / lô / nhân viên (người được giao bước; chưa có thì người thực hiện ở Luồng 1). Hợp đồng: so với SLA – điều khoản có `kpi_code` KPI-03, KPI-07 (%; đạt khi ≥ `target_value`); mã KPI khác → `computed = false`.
+- **API** (`manager`, `business_manager`, `admin`; vai trò khác, `customer` → `403`): `GET /api/v2/assessment/kpi?from=&to=`, `/kpi/contracts`, `/kpi/contracts/{id}`, `/kpi/shipments` (lọc `contract_id`, phân trang), `/kpi/shipments/{id}`, `/kpi/staff`, `/kpi/staff/{user_id}`. Kỳ theo ngày giờ Việt Nam, gồm hai đầu; mặc định 30 ngày tới hôm nay; tối đa 366 ngày.
+- Chưa làm: danh mục KPI (`asm_kpi_definitions`), mục tiêu từ EV-201, KPI-01/02/04–14, tính định kỳ + EV-403, `public.get_kpi_values`, phần đánh giá người học.
+
 ## 12. Điểm CẦN XÁC NHẬN
 
 1. Danh mục KPI chính thức, ngưỡng `floor`/`target`/cảnh báo cho từng KPI và từng loại hợp đồng.

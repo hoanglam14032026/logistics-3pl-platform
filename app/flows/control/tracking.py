@@ -435,6 +435,7 @@ def apply_action(
     _log(db, task, action, before, actor_id, note, source)
     if source == "control":  # thay đổi từ Luồng 1: Luồng 4 đã nhận EV-131/132/133
         for ev in events:
+            ev = ev.model_copy(update={"revision": task.revision})  # Giai đoạn 14: Luồng 4 khử trùng theo revision
             publisher.publish(db, ev, "task", task.id, actor_id, sp.mode)
     publish_synced(db, task, sp, source, actor_id)
     if action == "block":
@@ -607,7 +608,9 @@ def scan(db: Session, now: datetime | None = None) -> dict[str, int]:
                 stats["task_overdue"] += 1
                 publisher.publish(
                     db,
-                    CtlTaskDelayed(**_base(task, sp), overdue_hours=overdue, status=task.status),
+                    CtlTaskDelayed(
+                        **_base(task, sp), overdue_hours=overdue, status=task.status, revision=task.revision
+                    ),
                     "task",
                     task.id,
                     None,

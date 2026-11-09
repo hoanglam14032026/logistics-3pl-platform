@@ -5,5 +5,6 @@ Mỗi luồng tự đăng ký trong `<luồng>/handlers.py` bằng `@consumer.ha
 import `flows` (N4) – module này ở gốc `app/` gom lại.
 """
 
+from app.flows.assessment import handlers as _assessment_handlers  # noqa: F401  (Luồng 4: KPI – Giai đoạn 14)
 from app.flows.control import handlers as _control_handlers  # noqa: F401  (Luồng 2: EV-101, EV-111, EV-112, EV-142)
 from app.flows.operations import handlers as _operations_handlers  # noqa: F401  (Luồng 1: EV-202)
