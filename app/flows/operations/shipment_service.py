@@ -424,6 +424,32 @@ def _transition(
     return shipment
 
 
+def system_cancel(db: Session, shipment: OpsShipment, reason: str, actor_id: int) -> None:
+    """Giai đoạn 19 – hủy lô do chấm dứt hợp đồng trước hạn (đã khóa; không kiểm người phụ trách). Lịch sử, nhật ký
+    `shipment.cancel` (`system_reason = contract_terminated`), EV-112, đóng bước. Nơi gọi commit."""
+    from_status = shipment.status
+    shipment.status, shipment.status_reason, shipment.cancelled_at = S.CANCELLED.value, reason, now_utc()
+    shipment.updated_by = actor_id
+    task_service.close_for_shipment(db, shipment.id)
+    _history(db, shipment, from_status, actor_id, reason)
+    _audit(
+        db,
+        "shipment.cancel",
+        shipment,
+        actor_id,
+        {"status": from_status},
+        {"status": S.CANCELLED.value, "status_reason": reason, "system_reason": "contract_terminated"},
+    )
+    publisher.publish(
+        db,
+        ShipmentStatusChanged(shipment_id=shipment.id, from_=from_status, to=S.CANCELLED.value),
+        ENTITY,
+        shipment.id,
+        actor_id,
+        shipment.mode,
+    )
+
+
 def submit(db, shipment_id, actor, expected_version, note=None):
     return _transition(db, shipment_id, "submit", actor, expected_version, note=note)
 

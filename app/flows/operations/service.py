@@ -430,7 +430,12 @@ def resume_contract(db: Session, contract_id: int, actor_id: int, expected_versi
 
 
 def create_version(
-    db: Session, contract_id: int, data: VersionCreate, actor_id: int, expected_version: int | None
+    db: Session,
+    contract_id: int,
+    data: VersionCreate,
+    actor_id: int,
+    expected_version: int | None,
+    commit: bool = True,
 ) -> OpsContractVersion:
     """Áp phụ lục đã ký: `contract_version + 1`, lưu bản chụp. Tạm thời do `manager` nhập trực tiếp kèm bản scan
     phụ lục (`attachment_id` loại `amendment`) – quy trình phụ lục đầy đủ (đề nghị, đàm phán, phê duyệt
@@ -441,12 +446,14 @@ def create_version(
     if contract.status not in (ContractStatus.ACTIVE.value, ContractStatus.SUSPENDED.value):
         raise _transition_error(f"Chỉ tạo phiên bản mới cho hợp đồng đang hiệu lực/tạm dừng (đang {contract.status})")
 
-    attachment = db.get(OpsContractAttachment, data.attachment_id)
-    if attachment is None or attachment.contract_id != contract.id or attachment.kind != AttachmentKind.AMENDMENT:
-        raise _field_error("attachment_id", "Cần file đính kèm loại amendment của chính hợp đồng này")
-    used = db.scalar(select(exists().where(OpsContractVersion.attachment_id == attachment.id)))
-    if used:
-        raise _field_error("attachment_id", "Bản scan phụ lục này đã dùng cho một phiên bản khác")
+    attachment = None
+    if data.attachment_id is not None:  # Giai đoạn 19: phụ lục có thể chưa kèm bản scan
+        attachment = db.get(OpsContractAttachment, data.attachment_id)
+        if attachment is None or attachment.contract_id != contract.id or attachment.kind != AttachmentKind.AMENDMENT:
+            raise _field_error("attachment_id", "Cần file đính kèm loại amendment của chính hợp đồng này")
+        used = db.scalar(select(exists().where(OpsContractVersion.attachment_id == attachment.id)))
+        if used:
+            raise _field_error("attachment_id", "Bản scan phụ lục này đã dùng cho một phiên bản khác")
 
     previous = db.scalar(
         select(OpsContractVersion.effective_from).where(
@@ -488,7 +495,7 @@ def create_version(
         effective_from=data.effective_from,
         amendment_ref=data.amendment_ref,
         reason=data.reason,
-        attachment_id=attachment.id,
+        attachment_id=attachment.id if attachment else None,
         created_by=actor_id,
     )
     db.add(version)
@@ -501,6 +508,9 @@ def create_version(
         {"contract_version": old_version, **old},
         {"contract_version": new_version, "amendment_ref": data.amendment_ref, **new},
     )
+    if not commit:
+        db.flush()
+        return version
     db.commit()
     db.refresh(version)
     return version
@@ -520,24 +530,26 @@ def list_versions(db: Session, contract: OpsServiceContract) -> list[OpsContract
 
 
 def start_liquidation(db: Session, contract_id: int, reason: str | None, actor_id: int, expected_version: int | None):
-    """`active`/`suspended`/`expired` → `liquidating` (`manager`). Còn hạn = chấm dứt trước hạn: bắt buộc lý do.
-    Chưa có phê duyệt `CONTRACT_TERMINATION` (Luồng 2) – **CẦN XÁC NHẬN** tạm cho phép với lý do."""
+    """`active`/`suspended` đã quá hạn hoặc `expired` → `liquidating` (`manager`). Còn hạn = chấm dứt trước hạn: từ
+    Giai đoạn 19 phải qua đề xuất chấm dứt được duyệt (`contract_lifecycle`) – ở đây trả 409."""
     contract = get_contract(db, contract_id, for_update=True)
     _check_version(contract, expected_version)
     allowed = (ContractStatus.ACTIVE.value, ContractStatus.SUSPENDED.value, ContractStatus.EXPIRED.value)
     if contract.status not in allowed:
         raise _transition_error(f"Chỉ thanh lý được hợp đồng đang hiệu lực/tạm dừng/hết hạn (đang {contract.status})")
     early = contract.status != ContractStatus.EXPIRED.value and contract.valid_to >= today_vn()
-    if early and not reason:
-        raise _field_error("reason", "Thanh lý trước hạn (hợp đồng còn hiệu lực) phải có lý do")
+    if early:  # Giai đoạn 19: chấm dứt trước hạn phải qua đề xuất được business_manager duyệt
+        raise _transition_error(
+            "Hợp đồng còn hạn – chấm dứt trước hạn qua POST …/terminations (business_manager duyệt)"
+        )
     contract.liquidation_started_at = now_utc()
     return _transition(db, contract, "contract.start_liquidation", ContractStatus.LIQUIDATING, actor_id, reason)
 
 
 def close_contract(db: Session, contract_id: int, actor_id: int, expected_version: int | None):
     """`liquidating` → `closed` (`manager`): cần bản scan biên bản thanh lý đã ký. Đã đóng: không sửa, không tải thêm
-    file, không đổi trạng thái (kiểm ở service và trigger CSDL – migration 0006). Chưa kiểm quyết toán
-    (BR-110 – 02 §3.9) và xác nhận bản scan hai bên (BR-116 – 02 §3.11) – **CẦN XÁC NHẬN**."""
+    file, không đổi trạng thái (kiểm ở service và trigger CSDL – migration 0006). Giai đoạn 19: cần quyết toán đã
+    duyệt (BR-110). Chưa kiểm xác nhận bản scan hai bên (BR-116 – 02 §3.11) – **CẦN XÁC NHẬN**."""
     contract = get_contract(db, contract_id, for_update=True)
     _check_version(contract, expected_version)
     if contract.status != ContractStatus.LIQUIDATING.value:
@@ -557,6 +569,10 @@ def close_contract(db: Session, contract_id: int, actor_id: int, expected_versio
     )
     if open_shipment:
         problems.append(("shipments", "Còn lô hàng chưa đóng/hủy (BR-110)"))
+    from app.flows.operations import contract_lifecycle
+
+    if not contract_lifecycle.has_approved_settlement(db, contract.id):  # Giai đoạn 19 – BR-110
+        problems.append(("settlement", "Cần bảng quyết toán đã được business_manager duyệt (BR-110)"))
     if problems:
         raise _requirements_error("Chưa đủ điều kiện đóng hợp đồng", problems)
     contract.closed_at = now_utc()

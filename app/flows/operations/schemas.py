@@ -31,6 +31,7 @@ Currency = Annotated[
     StringConstraints(pattern=r"^[A-Z]{3}$"),
 ]
 Money = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=2)]
+Note1000 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=1000)]
 Quantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=3)]
 TaxRate = Annotated[Decimal, Field(ge=0, le=100, max_digits=5, decimal_places=2)]
 
@@ -211,7 +212,7 @@ class VersionCreate(BaseModel):
     amendment_ref: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30)]
     reason: Reason
     effective_from: date
-    attachment_id: int = Field(gt=0, description="File đính kèm loại `amendment` (bản scan phụ lục đã ký)")
+    attachment_id: int | None = Field(None, gt=0, description="File đính kèm loại `amendment` (bản scan phụ lục)")
     valid_to: date | None = None
     liability_terms: Terms | None = None
     payment_terms: Terms | None = None
@@ -334,3 +335,137 @@ class PortalAttachmentOut(BaseModel):
     kind: AttachmentKind
     description: str | None
     file: FileOut
+
+
+# --- Giai đoạn 19: phụ lục, chấm dứt trước hạn, quyết toán -------------------------------------------------------
+
+
+class AmendmentCreate(BaseModel):
+    """Phụ lục: thay đổi phạm vi / SLA / biểu giá / thời hạn / điều khoản. Trường không gửi giữ nguyên; mảng gửi lên
+    thay thế toàn bộ. Số phụ lục (PL-01…) hệ thống cấp."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Reason
+    effective_from: date
+    attachment_id: int | None = Field(None, gt=0, description="File đính kèm loại `amendment` (tùy chọn)")
+    valid_to: date | None = None
+    liability_terms: Terms | None = None
+    payment_terms: Terms | None = None
+    advance_required: bool | None = None
+    payment_due_days: int | None = Field(None, ge=0, le=3650)
+    service_scopes: ScopeList | None = None
+    sla_terms: SlaList | None = None
+    rates: RateList | None = None
+
+    @model_validator(mode="after")
+    def _validate(self):
+        _unique(self.service_scopes, "service_code", "service_code")
+        _unique(self.sla_terms, "sla_code", "sla_code")
+        _unique(self.rates, "rate_code", "rate_code")
+        if not self.model_fields_set - {"reason", "effective_from", "attachment_id"}:
+            raise ValueError("Phụ lục phải thay đổi ít nhất một điều khoản")
+        return self
+
+    def changes(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", exclude_unset=True, exclude={"reason", "effective_from", "attachment_id"})
+
+
+class AmendmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    contract_id: int
+    amendment_no: str
+    base_contract_version: int
+    changes: dict[str, Any]
+    effective_from: date
+    reason: str
+    attachment_id: int | None
+    status: str
+    created_by: int | None
+    created_at: UtcDatetime
+    first_approved_by: int | None
+    first_approved_at: UtcDatetime | None
+    second_approved_by: int | None
+    second_approved_at: UtcDatetime | None
+    decision_note: str | None
+    applied_version: int | None
+
+
+class DecisionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    note: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)] | None = None
+
+
+class RejectIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    note: Reason
+
+
+class TerminationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=10, max_length=1000)]
+    effective_date: date = Field(description="Ngày chấm dứt (từ hôm nay tới trước ngày hết hạn hợp đồng)")
+
+
+class TerminationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    contract_id: int
+    reason: str
+    effective_date: date
+    status: str
+    requested_by: int
+    requested_at: UtcDatetime
+    decided_by: int | None
+    decided_at: UtcDatetime | None
+    decision_note: str | None
+    cancelled_shipment_ids: list[int] | None
+    open_shipment_ids: list[int] | None
+
+
+Money = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=2)]
+Note1000 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=1000)]
+
+
+class SettlementIn(BaseModel):
+    """Tạo / cập nhật quyết toán (khi `draft` / `rejected`): số liệu hóa đơn, KPI tính lại mỗi lần lưu."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")] | None = None
+    sla_deduction: Money | None = None
+    deduction_note: Note1000 | None = None
+    compensation: Money | None = None
+    paid_amount: Money | None = None
+
+
+class SettlementOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    settlement_no: str
+    contract_id: int
+    settlement_type: str
+    period_from: date
+    period_to: date
+    currency: str
+    invoice_count: int
+    invoice_total: Decimal
+    other_currency_totals: dict[str, Any]
+    sla_deduction: Decimal
+    deduction_note: str | None
+    compensation: Decimal
+    paid_amount: Decimal
+    balance_due: Decimal
+    kpi_snapshot: dict[str, Any] | None
+    status: str
+    prepared_by: int
+    submitted_at: UtcDatetime | None
+    approved_by: int | None
+    approved_at: UtcDatetime | None
+    decision_note: str | None
+    row_version: int

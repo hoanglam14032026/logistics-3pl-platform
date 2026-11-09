@@ -587,3 +587,56 @@ class ProgressCompleted(_LearningEvent):
     completed: bool = True
     contract_id: int
     attendance: str
+
+
+# --- Giai đoạn 19: phụ lục, thanh lý, quyết toán --------------------------------------------------------------------
+
+
+class ContractAmended(EventData):
+    """EV-103 `ops.contract.amended` – phụ lục duyệt đủ 2 người, áp vào hợp đồng (giá trị sau phụ lục)."""
+
+    code: ClassVar[str] = "EV-103"
+    name: ClassVar[str] = "ops.contract.amended"
+
+    contract_id: int
+    amendment_id: int
+    amendment_no: str
+    contract_version: int
+    changed_groups: list[str]
+    service_scope: list[dict[str, Any]]
+    sla: dict[str, dict[str, Any]]
+    valid_to: date
+    effective_from: date
+
+
+class ContractLiquidationStarted(EventData):
+    """EV-104 `ops.contract.liquidation_started` – Luồng 1 → 2. Thêm `termination_id` (chấm dứt trước hạn)."""
+
+    code: ClassVar[str] = "EV-104"
+    name: ClassVar[str] = "ops.contract.liquidation_started"
+    consumers: ClassVar[tuple[str, ...]] = ("control",)
+
+    contract_id: int
+    reason: str  # expired | completed | terminated
+    termination_id: int | None = None
+
+
+class SettlementApproved(EventData):
+    """Quyết toán `final` được duyệt (Giai đoạn 19) – Luồng 4 lưu dữ kiện. 01 §5 chưa có mã (CẦN XÁC NHẬN)."""
+
+    code: ClassVar[str] = "ops.settlement.approved"
+    name: ClassVar[str] = "ops.settlement.approved"
+
+    settlement_id: int
+    settlement_no: str
+    contract_id: int
+    currency: str
+    invoice_count: int
+    invoice_total: Decimal
+    sla_deduction: Decimal
+    compensation: Decimal
+    paid_amount: Decimal
+    balance_due: Decimal
+    period_from: date
+    period_to: date
+    approved_by: int

@@ -38,3 +38,6 @@ consumer.handler(CONSUMER, "EV-302")(facts.on_enrollment)
 for _code in ("lrn.session.scheduled", "lrn.session.cancelled"):
     consumer.handler(CONSUMER, _code)(facts.on_training_session)
 consumer.handler(CONSUMER, "EV-303")(facts.on_progress)
+# Giai đoạn 19
+consumer.handler(CONSUMER, "EV-103")(facts.on_contract_amended)
+consumer.handler(CONSUMER, "ops.settlement.approved")(facts.on_settlement_approved)

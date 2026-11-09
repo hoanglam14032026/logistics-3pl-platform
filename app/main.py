@@ -29,6 +29,7 @@ from app.flows.learning.router import router as learning_router
 from app.flows.operations import document_service as ops_document_service
 from app.flows.operations import service as ops_service
 from app.flows.operations.checkpoint_router import router as ops_checkpoints_router
+from app.flows.operations.contract_lifecycle_router import router as ops_contract_lifecycle_router
 from app.flows.operations.document_router import router as ops_documents_router
 from app.flows.operations.invoice_router import router as ops_invoices_router
 from app.flows.operations.portal.documents_router import router as portal_documents_router
@@ -156,6 +157,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ops_service.register_guards()
     if "ops" in settings.enabled_flows:
         app.include_router(ops_contracts_router)
+        app.include_router(ops_contract_lifecycle_router)  # Giai đoạn 19: phụ lục, chấm dứt, quyết toán
         app.include_router(ops_shipments_router)
         app.include_router(ops_tasks_router)  # Giai đoạn 13
         app.include_router(ops_documents_router)  # Giai đoạn 16: chứng từ + BR-103

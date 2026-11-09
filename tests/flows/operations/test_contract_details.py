@@ -183,11 +183,21 @@ def test_version_one_snapshot_on_activation(client, h, party):
     assert versions[0]["effective_from"] == c["valid_from"]
 
 
+def _apply_amendment(client, h, contract_id, body) -> dict:
+    """Giai đoạn 19: phiên bản mới chỉ từ phụ lục duyệt đủ 2 người (ops_staff lập, manager duyệt 1, bm duyệt 2)."""
+    r = client.post(f"{URL}/{contract_id}/amendments", json=body, headers=h["ops_staff"])
+    assert r.status_code == 201, r.text
+    aid = r.json()["id"]
+    assert client.post(f"{URL}/amendments/{aid}:approve", headers=h["manager"]).status_code == 200
+    r = client.post(f"{URL}/amendments/{aid}:approve", headers=h["business_manager"])
+    assert r.status_code == 200 and r.json()["status"] == "effective", r.text
+    return r.json()
+
+
 def test_new_version(client, h, party):
     c = _active(client, h, party.id)
     url = f"{URL}/{c['id']}"
     body = {
-        "amendment_ref": "PL-01",
         "reason": "Gia hạn và bổ sung vận chuyển nội địa",
         "effective_from": str(TODAY + timedelta(days=1)),
         "attachment_id": _amendment(c["id"]),
@@ -195,10 +205,8 @@ def test_new_version(client, h, party):
         "service_scopes": [DEFAULT_SCOPE, SCOPE2],
         "rates": [{**DEFAULT_RATE, "unit_price": "1600000"}, RATE2],
     }
-    _error(client.post(f"{url}/versions", json=body, headers=h["ops_staff"]), 403, "FORBIDDEN")
-    r = client.post(f"{url}/versions", json=body, headers={**h["manager"], "If-Match": f'"{c["row_version"]}"'})
-    assert r.status_code == 201, r.text
-    assert r.headers["Location"] == f"{url}/versions/2" and r.json()["contract_version"] == 2
+    a = _apply_amendment(client, h, c["id"], body)
+    assert (a["amendment_no"], a["applied_version"]) == ("PL-01", 2)
 
     detail = client.get(url, headers=h["manager"]).json()
     assert (detail["contract_version"], detail["valid_to"]) == (2, body["valid_to"])
@@ -207,6 +215,7 @@ def test_new_version(client, h, party):
     # Phiên bản 1 giữ nguyên
     v1 = client.get(f"{url}/versions/1", headers=h["manager"]).json()
     assert {x["rate_code"]: x["unit_price"] for x in v1["snapshot"]["rates"]} == {"TK-01": "1500000.00"}
+    assert client.get(f"{url}/versions/2", headers=h["manager"]).json()["amendment_ref"] == "PL-01"
     _error(client.get(f"{url}/versions/9", headers=h["manager"]), 404, "NOT_FOUND")
     with SessionLocal() as db:
         log = db.scalar(select(SysAuditLog).where(SysAuditLog.action == "contract.new_version"))
@@ -216,13 +225,14 @@ def test_new_version(client, h, party):
         "PL-01",
     )
     assert log.before["valid_to"] == c["valid_to"]
+    # Không còn áp phiên bản trực tiếp
+    assert client.post(f"{url}/versions", json=body, headers=h["manager"]).status_code == 405
 
 
 def test_new_version_rules(client, h, party, make_party, make_contract):
     c = _active(client, h, party.id)
-    url = f"{URL}/{c['id']}/versions"
+    url = f"{URL}/{c['id']}/amendments"
     base = {
-        "amendment_ref": "PL-01",
         "reason": "Điều chỉnh giá",
         "effective_from": str(TODAY),
         "rates": [{**DEFAULT_RATE, "unit_price": "1"}],
@@ -233,64 +243,76 @@ def test_new_version_rules(client, h, party, make_party, make_contract):
         _error(client.post(url, json={**base, "attachment_id": att}, headers=h["manager"]), 422, "VALIDATION_ERROR")
     amend = _amendment(c["id"])
     _error(
-        client.post(
-            url,
-            json={**base, "attachment_id": amend, "effective_from": str(TODAY - timedelta(days=30))},
-            headers=h["manager"],
-        ),
+        client.post(url, json={**base, "effective_from": str(TODAY - timedelta(days=30))}, headers=h["manager"]),
         422,
         "VALIDATION_ERROR",
     )  # trước ngày hiệu lực phiên bản 1
     _error(
-        client.post(
-            url, json={k: v for k, v in base.items() if k != "rates"} | {"attachment_id": amend}, headers=h["manager"]
-        ),
+        client.post(url, json={k: v for k, v in base.items() if k != "rates"}, headers=h["manager"]),
         422,
         "VALIDATION_ERROR",
     )  # không đổi gì
-    _error(
-        client.post(url, json={**base, "attachment_id": amend, "rates": [RATE2]}, headers=h["manager"]),
-        422,
-        "VALIDATION_ERROR",
-    )  # biểu giá ngoài phạm vi
-    assert client.post(url, json={**base, "attachment_id": amend}, headers=h["manager"]).status_code == 201
-    _error(
-        client.post(url, json={**base, "attachment_id": amend}, headers=h["manager"]), 422, "VALIDATION_ERROR"
-    )  # dùng lại
+    _error(client.post(url, json={**base, "rates": [RATE2]}, headers=h["manager"]), 422, "VALIDATION_ERROR")
+    _apply_amendment(client, h, c["id"], {**base, "attachment_id": amend})
+    _error(client.post(url, json={**base, "attachment_id": amend}, headers=h["manager"]), 422, "VALIDATION_ERROR")
+    assert client.get(f"{URL}/{c['id']}", headers=h["manager"]).json()["contract_version"] == 2  # thử không áp
 
 
 def test_no_version_for_draft(client, h, party):
     c = client.post(URL, json=_body(party.id), headers=h["manager"]).json()
-    body = {
-        "amendment_ref": "PL-01",
-        "reason": "Thử nháp",
-        "effective_from": str(TODAY),
-        "attachment_id": 1,
-        "valid_to": str(TODAY),
-    }
-    _error(client.post(f"{URL}/{c['id']}/versions", json=body, headers=h["manager"]), 409, "INVALID_STATE_TRANSITION")
+    body = {"reason": "Thử nháp", "effective_from": str(TODAY), "valid_to": str(TODAY)}
+    _error(client.post(f"{URL}/{c['id']}/amendments", json=body, headers=h["manager"]), 409, "INVALID_STATE_TRANSITION")
 
 
 # --- Thanh lý, đóng ------------------------------------------------------------------------------------------------
+
+
+def _terminate(client, h, contract_id) -> dict:
+    """Giai đoạn 19: chấm dứt trước hạn – manager đề xuất, business_manager duyệt → liquidating."""
+    r = client.post(
+        f"{URL}/{contract_id}/terminations",
+        json={"reason": "Khách hàng đề nghị chấm dứt hợp đồng", "effective_date": str(TODAY)},
+        headers=h["manager"],
+    )
+    assert r.status_code == 201, r.text
+    r = client.post(f"{URL}/terminations/{r.json()['id']}:approve", headers=h["business_manager"])
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _approved_settlement(client, h, contract_id) -> dict:
+    assert client.post(f"{URL}/{contract_id}/settlement", headers=h["manager"]).status_code == 201
+    assert client.post(f"{URL}/{contract_id}/settlement:submit", headers=h["manager"]).status_code == 200
+    r = client.post(f"{URL}/{contract_id}/settlement:approve", headers=h["business_manager"])
+    assert r.status_code == 200 and r.json()["status"] == "approved", r.text
+    return r.json()
 
 
 def test_liquidation_and_close(client, h, party):
     c = _active(client, h, party.id)
     url = f"{URL}/{c['id']}"
     _error(client.post(f"{url}:start-liquidation", json={}, headers=h["ops_staff"]), 403, "FORBIDDEN")
-    err = _error(client.post(f"{url}:start-liquidation", json={}, headers=h["manager"]), 422, "VALIDATION_ERROR")
-    assert err["details"][0]["field"] == "body.reason"  # còn hạn = thanh lý trước hạn → bắt buộc lý do
-    r = client.post(f"{url}:start-liquidation", json={"reason": "Khách hàng đề nghị chấm dứt"}, headers=h["manager"])
+    err = _error(
+        client.post(f"{url}:start-liquidation", json={"reason": "Trước hạn"}, headers=h["manager"]),
+        409,
+        "INVALID_STATE_TRANSITION",
+    )  # còn hạn: phải qua đề xuất chấm dứt được duyệt
+    assert "terminations" in err["message"]
+    _terminate(client, h, c["id"])
+    r = client.get(url, headers=h["manager"])
     assert r.json()["status"] == "liquidating" and r.json()["liquidation_started_at"].endswith("Z")
     _error(client.post(f"{url}:suspend", json={"reason": "Thử"}, headers=h["manager"]), 409, "INVALID_STATE_TRANSITION")
 
     _error(client.post(f"{url}:close", headers=h["ops_staff"]), 403, "FORBIDDEN")
     err = _error(client.post(f"{url}:close", headers=h["manager"]), 422, "VALIDATION_ERROR")
-    assert err["details"][0]["field"] == "body.attachments"
+    assert {d["field"] for d in err["details"]} == {"body.attachments", "body.settlement"}
     attach(c["id"], kind="liquidation_minutes")
+    err = _error(client.post(f"{url}:close", headers=h["manager"]), 422, "VALIDATION_ERROR")
+    assert [d["field"] for d in err["details"]] == ["body.settlement"]  # BR-110: cần quyết toán đã duyệt
+    _approved_settlement(client, h, c["id"])
     r = client.post(f"{url}:close", headers=h["manager"])
     assert r.status_code == 200 and r.json()["status"] == "closed" and r.json()["closed_at"].endswith("Z")
-    assert _actions(c["id"])[-3:] == ["contract.start_liquidation", "contract.attachment_add", "contract.close"]
+    assert _actions(c["id"])[-4:] == ["contract.terminate", "event.EV-104", "contract.attachment_add", "contract.close"]
 
 
 def test_expired_contract_liquidates_without_reason(client, h, party, make_contract):
@@ -319,8 +341,9 @@ def test_cannot_close_unless_liquidating(client, h, party):
 
 def _closed(client, h, party_id) -> dict:
     c = _active(client, h, party_id)
-    client.post(f"{URL}/{c['id']}:start-liquidation", json={"reason": "Hoàn thành phạm vi"}, headers=h["manager"])
+    _terminate(client, h, c["id"])
     attach(c["id"], kind="liquidation_minutes")
+    _approved_settlement(client, h, c["id"])
     assert client.post(f"{URL}/{c['id']}:close", headers=h["manager"]).status_code == 200
     return c
 
@@ -340,14 +363,8 @@ def test_closed_contract_is_read_only_via_api(client, h, party):
         409,
         "INVALID_STATE_TRANSITION",
     )
-    body = {
-        "amendment_ref": "PL-9",
-        "reason": "Sau khi đóng",
-        "effective_from": str(TODAY),
-        "attachment_id": 1,
-        "valid_to": str(TODAY),
-    }
-    _error(client.post(f"{url}/versions", json=body, headers=m), 409, "INVALID_STATE_TRANSITION")
+    body = {"reason": "Sau khi đóng", "effective_from": str(TODAY), "valid_to": str(TODAY)}
+    _error(client.post(f"{url}/amendments", json=body, headers=m), 409, "INVALID_STATE_TRANSITION")
     assert client.get(url, headers=h["business_manager"]).status_code == 200  # vẫn đọc được
 
 

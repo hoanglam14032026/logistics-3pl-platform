@@ -17,7 +17,7 @@ from app.core.pagination import Page, PageParams
 from app.core.rbac import Role, require_roles
 from app.core.versioning import etag, parse_if_match
 from app.flows.operations import service
-from app.flows.operations.models import AttachmentKind, ContractStatus, OpsContractVersion, OpsServiceContract
+from app.flows.operations.models import AttachmentKind, ContractStatus, OpsServiceContract
 from app.flows.operations.schemas import (
     AttachmentOut,
     ContractCreate,
@@ -26,7 +26,6 @@ from app.flows.operations.schemas import (
     ContractUpdate,
     LiquidationStart,
     StatusReason,
-    VersionCreate,
     VersionOut,
 )
 from app.shared.docai import linking as docai_linking
@@ -194,23 +193,8 @@ def get_version(
     raise AppError(ErrorCode.NOT_FOUND, 404, "Không tìm thấy phiên bản")
 
 
-@router.post(
-    "/{contract_id:int}/versions",
-    response_model=VersionOut,
-    status_code=status.HTTP_201_CREATED,
-    summary="Phiên bản mới từ phụ lục đã ký (manager)",
-)
-def create_version(
-    contract_id: int,
-    body: VersionCreate,
-    response: Response,
-    if_match: str | None = _IF_MATCH,
-    actor: SysUser = Depends(_manager),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
-) -> OpsContractVersion:
-    version = service.create_version(db, contract_id, body, actor.id, parse_if_match(if_match))
-    response.headers["Location"] = f"/api/v2/ops/service-contracts/{contract_id}/versions/{version.contract_version}"
-    return version
+# Giai đoạn 19: bỏ `POST /{id}/versions` (áp phiên bản trực tiếp) – phiên bản mới chỉ từ phụ lục duyệt đủ 2 người
+# (`POST /{id}/amendments` – contract_lifecycle_router.py).
 
 
 # --- File đính kèm ----------------------------------------------------------------------------------------------

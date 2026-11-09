@@ -517,7 +517,12 @@ def test_contract_close_requires_closed_shipments(client, world, make_party, mak
 
     s = _create(client, world)
     cid = world["contract_a"].id
-    with SessionLocal() as db:
+    with SessionLocal() as db:  # hợp đồng hết hạn (chấm dứt trước hạn phải qua duyệt – Giai đoạn 19)
+        db.execute(
+            text("UPDATE ops_service_contracts SET valid_to = :d WHERE id = :i"),
+            {"d": today_vn() - timedelta(days=1), "i": cid},
+        )
+        db.commit()
         ops_service.start_liquidation(db, cid, "Kết thúc hợp tác", actor_id=0, expected_version=None)
     attach(cid, kind=AttachmentKind.LIQUIDATION_MINUTES.value)
     _error(client.post(URL, json=_payload(world), headers=world["h"]["ops_staff"]), 422, "VALIDATION_ERROR")
@@ -528,6 +533,10 @@ def test_contract_close_requires_closed_shipments(client, world, make_party, mak
     )
     assert any(d["field"] == "body.shipments" for d in err["details"])
     _act(client, world, s["id"], "cancel", {"reason": "Hợp đồng thanh lý"})
+    url = f"/api/v2/ops/service-contracts/{cid}"
+    assert client.post(f"{url}/settlement", headers=world["h"]["manager"]).status_code == 201  # BR-110
+    client.post(f"{url}/settlement:submit", headers=world["h"]["manager"])
+    client.post(f"{url}/settlement:approve", headers=world["h"]["business_manager"])
     r = client.post(f"/api/v2/ops/service-contracts/{cid}:close", headers=world["h"]["manager"])
     assert r.status_code == 200 and r.json()["status"] == "closed"
 

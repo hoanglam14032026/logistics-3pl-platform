@@ -59,6 +59,12 @@ G12_TABLES = {"ctl_task_updates", "ctl_alerts"}
 G13_TABLES = {"ops_tasks", "ctl_alert_notifications"}
 G14_TABLES = {"asm_fact_contracts", "asm_fact_shipments", "asm_fact_tasks", "asm_fact_task_blocks", "asm_fact_alerts"}
 G17_TABLES = {"ops_document_requirements"}
+G19_TABLES = {
+    "ops_contract_amendments",
+    "ops_contract_terminations",
+    "ops_contract_settlements",
+    "asm_fact_settlements",
+}
 G18_TABLES = {
     "lrn_training_contracts",
     "lrn_contract_learners",
@@ -115,7 +121,7 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0019"
+    assert head_revision() == "0020"
 
 
 def test_upgrade_from_empty_creates_all_tables():
@@ -137,6 +143,7 @@ def test_upgrade_from_empty_creates_all_tables():
         | G16_TABLES
         | G17_TABLES
         | G18_TABLES
+        | G19_TABLES
     )
     assert _tables() == expected | {"alembic_version"}
 
@@ -294,7 +301,15 @@ def test_check_constraint_names_match_models():
             "ops_commercial_invoices",
             "ops_commercial_invoice_items",
             *sorted(
-                G11_TABLES | G12_TABLES | G13_TABLES | G14_TABLES | G15_TABLES | G16_TABLES | G17_TABLES | G18_TABLES
+                G11_TABLES
+                | G12_TABLES
+                | G13_TABLES
+                | G14_TABLES
+                | G15_TABLES
+                | G16_TABLES
+                | G17_TABLES
+                | G18_TABLES
+                | G19_TABLES
             ),
         ):
             in_db = {c["name"] for c in inspector.get_check_constraints(table)}
@@ -318,7 +333,17 @@ def test_0012_seeds_process_templates_and_downgrades_cleanly():
     assert rows == [("QT-NK-SEA-FCL", "approved", 10, 4), ("QT-VC-NOIDIA", "approved", 3, 1)]
     _alembic(command.downgrade, "0011")
     assert not (
-        (G11_TABLES | G12_TABLES | G13_TABLES | G14_TABLES | G15_TABLES | G16_TABLES | G17_TABLES | G18_TABLES)
+        (
+            G11_TABLES
+            | G12_TABLES
+            | G13_TABLES
+            | G14_TABLES
+            | G15_TABLES
+            | G16_TABLES
+            | G17_TABLES
+            | G18_TABLES
+            | G19_TABLES
+        )
         & _tables()
     )
     _alembic(command.upgrade, "head")
@@ -375,3 +400,12 @@ def test_0019_training_round_trip():
     assert not (G18_TABLES & _tables()) and G17_TABLES <= _tables()
     _alembic(command.upgrade, "head")
     assert G18_TABLES <= _tables()
+
+
+def test_0020_contract_lifecycle_round_trip():
+    reset_database()
+    upgrade_to_head(engine)
+    _alembic(command.downgrade, "0019")
+    assert not (G19_TABLES & _tables()) and G18_TABLES <= _tables()
+    _alembic(command.upgrade, "head")
+    assert G19_TABLES <= _tables()

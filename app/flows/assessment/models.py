@@ -503,3 +503,25 @@ class AsmSessionScore(Base):
     false_reports: Mapped[int | None] = mapped_column(Integer)
     graded_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
     graded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class AsmFactSettlement(Base):
+    """`ops.settlement.approved` (Giai đoạn 19) – quyết toán hợp đồng đã duyệt."""
+
+    __tablename__ = "asm_fact_settlements"
+
+    settlement_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    settlement_no: Mapped[str] = mapped_column(String(30), nullable=False)
+    contract_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    invoice_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    invoice_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    sla_deduction: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    compensation: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    paid_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    balance_due: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    period_from: Mapped[date] = mapped_column(Date, nullable=False)
+    period_to: Mapped[date] = mapped_column(Date, nullable=False)
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'production'"))
+    source_event_id: Mapped[Any] = mapped_column(Uuid, nullable=False)

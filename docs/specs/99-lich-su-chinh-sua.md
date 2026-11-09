@@ -422,3 +422,13 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | Migration `0019` (9 bảng, trigger không xóa) | `07` §6 điểm 3 |
 | – | 7 test mới (quyền, kiểm tra dữ liệu, hiển thị theo vai trò, buổi học + điểm danh + sự kiện, chấm điểm + cổng + KPI qua chuỗi sự kiện thật, vòng đời hợp đồng, tắt luồng); `test_migrations` head `0019` | `07` §5 |
 
+### 10.34. Mã nguồn – Giai đoạn 19: quyết toán BR-110, chấm dứt trước hạn, phụ lục duyệt 2 người (10/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `:close` chỉ cần biên bản thanh lý + lô đóng | Quyết toán `final` (hóa đơn đã ghi + KPI qua `assessment.public`), manager lập, business_manager duyệt, sự kiện cho Luồng 4; `:close` cần quyết toán đã duyệt | Yêu cầu Giai đoạn 19 (mục 1); BR-110 |
+| `:start-liquidation` cho chấm dứt trước hạn chỉ cần lý do | Đề xuất chấm dứt (manager) → business_manager duyệt / từ chối; lô chưa bắt đầu tự hủy, lô đang làm phải hoàn tất; EV-104 | Yêu cầu Giai đoạn 19 (mục 2); `02` §3.9.2 |
+| `POST …/versions` áp phiên bản ngay (manager) | Phụ lục duyệt 2 người khác nhau → phiên bản mới, bản cũ giữ; EV-103; bỏ áp trực tiếp | Yêu cầu Giai đoạn 19 (mục 3); `02` §3.7 |
+| – | Migration `0020` (4 bảng, CHECK 4 mắt / công thức số dư, trigger không xóa) | `07` §6 điểm 3 |
+| – | 5 test mới; viết lại test phiên bản / thanh lý / đóng theo quy trình mới; `test_migrations` head `0020` | `07` §5 |
+

@@ -738,3 +738,146 @@ class OpsCheckpointEvaluation(Base):
     evaluated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
     )
+
+
+# --- Giai đoạn 19: phụ lục (duyệt 2 người), chấm dứt trước hạn, quyết toán BR-110 ---------------------------------
+
+
+class AmendmentStatus(StrEnum):
+    PENDING_APPROVAL = "pending_approval"  # chờ người duyệt thứ nhất
+    PENDING_SECOND_APPROVAL = "pending_second_approval"
+    EFFECTIVE = "effective"  # duyệt đủ 2 người – đã áp vào hợp đồng (phiên bản mới)
+    REJECTED = "rejected"
+    WITHDRAWN = "withdrawn"
+
+
+OPEN_AMENDMENT_STATUSES = (AmendmentStatus.PENDING_APPROVAL.value, AmendmentStatus.PENDING_SECOND_APPROVAL.value)
+
+
+class OpsContractAmendment(AuditColumnsMixin, Base):
+    """Phụ lục hợp đồng (02 §3.7, rút gọn): thay đổi phạm vi / SLA / biểu giá / thời hạn / điều khoản. Duyệt 2 người
+    như hợp đồng gốc (Giai đoạn 10): người thứ 2 khác người lập và khác người duyệt đầu. Duyệt đủ → `effective`:
+    `contract_version + 1`, bản chụp phiên bản mới (bản cũ giữ nguyên), EV-103."""
+
+    __tablename__ = "ops_contract_amendments"
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(AmendmentStatus)})", name="status_valid"),
+        CheckConstraint(
+            "second_approved_by IS NULL "
+            "OR (second_approved_by <> first_approved_by AND second_approved_by <> created_by)",
+            name="four_eyes",
+        ),
+        CheckConstraint(
+            "status <> 'effective' OR (second_approved_by IS NOT NULL AND applied_version IS NOT NULL)",
+            name="effective_has_two_approvals",
+        ),
+        UniqueConstraint("contract_id", "amendment_no", name="uq_ops_contract_amendments_no"),
+        Index("ix_ops_contract_amendments_contract_status", "contract_id", "status"),
+    )
+
+    contract_id: Mapped[int] = _contract_fk()
+    amendment_no: Mapped[str] = mapped_column(String(10), nullable=False)  # PL-01, PL-02…
+    base_contract_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    changes: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    effective_from: Mapped[date] = mapped_column(Date, nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    attachment_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ops_contract_attachments.id"))
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending_approval")
+    first_approved_by: Mapped[int | None] = mapped_column(BigInteger)
+    first_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    second_approved_by: Mapped[int | None] = mapped_column(BigInteger)
+    second_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(String(500))
+    applied_version: Mapped[int | None] = mapped_column(Integer)
+
+
+class TerminationStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class OpsContractTermination(Base):
+    """Đề xuất chấm dứt trước hạn (02 §3.9.2 – phê duyệt `CONTRACT_TERMINATION`): `manager` đề xuất kèm lý do,
+    `business_manager` duyệt / từ chối. Duyệt → lô chưa bắt đầu thực hiện bị hủy, lô đang thực hiện / đã giao phải
+    hoàn tất trước khi đóng (BR-110); hợp đồng → `liquidating`."""
+
+    __tablename__ = "ops_contract_terminations"
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(TerminationStatus)})", name="status_valid"),
+        CheckConstraint("decided_by IS NULL OR decided_by <> requested_by", name="decider_not_requester"),
+        CheckConstraint("status = 'pending' OR (decided_by IS NOT NULL AND decided_at IS NOT NULL)", name="decided"),
+        Index(
+            "uq_ops_contract_terminations_pending",
+            "contract_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    contract_id: Mapped[int] = _contract_fk()
+    reason: Mapped[str] = mapped_column(String(1000), nullable=False)
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    requested_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+    decided_by: Mapped[int | None] = mapped_column(BigInteger)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(String(500))
+    cancelled_shipment_ids: Mapped[list[int] | None] = mapped_column(JSONB)
+    open_shipment_ids: Mapped[list[int] | None] = mapped_column(JSONB)  # còn phải hoàn tất trước khi đóng
+
+
+class SettlementStatus(StrEnum):
+    DRAFT = "draft"
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class OpsContractSettlement(AuditColumnsMixin, Base):
+    """Quyết toán hợp đồng `final` (02 §3.9, rút gọn – Giai đoạn 19): tổng hợp hóa đơn thương mại của hợp đồng (đồng
+    tiền quyết toán; đồng tiền khác liệt kê riêng, không quy đổi) + bản chụp KPI / mục tiêu từ Luồng 4
+    (`assessment.public` – BR-05); giảm trừ SLA, bồi thường, đã thanh toán nhập tay. `manager` lập, `business_manager`
+    duyệt / trả lại. Điều kiện lập (BR-110): hợp đồng hết hạn / đang thanh lý, mọi lô đóng / hủy, không còn phụ lục,
+    đề xuất chấm dứt đang xử lý. Hợp đồng chỉ đóng khi quyết toán đã duyệt."""
+
+    __tablename__ = "ops_contract_settlements"
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(SettlementStatus)})", name="status_valid"),
+        CheckConstraint("currency ~ '^[A-Z]{3}$'", name="currency_iso"),
+        CheckConstraint(
+            "invoice_total >= 0 AND sla_deduction >= 0 AND compensation >= 0 AND paid_amount >= 0", name="amounts_valid"
+        ),
+        CheckConstraint(
+            "balance_due = invoice_total - sla_deduction - compensation - paid_amount", name="balance_formula"
+        ),
+        CheckConstraint("sla_deduction = 0 OR deduction_note IS NOT NULL", name="deduction_has_note"),
+        CheckConstraint("approved_by IS NULL OR approved_by <> prepared_by", name="approver_not_preparer"),
+        UniqueConstraint("contract_id", "settlement_type", name="uq_ops_contract_settlements_type"),
+    )
+
+    settlement_no: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)  # QT-yyyy-nnnn
+    contract_id: Mapped[int] = _contract_fk()
+    settlement_type: Mapped[str] = mapped_column(String(16), nullable=False, default="final", server_default="final")
+    period_from: Mapped[date] = mapped_column(Date, nullable=False)
+    period_to: Mapped[date] = mapped_column(Date, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    invoice_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    invoice_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    other_currency_totals: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    sla_deduction: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=0, server_default="0")
+    deduction_note: Mapped[str | None] = mapped_column(String(1000))
+    compensation: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=0, server_default="0")
+    paid_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=0, server_default="0")
+    balance_due: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    kpi_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)  # null: Luồng 4 tắt (N6) – D nhập tay
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", server_default="draft")
+    prepared_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[int | None] = mapped_column(BigInteger)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(String(500))

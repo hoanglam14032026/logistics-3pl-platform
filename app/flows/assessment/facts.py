@@ -539,3 +539,50 @@ def on_progress(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
         .on_conflict_do_update(index_elements=["session_id", "learner_id"], set_=values)
     )
     return {"session_id": d["resource_id"], "learner_id": d["learner_id"], "completed": values["completed"]}
+
+
+# --- Giai đoạn 19: phụ lục, quyết toán ----------------------------------------------------------------------------
+
+
+def on_contract_amended(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    """EV-103 – SLA, thời hạn sau phụ lục (mục tiêu KPI chính thức vẫn từ EV-201)."""
+    d = envelope["data"]
+    row = db.get(AsmFactContract, d["contract_id"], with_for_update=True)
+    if row is None:
+        return {"applied": False, "reason": "contract_not_found"}
+    row.sla, row.valid_to = d.get("sla") or {}, d["valid_to"]
+    _touch(row, envelope)
+    return {"contract_id": row.contract_id, "contract_version": d["contract_version"]}
+
+
+def on_settlement_approved(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    from app.flows.assessment.models import AsmFactSettlement
+
+    d = envelope["data"]
+    values = {
+        k: d[k]
+        for k in (
+            "settlement_no",
+            "contract_id",
+            "currency",
+            "invoice_count",
+            "invoice_total",
+            "sla_deduction",
+            "compensation",
+            "paid_amount",
+            "balance_due",
+            "period_from",
+            "period_to",
+        )
+    }
+    values |= {
+        "approved_at": _dt(envelope["occurred_at"]),
+        "mode": envelope.get("mode") or "production",
+        "source_event_id": envelope["event_id"],
+    }
+    db.execute(
+        insert(AsmFactSettlement)
+        .values(settlement_id=d["settlement_id"], **values)
+        .on_conflict_do_update(index_elements=["settlement_id"], set_=values)
+    )
+    return {"settlement_id": d["settlement_id"], "balance_due": d["balance_due"]}

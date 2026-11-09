@@ -50,7 +50,7 @@ python -m app.worker                                     # worker: email, OCR + 
 python -m app.shared.events.cli dispatch [--failed]      # xếp gửi lại sự kiện còn chờ trong outbox
 python -m app.shared.events.cli replay control           # Luồng 2 xử lý lại sự kiện từ outbox (idempotent, không cần Redis)
 python -m app.shared.identity.cli create-admin --username admin --full-name "Quản trị"   # admin đầu tiên
-pytest                                                   # 846 test: 625 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 220 đơn vị + 1 model thật (bỏ qua mặc định)
+pytest                                                   # 852 test: 631 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 220 đơn vị + 1 model thật (bỏ qua mặc định)
 ruff check . && ruff format --check .
 ```
 
@@ -125,6 +125,8 @@ curl -X POST http://127.0.0.1:8000/api/v2/admin/ai-models/2:probe -H "Authorizat
 **Cổng gửi chứng từ, địa điểm lô, quy tắc (Giai đoạn 17):** tạo lô cần `origin_location_id`, `destination_location_id` (địa điểm đang hoạt động trong `/api/v2/md/locations`). Khách hàng gửi chứng từ `POST /api/v2/portal/shipments/{id}/documents`; chứng từ mới khi lô đã `docs_verified` đưa lô về `docs_collecting`. Chứng từ bắt buộc theo loại hình vận chuyển: `GET|POST /api/v2/ops/document-requirements` – thiếu thì lần kiểm tra tự ghi "thiếu".
 
 **Đào tạo (Giai đoạn 18):** `admin` / `manager` tạo hợp đồng đào tạo `POST /api/v2/learning/training-contracts` (khách hàng, người hướng dẫn, người học, lịch học, học phí), thêm buổi `…/{id}/sessions`, `:activate`. Người hướng dẫn điểm danh + ghi hoàn thành `PUT /api/v2/learning/sessions/{id}/attendance`, chấm điểm `PUT /api/v2/assessment/sessions/{id}/scores`. Người học xem `GET /api/v2/portal/learning/sessions`, `/api/v2/portal/learning/scores`; khách hàng xem `GET /api/v2/portal/training-contracts`. KPI-11/12/13: `GET /api/v2/assessment/kpi/learners`.
+
+**Phụ lục, chấm dứt, quyết toán (Giai đoạn 19):** phụ lục `POST /api/v2/ops/service-contracts/{id}/amendments` → hai người khác nhau `POST …/amendments/{aid}:approve` (manager / business_manager) mới có hiệu lực (phiên bản mới; không còn `POST …/versions`). Chấm dứt trước hạn: manager `POST …/{id}/terminations`, business_manager `:approve` (hủy lô chưa bắt đầu, hợp đồng → thanh lý). Quyết toán khi hết hạn / thanh lý và mọi lô đã đóng: manager `POST …/{id}/settlement`, `:submit`; business_manager `:approve`; sau đó mới `:close` hợp đồng.
 
 Test với model thật (bỏ qua mặc định): `DOCAI_LIVE_OLLAMA=1 pytest tests/shared/docai/test_live_ollama.py`.
 
