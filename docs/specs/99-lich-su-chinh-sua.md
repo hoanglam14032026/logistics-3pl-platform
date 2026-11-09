@@ -378,3 +378,14 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | `GET /api/v2/assessment/kpi?from=&to=` + `/kpi/contracts[/{id}]`, `/kpi/shipments[/{id}]`, `/kpi/staff[/{user_id}]` – `manager`, `business_manager`, `admin` | Yêu cầu Giai đoạn 14 (mục 3) |
 | – | Migration `0015`: `asm_fact_contracts`, `asm_fact_shipments`, `asm_fact_tasks`, `asm_fact_task_blocks`, `asm_fact_alerts` | `07` §6 điểm 3 |
 | – | 10 test mới: sự kiện dựng tay (số liệu toàn bộ / hợp đồng + SLA / lô / nhân viên, biên kỳ giờ VN, mẫu số 0 → null, khử trùng chặn, sự kiện cũ / lệch thứ tự, training không tính, gửi lặp), phân quyền + kiểm tham số, tắt Luồng 4 → không có API, chuỗi thật qua Redis Stream + replay; `test_migrations` head `0015` + vòng downgrade/upgrade | `07` §5 |
+
+### 10.30. Mã nguồn – Giai đoạn 15: Luồng 4 – KPI-01…14, mục tiêu từ EV-201, tính định kỳ, cảnh báo EV-403 (09/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Kế hoạch chỉ ở `draft`; không có EV-201; SLA so trực tiếp từ EV-101 | Luồng 2: sửa mục tiêu KPI, gửi duyệt, `business_manager` duyệt / trả lại, sửa sau duyệt (phiên bản); duyệt → EV-201. Luồng 4: `asm_kpi_targets`, danh mục `asm_kpi_definitions` không chứa mục tiêu | Yêu cầu Giai đoạn 15 (mục 1) – mục tiêu không đặt cứng trong mã |
+| Chỉ KPI-03, KPI-07 | `formulas.py`: KPI-01…10, 14 trên `production`; KPI-11/12/13 chỉ `training` (`applicable = false`); dữ kiện mới cho EV-113/114/121/122/141/204/205/206 | Yêu cầu Giai đoạn 15 (mục 2); `05` §3 |
+| KPI chỉ tính khi gọi API | Worker tính hằng ngày (rq, `ASSESSMENT_KPI_CALC_HOUR`) kỳ tuần / tháng / quý → `asm_fact_kpi_measurements` (chỉ thêm), `asm_calc_runs`; `POST /kpi/calc-runs` | Yêu cầu Giai đoạn 15 (mục 3); `05` BR-407 |
+| Không có cảnh báo KPI | Kém mục tiêu → `warning`, kém ngưỡng → `critical`; một lần mỗi (KPI, hợp đồng, kỳ); EV-403 + nhật ký `kpi.alert`; Luồng 2 → cảnh báo `kpi_below_target` cho manager + business_manager (email / Zalo) | Yêu cầu Giai đoạn 15 (mục 4) |
+| – | Migration `0016`: 10 bảng `asm_*`, cột KPI-02 của `asm_fact_shipments`, seed danh mục, trigger chỉ thêm; `ctl_alerts.shipment_id` null được + `contract_id`, loại `kpi_below_target`, mục đích thông báo `kpi` | `07` §6 điểm 3 |
+| – | 9 test mới (KPI-01…14 toàn bộ / hợp đồng / nhân viên / lô, danh mục không có mục tiêu, mục tiêu hiện hành từ EV-201, tính định kỳ + cảnh báo + chạy lại không lặp + chỉ thêm + chuỗi EV-403 → Luồng 2 → email, EV-403 trùng / training, tính lỗi, lịch hằng ngày, quyền API, duyệt kế hoạch qua Redis); `test_migrations` head `0016` + vòng 0016 | `07` §5 |

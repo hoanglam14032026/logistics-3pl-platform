@@ -11,7 +11,7 @@ Tham số kỳ `from`, `to` (ngày, giờ Việt Nam, gồm cả hai đầu; m�
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,13 +20,27 @@ from app.core.errors import AppError, ErrorCode
 from app.core.pagination import PageParams
 from app.core.rbac import Role, require_roles
 from app.core.timeutil import now_utc
-from app.flows.assessment import kpi
-from app.flows.assessment.models import AsmFactContract, AsmFactShipment, AsmFactTask
+from app.flows.assessment import calc, formulas, kpi
+from app.flows.assessment.models import (
+    AsmCalcRun,
+    AsmFactContract,
+    AsmFactKpiMeasurement,
+    AsmFactShipment,
+    AsmFactTask,
+    AsmKpiAlert,
+    AsmKpiTarget,
+)
 from app.flows.assessment.schemas import (
+    CalcRunIn,
+    CalcRunOut,
     ContractKpiDetail,
     ContractKpiList,
     ContractKpiOut,
+    KpiAlertOut,
+    KpiDefinitionOut,
     KpiSummaryOut,
+    KpiTargetOut,
+    MeasurementOut,
     ShipmentKpiDetail,
     ShipmentKpiList,
     ShipmentKpiOut,
@@ -39,6 +53,7 @@ from app.shared.identity.models import SysUser
 router = APIRouter(prefix="/api/v2/assessment", tags=["Assessment – KPI"])
 
 _viewer = require_roles(Role.MANAGER, Role.BUSINESS_MANAGER, Role.ADMIN)
+_admin = require_roles(Role.ADMIN)
 
 
 def _period(
@@ -68,8 +83,9 @@ def summary(
 # --- Theo hợp đồng ----------------------------------------------------------------------------------------------
 
 
-def _contract_out(c: AsmFactContract | None, contract_id: int, m: dict[str, Any]) -> dict[str, Any]:
+def _contract_out(db: Session, c: AsmFactContract | None, contract_id: int, m: dict[str, Any]) -> dict[str, Any]:
     return {
+        "targets": kpi.targets_for(db, contract_id, m),
         "contract_id": contract_id,
         "contract_no": c.contract_no if c else None,
         "customer_id": c.customer_id if c else None,
@@ -86,12 +102,10 @@ def by_contract(
     _: SysUser = Depends(_viewer),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
-    data = kpi.metrics(db, p, "contract")
+    valid = {c.contract_id for c in kpi.contracts_in_scope(db, p, set())}
+    data = kpi.metrics(db, p, "contract", extra_keys=valid)
     contracts = {c.contract_id: c for c in kpi.contracts_in_scope(db, p, set(data))}
-    items = [
-        ContractKpiOut(**_contract_out(contracts.get(cid), cid, data.get(cid) or kpi.empty("contract")))
-        for cid in sorted(set(data) | set(contracts))
-    ]
+    items = [ContractKpiOut(**_contract_out(db, contracts.get(cid), cid, data[cid])) for cid in sorted(data)]
     return {**_head(p), "items": items, "total": len(items)}
 
 
@@ -105,7 +119,8 @@ def contract_detail(
     c = db.get(AsmFactContract, contract_id)
     if c is None or c.mode != kpi.MODE:
         raise _not_found("hợp đồng")
-    return {**_head(p), **_contract_out(c, contract_id, kpi.metrics(db, p, "contract", contract_id)[contract_id])}
+    m = kpi.metrics(db, p, "contract", contract_id)[contract_id]
+    return {**_head(p), **_contract_out(db, c, contract_id, m)}
 
 
 # --- Theo lô ----------------------------------------------------------------------------------------------------
@@ -136,7 +151,6 @@ def by_shipment(
     _: SysUser = Depends(_viewer),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
-    data = kpi.metrics(db, p, "shipment")
     created = set(
         db.scalars(
             select(AsmFactShipment.shipment_id).where(
@@ -146,11 +160,12 @@ def by_shipment(
             )
         )
     )
-    info = kpi.shipments_info(db, set(data) | created)
+    data = kpi.metrics(db, p, "shipment", extra_keys=created)
+    info = kpi.shipments_info(db, set(data))
     ids = sorted(
         (
             sid
-            for sid in set(data) | created
+            for sid in data
             if (sid in info and info[sid].mode == kpi.MODE)
             and (contract_id is None or info[sid].contract_id == contract_id)
         ),
@@ -158,8 +173,7 @@ def by_shipment(
     )
     start = (page.page - 1) * page.page_size
     items = [
-        ShipmentKpiOut(**_shipment_out(info.get(sid), sid, data.get(sid) or kpi.empty("shipment")))
-        for sid in ids[start : start + page.page_size]
+        ShipmentKpiOut(**_shipment_out(info.get(sid), sid, data[sid])) for sid in ids[start : start + page.page_size]
     ]
     return {**_head(p), "items": items, "total": len(ids), "page": page.page, "page_size": page.page_size}
 
@@ -215,9 +229,99 @@ def staff_detail(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     user = db.get(SysUser, user_id)
+    m = kpi.metrics(db, p, "staff", user_id)[user_id]
     known = db.scalar(
         select(AsmFactTask.task_id).where((AsmFactTask.assignee_id == user_id) | (AsmFactTask.performer_id == user_id))
     )
-    if user is None and known is None:
+    if user is None and known is None and not any(k["denominator"] for k in m["kpis"].values()):
         raise _not_found("nhân viên")
-    return {**_head(p), **_staff_out(user, user_id, kpi.metrics(db, p, "staff", user_id)[user_id])}
+    return {**_head(p), **_staff_out(user, user_id, m)}
+
+
+# --- Giai đoạn 15: danh mục, mục tiêu, số đo định kỳ, lần tính, cảnh báo KPI ----------------------------------------
+
+
+@router.get("/kpi/definitions", response_model=list[KpiDefinitionOut], summary="Danh mục KPI-01…14")
+def list_definitions(_: SysUser = Depends(_viewer), db: Session = Depends(get_db)):  # noqa: B008
+    return formulas.definitions(db)
+
+
+@router.get("/kpi/targets", response_model=list[KpiTargetOut], summary="Mục tiêu KPI theo hợp đồng (từ EV-201)")
+def list_targets(
+    contract_id: int | None = Query(None, gt=0),
+    _: SysUser = Depends(_viewer),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    t = AsmKpiTarget
+    stmt = select(t).where(t.mode == kpi.MODE).order_by(t.subject_id, t.kpi_code, t.valid_from.desc(), t.id.desc())
+    if contract_id is not None:
+        stmt = stmt.where(t.subject_id == contract_id)
+    current = {r.id for r in kpi.current_targets(db, {contract_id} if contract_id else None).values()}
+    return [KpiTargetOut.model_validate(r).model_copy(update={"current": r.id in current}) for r in db.scalars(stmt)]
+
+
+@router.get(
+    "/kpi/measurements",
+    response_model=list[MeasurementOut],
+    summary="Số đo KPI đã lưu (tính định kỳ) – mặc định chỉ lần tính mới nhất của mỗi kỳ",
+)
+def list_measurements(
+    kpi_code: str | None = Query(None, max_length=16),
+    subject_type: str | None = Query(None, pattern=r"^(all|contract|staff)$"),
+    subject_id: int | None = Query(None, ge=0),
+    period_type: str | None = Query(None, pattern=r"^(week|month|quarter)$"),
+    p: kpi.Period = Depends(_period),  # noqa: B008
+    history: bool = Query(False, description="true: mọi lần tính (kể cả bản cũ)"),
+    _: SysUser = Depends(_viewer),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    m = AsmFactKpiMeasurement
+    stmt = select(m).where(m.mode == kpi.MODE, m.period_end >= p.date_from, m.period_end <= p.date_to)
+    for col, value in ((m.kpi_code, kpi_code), (m.subject_type, subject_type), (m.subject_id, subject_id)):
+        if value is not None:
+            stmt = stmt.where(col == value)
+    if period_type:
+        stmt = stmt.where(m.period_type == period_type)
+    keys = (m.kpi_code, m.subject_type, m.subject_id, m.period_type, m.period_start, m.period_end)
+    if not history:
+        stmt = stmt.distinct(*keys).order_by(*keys, m.calc_run_id.desc())
+    else:
+        stmt = stmt.order_by(*keys, m.calc_run_id.desc())
+    return db.scalars(stmt.limit(5000)).all()
+
+
+@router.get("/kpi/calc-runs", response_model=list[CalcRunOut], summary="Các lần tính KPI")
+def list_calc_runs(_: SysUser = Depends(_viewer), db: Session = Depends(get_db)):  # noqa: B008
+    return db.scalars(select(AsmCalcRun).order_by(AsmCalcRun.id.desc()).limit(100)).all()
+
+
+@router.post(
+    "/kpi/calc-runs",
+    response_model=CalcRunOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Tính KPI ngay (admin) – lưu số đo, cảnh báo EV-403 như lần tính hằng ngày",
+)
+def create_calc_run(body: CalcRunIn | None = None, actor: SysUser = Depends(_admin)):  # noqa: B008
+    as_of = body.as_of if body else None
+    if as_of is not None and as_of > kpi.today_vn():
+        raise AppError(
+            ErrorCode.VALIDATION_ERROR,
+            422,
+            details=[{"field": "body.as_of", "issue": "in_future", "message": "as_of không được sau hôm nay"}],
+        )
+    try:
+        return calc.run_calc("manual", as_of, actor.id)
+    except RuntimeError as exc:
+        raise AppError(ErrorCode.INTERNAL_ERROR, 500, "Tính KPI lỗi – xem nhật ký") from exc
+
+
+@router.get("/kpi/alerts", response_model=list[KpiAlertOut], summary="Cảnh báo KPI đã phát (EV-403)")
+def list_kpi_alerts(
+    contract_id: int | None = Query(None, gt=0),
+    _: SysUser = Depends(_viewer),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    stmt = select(AsmKpiAlert).order_by(AsmKpiAlert.id.desc()).limit(500)
+    if contract_id is not None:
+        stmt = stmt.where(AsmKpiAlert.subject_type == "contract", AsmKpiAlert.subject_id == contract_id)
+    return db.scalars(stmt).all()

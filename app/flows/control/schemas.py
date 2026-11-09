@@ -272,7 +272,8 @@ class AlertOut(BaseModel):
     id: int
     alert_type: str
     severity: str
-    shipment_id: int
+    shipment_id: int | None
+    contract_id: int | None = None
     task_id: int | None
     plan_id: int | None
     recipient_id: int | None
@@ -293,3 +294,36 @@ class ResolveIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     note: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
+
+
+# --- Giai đoạn 15: mục tiêu KPI + duyệt kế hoạch (EV-201) ------------------------------------------------------------
+
+
+class KpiTargetIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kpi_code: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Z][A-Z0-9_-]{1,39}$")]
+    target_value: Decimal = Field(max_digits=18, decimal_places=3)
+    warning_threshold: Decimal | None = Field(None, max_digits=18, decimal_places=3)
+    unit: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)] | None = None
+    description: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+
+
+class KpiTargetsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kpi_targets: list[KpiTargetIn] = Field(max_length=50)
+
+    @field_validator("kpi_targets")
+    @classmethod
+    def _unique(cls, items: list[KpiTargetIn]) -> list[KpiTargetIn]:
+        codes = [i.kpi_code for i in items]
+        if len(codes) != len(set(codes)):
+            raise ValueError("kpi_code bị trùng")
+        return items
+
+
+class RejectIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]

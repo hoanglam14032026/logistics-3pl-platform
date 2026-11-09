@@ -22,10 +22,16 @@ from sqlalchemy.orm import Session
 from app.core.timeutil import now_utc
 from app.flows.assessment.models import (
     AsmFactAlert,
+    AsmFactCheckpoint,
     AsmFactContract,
+    AsmFactCustoms,
+    AsmFactDocCheck,
+    AsmFactIncident,
+    AsmFactServiceRequest,
     AsmFactShipment,
     AsmFactTask,
     AsmFactTaskBlock,
+    AsmKpiTarget,
 )
 
 BLOCKED = "blocked"
@@ -95,6 +101,8 @@ def on_shipment_status_changed(db: Session, envelope: dict[str, Any]) -> dict[st
     d = envelope["data"]
     row = _shipment(db, envelope)
     at = _dt(envelope["occurred_at"])
+    if d["to"] == "docs_verified" and (row.docs_verified_at is None or at < row.docs_verified_at):  # KPI-02
+        row.docs_verified_at, row.docs_verified_by = at, envelope.get("actor_id")
     if row.status_changed_at is not None and at < row.status_changed_at:
         return {"applied": False, "reason": "stale"}
     row.status, row.status_changed_at = d["to"], at
@@ -285,6 +293,8 @@ def on_alert_raised(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
 
 def on_alert_escalated(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
     d = envelope["data"]
+    if d.get("shipment_id") is None:  # cảnh báo không gắn lô (vd. cảnh báo KPI của chính Luồng 4)
+        return {"alert_id": d["alert_id"], "applied": False, "reason": "not_shipment_alert"}
     at = _dt(envelope["occurred_at"])
     row = _locked(
         db,
@@ -303,3 +313,118 @@ def on_alert_escalated(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
     row.escalated_at, row.escalated_to_role = at, d["escalated_to_role"]
     _touch(row, envelope)
     return {"alert_id": row.alert_id, "escalated_to_role": row.escalated_to_role}
+
+
+# --- Giai đoạn 15: mục tiêu KPI (EV-201) + dữ kiện cho KPI-01/02/05/06/09/10/14 ---------------------------------------
+
+
+def on_plan_approved(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    """EV-201: bộ mục tiêu KPI mới của hợp đồng (mục tiêu hiện hành = bộ duyệt sau cùng)."""
+    d = envelope["data"]
+    rows = [
+        {
+            "kpi_code": t["kpi_code"],
+            "subject_type": "contract",
+            "subject_id": d["contract_id"],
+            "target_value": t.get("target"),
+            "warning_threshold": t.get("warning_threshold"),
+            "unit": t.get("unit"),
+            "source_plan_id": d["plan_id"],
+            "plan_version": d["plan_version"],
+            "mode": envelope.get("mode") or "production",
+            "valid_from": _dt(envelope["occurred_at"]),
+            "source_event_id": envelope["event_id"],
+        }
+        for t in d.get("kpi_targets") or []
+    ]
+    if rows:
+        db.execute(insert(AsmKpiTarget).values(rows).on_conflict_do_nothing(constraint="uq_asm_kpi_targets_event_kpi"))
+    return {
+        "contract_id": d["contract_id"],
+        "plan_version": d["plan_version"],
+        "kpi_codes": [r["kpi_code"] for r in rows],
+    }
+
+
+def _upsert(db: Session, model, keys: dict[str, Any], values: dict[str, Any], envelope: dict[str, Any]) -> None:
+    values = {**values, **_meta(envelope)}
+    db.execute(insert(model).values(**keys, **values).on_conflict_do_update(index_elements=list(keys), set_=values))
+
+
+def on_document_received(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    """EV-121: thời điểm nhận chứng từ đầu tiên của lô (KPI-02)."""
+    row = _shipment(db, envelope)
+    at = _dt(envelope["occurred_at"])
+    if row.first_doc_received_at is None or at < row.first_doc_received_at:
+        row.first_doc_received_at = at
+    _touch(row, envelope)
+    return {"shipment_id": row.shipment_id, "first_doc_received_at": row.first_doc_received_at.isoformat()}
+
+
+def on_document_check(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    d = envelope["data"]
+    values = {
+        "shipment_id": d["shipment_id"],
+        "run_no": d["run_no"],
+        "blocking_count": d["blocking_count"],
+        "warning_count": d["warning_count"],
+        "checked_by": envelope.get("actor_id"),
+        "checked_at": _dt(envelope["occurred_at"]),
+    }
+    _upsert(db, AsmFactDocCheck, {"check_id": d["check_id"]}, values, envelope)
+    return {"check_id": d["check_id"], "run_no": d["run_no"]}
+
+
+def on_customs_cleared(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    d = envelope["data"]
+    values = {"channel": d["channel"], "submitted_at": _dt(d["submitted_at"]), "cleared_at": _dt(d["cleared_at"])}
+    _upsert(
+        db, AsmFactCustoms, {"shipment_id": d["shipment_id"], "declaration_no": d["declaration_no"]}, values, envelope
+    )
+    return {"shipment_id": d["shipment_id"], "channel": d["channel"]}
+
+
+def on_checkpoint_evaluated(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    d = envelope["data"]
+    values = {
+        "shipment_id": d["shipment_id"],
+        "task_id": d["task_id"],
+        "step_code": d["step_code"],
+        "result": d["result"],
+        "performer_id": d.get("performer_id"),
+        "evaluated_at": _dt(envelope["occurred_at"]),
+    }
+    _upsert(
+        db, AsmFactCheckpoint, {"checkpoint_id": d["checkpoint_id"], "attempt_no": d["attempt_no"]}, values, envelope
+    )
+    return {"checkpoint_id": d["checkpoint_id"], "attempt_no": d["attempt_no"], "result": d["result"]}
+
+
+def on_incident(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    """EV-205 (mở) / EV-206 (đóng)."""
+    d = envelope["data"]
+    row = _locked(db, AsmFactIncident, "incident_id", d["incident_id"], _meta(envelope))
+    row.contract_id, row.shipment_id = d["contract_id"], d.get("shipment_id")
+    if envelope["event_code"] == "EV-205":
+        row.incident_type, row.severity = d["incident_type"], d["severity"]
+        row.attributed_to = d.get("attributed_to")
+        row.opened_at = _dt(envelope["occurred_at"])
+    else:
+        row.closed_at = _dt(d["closed_at"])
+        row.root_cause_code, row.liability = d.get("root_cause_code"), d.get("liability")
+    _touch(row, envelope)
+    return {"incident_id": row.incident_id, "incident_type": row.incident_type}
+
+
+def on_service_request(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    """EV-113 (gửi) / EV-114 (quyết định)."""
+    d = envelope["data"]
+    row = _locked(db, AsmFactServiceRequest, "request_id", d["request_id"], _meta(envelope))
+    if envelope["event_code"] == "EV-113":
+        row.contract_id, row.channel = d["contract_id"], d["channel"]
+        row.submitted_at, row.response_due_at = _dt(d["submitted_at"]), _dt(d["response_due_at"])
+    else:
+        row.decision, row.decided_at, row.decided_by = d["decision"], _dt(d["decided_at"]), d["decided_by"]
+        row.shipment_id = d.get("shipment_id")
+    _touch(row, envelope)
+    return {"request_id": row.request_id, "decision": row.decision}

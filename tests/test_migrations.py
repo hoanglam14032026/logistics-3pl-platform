@@ -58,6 +58,18 @@ G11_TABLES = {
 G12_TABLES = {"ctl_task_updates", "ctl_alerts"}
 G13_TABLES = {"ops_tasks", "ctl_alert_notifications"}
 G14_TABLES = {"asm_fact_contracts", "asm_fact_shipments", "asm_fact_tasks", "asm_fact_task_blocks", "asm_fact_alerts"}
+G15_TABLES = {
+    "asm_kpi_definitions",
+    "asm_kpi_targets",
+    "asm_fact_document_checks",
+    "asm_fact_checkpoints",
+    "asm_fact_customs",
+    "asm_fact_incidents",
+    "asm_fact_service_requests",
+    "asm_calc_runs",
+    "asm_fact_kpi_measurements",
+    "asm_kpi_alerts",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -83,7 +95,7 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0015"
+    assert head_revision() == "0016"
 
 
 def test_upgrade_from_empty_creates_all_tables():
@@ -101,6 +113,7 @@ def test_upgrade_from_empty_creates_all_tables():
         | G12_TABLES
         | G13_TABLES
         | G14_TABLES
+        | G15_TABLES
     )
     assert _tables() == expected | {"alembic_version"}
 
@@ -257,7 +270,7 @@ def test_check_constraint_names_match_models():
             "sys_events",
             "ops_commercial_invoices",
             "ops_commercial_invoice_items",
-            *sorted(G11_TABLES | G12_TABLES | G13_TABLES | G14_TABLES),
+            *sorted(G11_TABLES | G12_TABLES | G13_TABLES | G14_TABLES | G15_TABLES),
         ):
             in_db = {c["name"] for c in inspector.get_check_constraints(table)}
             in_model = {
@@ -279,7 +292,7 @@ def test_0012_seeds_process_templates_and_downgrades_cleanly():
         ).all()
     assert rows == [("QT-NK-SEA-FCL", "approved", 10, 4), ("QT-VC-NOIDIA", "approved", 3, 1)]
     _alembic(command.downgrade, "0011")
-    assert not ((G11_TABLES | G12_TABLES | G13_TABLES | G14_TABLES) & _tables())
+    assert not ((G11_TABLES | G12_TABLES | G13_TABLES | G14_TABLES | G15_TABLES) & _tables())
     _alembic(command.upgrade, "head")
     assert G11_TABLES <= _tables()
 
@@ -292,3 +305,15 @@ def test_0015_assessment_facts_round_trip():
     assert not (G14_TABLES & _tables()) and G13_TABLES <= _tables()
     _alembic(command.upgrade, "head")
     assert G14_TABLES <= _tables()
+
+
+def test_0016_kpi_catalog_seed_and_round_trip():
+    reset_database()
+    upgrade_to_head(engine)
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT kpi_code, formula_key FROM asm_kpi_definitions ORDER BY kpi_code")).all()
+    assert [r[0] for r in rows] == [f"KPI-{i:02d}" for i in range(1, 15)]
+    _alembic(command.downgrade, "0015")
+    assert not (G15_TABLES & _tables()) and G14_TABLES <= _tables()
+    _alembic(command.upgrade, "head")
+    assert G15_TABLES <= _tables()

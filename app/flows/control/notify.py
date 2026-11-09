@@ -47,6 +47,9 @@ class _Inline:
 def recipients(db: Session, alert: CtlAlert, purpose: str) -> list[SysUser]:
     if purpose == "escalated":
         return assign.users_with_role(db, Role.BUSINESS_MANAGER.value)
+    if purpose == "kpi":  # Giai đoạn 15: cảnh báo KPI (EV-403) – mọi manager và business_manager
+        users = assign.users_with_role(db, Role.MANAGER.value) + assign.users_with_role(db, Role.BUSINESS_MANAGER.value)
+        return list({u.id: u for u in users}.values())
     if alert.recipient_id:
         user = db.get(SysUser, alert.recipient_id)
         return [user] if user and user.is_active else []
@@ -93,7 +96,7 @@ def _after_rollback(session: Session) -> None:
 
 
 def _text(alert: CtlAlert, purpose: str) -> tuple[str, str]:
-    prefix = "[LEO THANG] " if purpose == "escalated" else ""
+    prefix = {"escalated": "[LEO THANG] ", "kpi": "[KPI] "}.get(purpose, "")
     subject = f"{prefix}[Cảnh báo {alert.severity}] {alert.message}"[:200]
     link = f"{get_settings().public_base_url}/control/alerts/{alert.id}"
     body = (

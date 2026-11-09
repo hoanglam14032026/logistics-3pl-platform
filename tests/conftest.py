@@ -59,7 +59,7 @@ DEFAULT_PASSWORD = "MatKhau@2026"
 
 
 # Dữ liệu khởi tạo do migration seed (Giai đoạn 11: quy trình mẫu) – nạp lại sau mỗi lần xóa dữ liệu giữa các test.
-SEED_TABLES = ("md_process_templates", "md_process_steps")
+SEED_TABLES = ("md_process_templates", "md_process_steps", "asm_kpi_definitions")  # + Giai đoạn 15: danh mục KPI
 _SEED: dict[str, list[dict]] = {}
 
 

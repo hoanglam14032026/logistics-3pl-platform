@@ -13,8 +13,9 @@ Chỉ số (mẫu số = 0 → `null`, không trả 0 – 05 §3):
 Phân nhóm: toàn bộ · hợp đồng (`contract_id` của lô) · lô · nhân viên (người được giao bước: `assignee_id`, chưa có thì
 người thực hiện ở Luồng 1; cảnh báo theo người được giao của bước bị cảnh báo; lô không tính theo nhân viên).
 
-So với SLA hợp đồng (EV-101): điều khoản có `kpi_code` là KPI-03 hoặc KPI-07 được so mục tiêu (`target_value`, %, chiều
-cao là tốt); điều khoản khác → `computed = false`.
+So với SLA hợp đồng (EV-101): điều khoản có `kpi_code` thuộc danh mục và đo được ở cấp hợp đồng được so `target_value`
+theo chiều tốt của KPI; điều khoản khác → `computed = false`. Giai đoạn 15: `kpis` (KPI-01…14, `formulas.py`); mục tiêu
+chính thức của hợp đồng lấy từ kế hoạch được duyệt (EV-201, `asm_kpi_targets` – `targets_for`).
 """
 
 from dataclasses import dataclass
@@ -27,12 +28,19 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError, ErrorCode
 from app.core.timeutil import VN_TZ, today_vn
-from app.flows.assessment.models import AsmFactAlert, AsmFactContract, AsmFactShipment, AsmFactTask, AsmFactTaskBlock
+from app.flows.assessment import formulas
+from app.flows.assessment.models import (
+    AsmFactAlert,
+    AsmFactContract,
+    AsmFactShipment,
+    AsmFactTask,
+    AsmFactTaskBlock,
+    AsmKpiTarget,
+)
 
 MODE = "production"
 MAX_DAYS = 366
 DEFAULT_DAYS = 30
-COMPUTED_KPIS = {"KPI-03": ("tasks", "on_time_rate"), "KPI-07": ("shipments", "on_time_rate")}
 
 
 @dataclass(frozen=True)
@@ -230,17 +238,22 @@ _EMPTY_BLOCKS = {"blocked_tasks": 0, "block_events": 0}
 _EMPTY_ALERTS = {"alerts": 0, "critical": 0, "escalated": 0}
 
 
-def metrics(db: Session, p: Period, group: str | None = None, key: int | None = None) -> dict[Any, dict[str, Any]]:
-    """{khóa nhóm: {shipments, tasks, blocked, alerts}} – chỉ nhóm có số liệu trong kỳ (toàn bộ: khóa 0)."""
+def metrics(
+    db: Session, p: Period, group: str | None = None, key: int | None = None, extra_keys: set | None = None
+) -> dict[Any, dict[str, Any]]:
+    """{khóa nhóm: {shipments, tasks, blocked, alerts, kpis}} – nhóm có số liệu trong kỳ + `extra_keys` (toàn bộ: khóa
+    0). `kpis`: KPI-01…14 theo danh mục (Giai đoạn 15 – `formulas.py`)."""
+    computed = formulas.compute(db, p, group, key)
     parts = {
         "shipments": (_shipment_stats(db, p, group, key), _EMPTY_SHIPMENTS),
         "tasks": (_task_stats(db, p, group, key), _EMPTY_TASKS),
         "blocked": (_block_stats(db, p, group, key), _EMPTY_BLOCKS),
         "alerts": (_alert_stats(db, p, group, key), _EMPTY_ALERTS),
     }
-    keys = set()
+    keys = set(extra_keys or ())
     for data, _ in parts.values():
         keys.update(k for k in data if k is not None)
+    keys.update(computed["values"])
     if group is None:
         keys = {0}
     elif key is not None:
@@ -250,18 +263,24 @@ def metrics(db: Session, p: Period, group: str | None = None, key: int | None = 
         m = {name: dict(data.get(k) or blank) for name, (data, blank) in parts.items()}
         if group == "staff":
             m["shipments"] = None  # lô không gán theo nhân viên
+        m["kpis"] = formulas.kpis_out(computed, k)
         out[k] = m
     return out
 
 
-def empty(group: str | None = None) -> dict[str, Any]:
-    """Chỉ số của đối tượng không có số liệu trong kỳ."""
-    return {
-        "shipments": None if group == "staff" else dict(_EMPTY_SHIPMENTS),
-        "tasks": dict(_EMPTY_TASKS),
-        "blocked": dict(_EMPTY_BLOCKS),
-        "alerts": dict(_EMPTY_ALERTS),
-    }
+def evaluate(direction: str, value, target, warning_threshold) -> str:
+    """So số đo với mục tiêu: `no_data` | `ok` | `warning` (kém hơn mục tiêu) | `critical` (kém hơn ngưỡng cảnh báo)."""
+    if value is None or target is None:
+        return "no_data"
+    v, t = Decimal(str(value)), Decimal(str(target))
+    w = None if warning_threshold is None else Decimal(str(warning_threshold))
+
+    def worse(a: Decimal, b: Decimal) -> bool:
+        return a < b if direction == "higher_better" else a > b
+
+    if w is not None and worse(v, w):
+        return "critical"
+    return "warning" if worse(v, t) else "ok"
 
 
 # --- SLA hợp đồng -----------------------------------------------------------------------------------------------
@@ -280,11 +299,12 @@ def sla_compliance(sla: dict[str, dict[str, Any]], m: dict[str, Any]) -> list[di
         term = sla[sla_code] or {}
         kpi_code = term.get("kpi_code")
         target = _decimal(term.get("target_value"))
-        source = COMPUTED_KPIS.get(kpi_code or "")
-        actual = m[source[0]][source[1]] if source and m.get(source[0]) else None
+        k = m["kpis"].get(kpi_code or "")
+        source = k if k and k["applicable"] else None
+        actual = source["value"] if source else None
         met = None
         if source and actual is not None and target is not None:
-            met = Decimal(str(actual)) >= target
+            met = evaluate(source["direction"], actual, target, None) == "ok"
         out.append(
             {
                 "sla_code": sla_code,
@@ -315,3 +335,45 @@ def shipments_info(db: Session, ids: set[int]) -> dict[int, AsmFactShipment]:
         return {}
     rows = db.scalars(select(AsmFactShipment).where(AsmFactShipment.shipment_id.in_(ids)))
     return {r.shipment_id: r for r in rows}
+
+
+# --- Mục tiêu từ kế hoạch được duyệt (EV-201) ----------------------------------------------------------------
+
+
+def current_targets(db: Session, contract_ids: set[int] | None = None) -> dict[tuple[int, str], AsmKpiTarget]:
+    """Mục tiêu hiện hành (bộ duyệt sau cùng) theo (hợp đồng, KPI) – chỉ `production`, có giá trị."""
+    t = AsmKpiTarget
+    stmt = (
+        select(t)
+        .distinct(t.subject_id, t.kpi_code)
+        .where(t.subject_type == "contract", t.mode == MODE)
+        .order_by(t.subject_id, t.kpi_code, t.valid_from.desc(), t.id.desc())
+    )
+    if contract_ids is not None:
+        stmt = stmt.where(t.subject_id.in_(contract_ids or {-1}))
+    return {(r.subject_id, r.kpi_code): r for r in db.scalars(stmt) if r.target_value is not None}
+
+
+def targets_for(db: Session, contract_id: int, m: dict[str, Any]) -> list[dict[str, Any]]:
+    out = []
+    for (_, code), t in sorted(current_targets(db, {contract_id}).items()):
+        k = m["kpis"].get(code)
+        computed = bool(k and k["applicable"])
+        value = k["value"] if computed else None
+        out.append(
+            {
+                "kpi_code": code,
+                "target_value": str(t.target_value),
+                "warning_threshold": str(t.warning_threshold) if t.warning_threshold is not None else None,
+                "unit": t.unit,
+                "plan_id": t.source_plan_id,
+                "plan_version": t.plan_version,
+                "approved_at": t.valid_from,
+                "computed": computed,
+                "actual_value": value,
+                "status": evaluate(k["direction"], value, t.target_value, t.warning_threshold)
+                if computed
+                else "not_computed",
+            }
+        )
+    return out

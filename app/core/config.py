@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     # Module (N6)
     enabled_flows: Annotated[frozenset[Flow], NoDecode] = frozenset(ALL_FLOWS)
     event_dispatch_interval_sec: float = Field(default=2, gt=0)
+    # Luồng 4 (Giai đoạn 15): tính KPI hằng ngày trong worker lúc N giờ (giờ Việt Nam, BR-407)
+    assessment_kpi_calc_enabled: bool = True
+    assessment_kpi_calc_hour: int = Field(default=1, ge=0, le=23)
 
     # HTTP
     cors_origins: Annotated[tuple[str, ...], NoDecode] = ()

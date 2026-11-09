@@ -9,6 +9,7 @@ Trường thêm so với bảng 01 §5 (giữ schema_version 1): `shipment_no`, 
 """
 
 from datetime import date
+from decimal import Decimal
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -205,7 +206,7 @@ class CtlAlertEscalated(EventData):
     alert_id: int
     alert_type: str
     severity: str
-    shipment_id: int
+    shipment_id: int | None  # Giai đoạn 15: cảnh báo KPI không gắn lô
     escalated_to_role: str
     unresolved_hours: float
 
@@ -334,3 +335,155 @@ class DocLinked(_DocJobEvent):
 
     linked_entity_type: str
     linked_entity_id: int
+
+
+# --- Giai đoạn 15: kế hoạch được duyệt (EV-201), cảnh báo KPI (EV-403) + sự kiện nguồn cho KPI-01/02/05/06/09/10/14 ---
+# EV-113/114/121/122/141 (Luồng 1) và EV-204/205/206 (Luồng 2) **chưa có nơi phát** trong mã nguồn – hợp đồng dữ liệu
+# theo 01 §5 để Luồng 4 nhận khi các nghiệp vụ đó được làm.
+
+
+class KpiTargetItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kpi_code: str
+    target: Decimal | None
+    warning_threshold: Decimal | None = None
+    unit: str | None = None
+
+
+class PlanApproved(EventData):
+    """EV-201 `ctl.plan.approved` – Luồng 2 → 1, 4: mục tiêu KPI của hợp đồng (Luồng 4 dùng để so số đo)."""
+
+    code: ClassVar[str] = "EV-201"
+    name: ClassVar[str] = "ctl.plan.approved"
+    consumers: ClassVar[tuple[str, ...]] = ("ops", "assessment")
+
+    plan_id: int
+    contract_id: int
+    plan_version: int
+    approved_by: int
+    kpi_targets: list[KpiTargetItem]
+    milestones: list[dict[str, Any]] = []
+
+
+class KpiAlert(EventData):
+    """EV-403 `asm.kpi.alert` – Luồng 4 → 2: KPI của kỳ kém hơn mục tiêu (BR-407)."""
+
+    code: ClassVar[str] = "EV-403"
+    name: ClassVar[str] = "asm.kpi.alert"
+    consumers: ClassVar[tuple[str, ...]] = ("control",)
+
+    alert_id: int
+    subject_type: str
+    subject_id: int
+    subject_label: str | None
+    kpi_code: str
+    kpi_name: str
+    unit: str
+    direction: str
+    value: Decimal
+    target: Decimal
+    threshold: Decimal  # mức đã vượt: warning_threshold (critical) hoặc target (warning)
+    severity: str
+    period: str  # week | month | quarter
+    period_start: date
+    period_end: date
+
+
+class ServiceRequestSubmitted(EventData):
+    code: ClassVar[str] = "EV-113"
+    name: ClassVar[str] = "ops.service_request.submitted"
+
+    request_id: int
+    contract_id: int
+    channel: str
+    submitted_at: UtcDatetime
+    response_due_at: UtcDatetime
+
+
+class ServiceRequestDecided(EventData):
+    code: ClassVar[str] = "EV-114"
+    name: ClassVar[str] = "ops.service_request.decided"
+
+    request_id: int
+    decision: str
+    decided_at: UtcDatetime
+    decided_by: int
+    shipment_id: int | None = None
+
+
+class DocumentReceived(EventData):
+    """EV-121 – 01 §5 chỉ gửi Luồng 2; Giai đoạn 15 thêm Luồng 4 (KPI-02 cần thời điểm nhận chứng từ đầu tiên)."""
+
+    code: ClassVar[str] = "EV-121"
+    name: ClassVar[str] = "ops.document.received"
+
+    document_id: int
+    shipment_id: int
+    doc_type: str
+    version_no: int
+
+
+class DocumentCheckCompleted(EventData):
+    code: ClassVar[str] = "EV-122"
+    name: ClassVar[str] = "ops.document_check.completed"
+
+    check_id: int
+    shipment_id: int
+    run_no: int
+    blocking_count: int
+    warning_count: int
+    discrepancies: list[dict[str, Any]] = []
+
+
+class CustomsCleared(EventData):
+    code: ClassVar[str] = "EV-141"
+    name: ClassVar[str] = "ops.customs.cleared"
+
+    shipment_id: int
+    declaration_no: str
+    channel: str  # green | yellow | red
+    submitted_at: UtcDatetime
+    cleared_at: UtcDatetime
+
+
+class CheckpointEvaluated(EventData):
+    code: ClassVar[str] = "EV-204"
+    name: ClassVar[str] = "ctl.checkpoint.evaluated"
+    consumers: ClassVar[tuple[str, ...]] = ("ops", "assessment")
+
+    checkpoint_id: int
+    shipment_id: int
+    task_id: int
+    step_code: str
+    result: str  # passed | failed
+    attempt_no: int
+    performer_id: int | None
+
+
+class IncidentOpened(EventData):
+    code: ClassVar[str] = "EV-205"
+    name: ClassVar[str] = "ctl.incident.opened"
+    consumers: ClassVar[tuple[str, ...]] = ("ops", "assessment")
+
+    incident_id: int
+    contract_id: int
+    shipment_id: int | None
+    incident_type: str
+    severity: str
+    attributed_to: int | None = None
+
+
+class IncidentClosed(EventData):
+    code: ClassVar[str] = "EV-206"
+    name: ClassVar[str] = "ctl.incident.closed"
+    consumers: ClassVar[tuple[str, ...]] = ("ops", "assessment")
+
+    incident_id: int
+    contract_id: int
+    shipment_id: int | None
+    root_cause_code: str
+    liability: str
+    compensation_amount: Decimal | None = None
+    currency: str | None = None
+    closed_at: UtcDatetime

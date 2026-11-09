@@ -70,6 +70,7 @@ class AlertType(StrEnum):
     TASK_OVERDUE = "task_overdue"  # quá thời hạn kế hoạch mà chưa xong
     SHIPMENT_LATE_RISK = "shipment_late_risk"  # dự kiến xong sau hạn giao yêu cầu (SLA)
     TASK_SYNC_CONFLICT = "task_sync_conflict"  # Giai đoạn 13: thay đổi bước ở Luồng 1 xung đột với Luồng 2
+    KPI_BELOW_TARGET = "kpi_below_target"  # Giai đoạn 15: EV-403 – KPI kém hơn mục tiêu (không gắn lô)
 
 
 class AlertSeverity(StrEnum):
@@ -319,6 +320,7 @@ class CtlAlert(Base):
         CheckConstraint(f"severity IN ({_in(AlertSeverity)})", name="severity_valid"),
         CheckConstraint(f"status IN ({_in(AlertStatus)})", name="status_valid"),
         CheckConstraint("(status = 'resolved') = (resolved_at IS NOT NULL)", name="resolved_has_time"),
+        CheckConstraint("shipment_id IS NOT NULL OR alert_type = 'kpi_below_target'", name="shipment_required"),
         Index(
             "uq_ctl_alerts_dedup_unresolved", "dedup_key", unique=True, postgresql_where=text("status <> 'resolved'")
         ),
@@ -330,7 +332,8 @@ class CtlAlert(Base):
     alert_type: Mapped[str] = mapped_column(String(32), nullable=False)
     severity: Mapped[str] = mapped_column(String(16), nullable=False)
     dedup_key: Mapped[str] = mapped_column(String(100), nullable=False)
-    shipment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    shipment_id: Mapped[int | None] = mapped_column(BigInteger)  # NULL: cảnh báo KPI (Giai đoạn 15)
+    contract_id: Mapped[int | None] = mapped_column(BigInteger)  # Giai đoạn 15: cảnh báo KPI theo hợp đồng
     task_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ctl_shipment_tasks.id", ondelete="RESTRICT"))
     plan_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ctl_contract_plans.id", ondelete="RESTRICT"))
     recipient_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("sys_users.id", ondelete="RESTRICT"))
@@ -364,7 +367,7 @@ class CtlAlertNotification(Base):
     __table_args__ = (
         UniqueConstraint("alert_id", "purpose", "channel", "user_id", name="uq_ctl_alert_notifications_target"),
         CheckConstraint("channel IN ('email', 'zalo')", name="channel_valid"),
-        CheckConstraint("purpose IN ('raised', 'escalated')", name="purpose_valid"),
+        CheckConstraint("purpose IN ('raised', 'escalated', 'kpi')", name="purpose_valid"),
         CheckConstraint(f"status IN ({_in(NotificationStatus)})", name="status_valid"),
         CheckConstraint("(status = 'sent') = (sent_at IS NOT NULL)", name="sent_has_time"),
     )

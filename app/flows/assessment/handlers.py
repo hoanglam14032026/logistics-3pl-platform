@@ -1,7 +1,8 @@
 """Luồng 4 nhận sự kiện từ Redis Stream `l3pl:events:assessment` (Giai đoạn 14) – đăng ký với bộ nhận dùng chung
 (app/shared/events/consumer.py, consumer `assessment`; `sys_event_consumptions` – không xử lý trùng).
 
-Sự kiện khác gửi tới Luồng 4 (EV-102/103/113/114/122/141, `doc.*`…) chưa có xử lý → `skipped` (`no_handler`)."""
+Giai đoạn 15: EV-201 (mục tiêu KPI), EV-113/114, EV-121, EV-122, EV-141, EV-204, EV-205/206. Sự kiện khác gửi tới
+Luồng 4 (EV-102/103, `doc.*`…) chưa có xử lý → `skipped` (`no_handler`)."""
 
 from app.flows.assessment import facts
 from app.shared.events import consumer
@@ -19,3 +20,13 @@ for _code in ("ctl.task.started", "ctl.task.completed", "ctl.task.blocked", "ctl
     consumer.handler(CONSUMER, _code)(facts.on_ctl_task_event)
 consumer.handler(CONSUMER, "ctl.alert.raised")(facts.on_alert_raised)
 consumer.handler(CONSUMER, "ctl.alert.escalated")(facts.on_alert_escalated)
+# Giai đoạn 15
+consumer.handler(CONSUMER, "EV-201")(facts.on_plan_approved)
+consumer.handler(CONSUMER, "EV-121")(facts.on_document_received)
+consumer.handler(CONSUMER, "EV-122")(facts.on_document_check)
+consumer.handler(CONSUMER, "EV-141")(facts.on_customs_cleared)
+consumer.handler(CONSUMER, "EV-204")(facts.on_checkpoint_evaluated)
+for _code in ("EV-205", "EV-206"):
+    consumer.handler(CONSUMER, _code)(facts.on_incident)
+for _code in ("EV-113", "EV-114"):
+    consumer.handler(CONSUMER, _code)(facts.on_service_request)

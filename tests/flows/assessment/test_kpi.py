@@ -242,6 +242,9 @@ def test_overall_kpi(client, data):
     body = _get(client, "/kpi", data["h"]["manager"])
     assert body["period"] == {"from": "2026-10-01", "to": "2026-10-31", "timezone": "Asia/Ho_Chi_Minh"}
     assert body["mode"] == "production"
+    kpis = body["metrics"].pop("kpis")  # Giai đoạn 15: KPI-03, KPI-07 khớp chỉ số Giai đoạn 14
+    assert (kpis["KPI-03"]["value"], kpis["KPI-03"]["numerator"], kpis["KPI-03"]["denominator"]) == (50.0, 2, 4)
+    assert (kpis["KPI-07"]["value"], kpis["KPI-07"]["denominator"]) == (33.33, 3)
     assert body["metrics"] == {
         "shipments": {
             "delivered": 3,

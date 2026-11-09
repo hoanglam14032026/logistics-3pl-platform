@@ -6,7 +6,7 @@ Quyền: `manager` – mọi kế hoạch, phân công tay / chạy lại tự �
 Vai trò khác, `customer` → 403. Không thấy → 404.
 """
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Response, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -15,9 +15,9 @@ from app.core.errors import AppError, ErrorCode
 from app.core.pagination import Page, PageParams
 from app.core.rbac import Role, require_roles
 from app.core.timeutil import now_utc
-from app.core.versioning import etag
-from app.flows.control import service, tracking
-from app.flows.control.models import CtlAlert, CtlShipmentPlan, CtlShipmentTask, CtlStaffProfile
+from app.core.versioning import etag, parse_if_match
+from app.flows.control import plan_approval, service, tracking
+from app.flows.control.models import AlertType, CtlAlert, CtlShipmentPlan, CtlShipmentTask, CtlStaffProfile
 from app.flows.control.schemas import (
     AlertOut,
     AssignIn,
@@ -25,12 +25,14 @@ from app.flows.control.schemas import (
     AutoAssignIn,
     HealthOut,
     KpiTargetOut,
+    KpiTargetsIn,
     MemberOut,
     PlanDetailOut,
     PlanOut,
     PlanTrackOut,
     ProfileIn,
     ProfileOut,
+    RejectIn,
     ResolveIn,
     ShipmentPlanDetailOut,
     ShipmentPlanOut,
@@ -52,6 +54,7 @@ router = APIRouter(prefix="/api/v2/control", tags=["Control – Plans & assignme
 _reader = require_roles(Role.MANAGER, Role.BUSINESS_MANAGER, Role.ADMIN, Role.OPS_STAFF)
 _manager = require_roles(Role.MANAGER)
 _manager_view = require_roles(Role.MANAGER, Role.BUSINESS_MANAGER, Role.ADMIN)
+_approver = require_roles(Role.BUSINESS_MANAGER)
 
 
 def _sp_detail(db: Session, sp) -> ShipmentPlanDetailOut:
@@ -93,6 +96,89 @@ def get_plan(
             "shipments": [ShipmentPlanOut.model_validate(s) for s in children["shipments"]],
         }
     )
+
+
+# --- Mục tiêu KPI + duyệt kế hoạch (Giai đoạn 15) → EV-201 ---------------------------------------------------------
+
+
+def _plan_detail(db: Session, plan, user: SysUser, response: Response) -> PlanDetailOut:
+    children = service.plan_children(db, plan, user)
+    response.headers["ETag"] = etag(plan.row_version)
+    return PlanDetailOut.model_validate(plan).model_copy(
+        update={
+            "members": [MemberOut.model_validate(m) for m in children["members"]],
+            "kpi_targets": [KpiTargetOut.model_validate(k) for k in children["kpi_targets"]],
+            "shipments": [ShipmentPlanOut.model_validate(s) for s in children["shipments"]],
+        }
+    )
+
+
+@router.put(
+    "/contract-plans/{plan_id:int}/kpi-targets",
+    response_model=PlanDetailOut,
+    summary="Đặt mục tiêu KPI của kế hoạch (manager; nháp / đang sửa)",
+)
+def put_kpi_targets(
+    plan_id: int,
+    body: KpiTargetsIn,
+    response: Response,
+    if_match: str | None = Header(None),
+    actor: SysUser = Depends(_manager),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    items = [t.model_dump() for t in body.kpi_targets]
+    plan = plan_approval.set_targets(db, plan_id, items, actor, parse_if_match(if_match))
+    return _plan_detail(db, plan, actor, response)
+
+
+@router.post("/contract-plans/{plan_id:int}:submit", response_model=PlanDetailOut, summary="Gửi duyệt kế hoạch")
+def submit_plan(
+    plan_id: int,
+    response: Response,
+    if_match: str | None = Header(None),
+    actor: SysUser = Depends(_manager),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    return _plan_detail(db, plan_approval.submit(db, plan_id, actor, parse_if_match(if_match)), actor, response)
+
+
+@router.post("/contract-plans/{plan_id:int}:approve", response_model=PlanDetailOut, summary="Duyệt kế hoạch → EV-201")
+def approve_plan(
+    plan_id: int,
+    response: Response,
+    if_match: str | None = Header(None),
+    actor: SysUser = Depends(_approver),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    return _plan_detail(db, plan_approval.approve(db, plan_id, actor, parse_if_match(if_match)), actor, response)
+
+
+@router.post("/contract-plans/{plan_id:int}:reject", response_model=PlanDetailOut, summary="Trả kế hoạch về nháp")
+def reject_plan(
+    plan_id: int,
+    body: RejectIn,
+    response: Response,
+    if_match: str | None = Header(None),
+    actor: SysUser = Depends(_approver),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    plan = plan_approval.reject(db, plan_id, body.reason, actor, parse_if_match(if_match))
+    return _plan_detail(db, plan, actor, response)
+
+
+@router.post(
+    "/contract-plans/{plan_id:int}:revise",
+    response_model=PlanDetailOut,
+    summary="Sửa kế hoạch đã duyệt (phiên bản mới)",
+)
+def revise_plan(
+    plan_id: int,
+    response: Response,
+    if_match: str | None = Header(None),
+    actor: SysUser = Depends(_manager),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    return _plan_detail(db, plan_approval.revise(db, plan_id, actor, parse_if_match(if_match)), actor, response)
 
 
 @router.get("/shipment-plans", response_model=Page[ShipmentPlanOut], summary="Kế hoạch lô (ops_staff: lô của mình)")
@@ -357,7 +443,7 @@ def complete_task(
 def list_alerts(
     status_: str | None = Query(None, alias="status", pattern=r"^(open|acknowledged|resolved|unresolved)$"),
     alert_type: str | None = Query(
-        None, pattern=r"^(task_blocked|task_overdue|shipment_late_risk|task_sync_conflict)$"
+        None, pattern=r"^(task_blocked|task_overdue|shipment_late_risk|task_sync_conflict|kpi_below_target)$"
     ),
     shipment_id: int | None = Query(None, gt=0),
     mine: bool = Query(False, description="Chỉ cảnh báo gửi tôi (hoặc gửi mọi manager)"),
@@ -376,8 +462,13 @@ def list_alerts(
     if mine:
         if Role.MANAGER.value in user.role_codes:
             stmt = stmt.where(or_(CtlAlert.recipient_id == user.id, CtlAlert.recipient_id.is_(None)))
-        else:  # business_manager: cảnh báo đã leo thang (BR-205)
-            stmt = stmt.where(CtlAlert.escalated_to_role == Role.BUSINESS_MANAGER.value)
+        else:  # business_manager: cảnh báo đã leo thang (BR-205), cảnh báo KPI (Giai đoạn 15)
+            stmt = stmt.where(
+                or_(
+                    CtlAlert.escalated_to_role == Role.BUSINESS_MANAGER.value,
+                    CtlAlert.alert_type == AlertType.KPI_BELOW_TARGET.value,
+                )
+            )
     return db.scalars(stmt.order_by(CtlAlert.id.desc()).limit(500)).all()
 
 

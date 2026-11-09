@@ -229,7 +229,8 @@ def _alert_for_manager(db: Session, alert_id: int, actor: SysUser) -> CtlAlert:
     alert = db.scalar(select(CtlAlert).where(CtlAlert.id == alert_id).with_for_update())
     if alert is None:
         raise AppError(ErrorCode.NOT_FOUND, 404, "Không tìm thấy cảnh báo")
-    if Role.MANAGER.value not in actor.role_codes and alert.escalated_at is None:
+    bm_allowed = alert.escalated_at is not None or alert.alert_type == AlertType.KPI_BELOW_TARGET.value
+    if Role.MANAGER.value not in actor.role_codes and not bm_allowed:
         raise forbidden("business_manager chỉ xử lý cảnh báo đã leo thang (BR-205)")
     return alert
 
@@ -652,6 +653,7 @@ def escalate(db: Session, now: datetime) -> int:
             CtlAlert.status != AlertStatus.RESOLVED.value,
             CtlAlert.escalated_at.is_(None),
             CtlAlert.raised_at <= cutoff,
+            CtlAlert.alert_type != AlertType.KPI_BELOW_TARGET.value,  # đã gửi business_manager ngay (Giai đoạn 15)
         )
         .order_by(CtlAlert.id)
         .with_for_update()
