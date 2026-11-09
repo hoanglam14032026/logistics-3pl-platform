@@ -31,6 +31,7 @@ from app.shared.audit.router import router as audit_router
 from app.shared.files.router import router as files_router
 from app.shared.identity.portal_router import router as portal_users_router
 from app.shared.identity.router import auth_router, users_router
+from app.shared.identity.throttle import RateLimitMiddleware
 from app.shared.masterdata.router import router as parties_router
 
 APP_TITLE = "3PL Logistics Business Guide"
@@ -74,8 +75,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # add_middleware xếp chồng: thêm sau = bọc ngoài. Thứ tự từ ngoài vào: CORS → RequestID → lỗi 500 → app,
-    # để mọi phản hồi lỗi (4xx và 500) đều có header CORS và X-Request-ID.
+    # add_middleware xếp chồng: thêm sau = bọc ngoài. Thứ tự từ ngoài vào: CORS → RequestID → lỗi 500 → giới hạn tần
+    # suất → app, để mọi phản hồi lỗi (4xx, 429 và 500) đều có header CORS và X-Request-ID.
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(

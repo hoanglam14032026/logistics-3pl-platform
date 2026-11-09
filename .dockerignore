@@ -11,7 +11,7 @@ __pycache__/
 .DS_Store
 *.db
 data/
-tests/
 docs/
 deploy/
 README*.md
+# tests/ chỉ chép vào stage `test` của Dockerfile, không có trong image chạy

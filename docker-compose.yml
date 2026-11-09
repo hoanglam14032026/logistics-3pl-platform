@@ -22,17 +22,43 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Hàng đợi tác vụ nền (Giai đoạn 7). AOF: tác vụ đã xếp không mất khi Redis khởi động lại.
+  # CSDL số 15 dành cho test (TEST_JOB_QUEUE_URL) – bộ test xóa sạch CSDL đó.
+  redis:
+    image: redis:7.4-alpine
+    container_name: logistics-3pl-redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   api:
-    build: .
+    build:
+      context: .
+      target: runtime
     image: logistics-3pl-platform:latest
     container_name: logistics-3pl-platform
+    # Biến khác (SMTP_*, PUBLIC_BASE_URL, giới hạn tần suất…) đọc từ .env; khối environment dưới đây ghi đè.
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgresql+psycopg://logistics:${POSTGRES_PASSWORD:-logistics}@db:5432/logistics_3pl_dev
       # Bắt buộc (06 §6), đặt trong .env; thiếu thì dịch vụ api dừng ngay khi khởi động.
       JWT_SECRET: ${JWT_SECRET:-}
       TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-}
+      JOB_QUEUE_URL: redis://redis:6379/0
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "8000:8000"
@@ -41,5 +67,26 @@ services:
       - ./data/uploads:/app/data/uploads
     restart: unless-stopped
 
+  # Worker gửi email (hàng đợi rq) – cùng image với api
+  worker:
+    image: logistics-3pl-platform:latest
+    container_name: logistics-3pl-worker
+    command: ["python", "-m", "app.worker"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://logistics:${POSTGRES_PASSWORD:-logistics}@db:5432/logistics_3pl_dev
+      JWT_SECRET: ${JWT_SECRET:-}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-}
+      JOB_QUEUE_URL: redis://redis:6379/0
+    depends_on:
+      api:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  redisdata:

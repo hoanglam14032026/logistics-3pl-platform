@@ -41,17 +41,27 @@ Yêu cầu: Python 3.12 (`.python-version`), Docker (PostgreSQL 17), pip ≥ 25.
 
 ```bash
 cd logistics-3pl-platform
-docker compose up -d db                                  # PostgreSQL 17: logistics_3pl_dev, logistics_3pl_test
+docker compose up -d db redis                            # PostgreSQL 17 (dev, test) + Redis (hàng đợi; số 15 cho test)
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev-lock.txt                # phụ thuộc chạy + công cụ dev (đều đã khóa)
 cp .env.example .env                                     # rồi điền JWT_SECRET, TOTP_ENCRYPTION_KEY
 uvicorn app.main:create_app --factory --reload           # http://127.0.0.1:8000/docs; tự chạy alembic upgrade head
+python -m app.worker                                     # worker gửi email (cần JOB_QUEUE_URL=redis://localhost:6379/0)
 python -m app.shared.identity.cli create-admin --username admin --full-name "Quản trị"   # admin đầu tiên
-pytest                                                   # 501 test: 383 tích hợp trên logistics_3pl_test + 118 đơn vị
+pytest                                                   # 523 test: 395 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 128 đơn vị
 ruff check . && ruff format --check .
 ```
 
-Toàn bộ bằng Docker: `docker compose up -d --build` (dữ liệu CSDL trong volume `pgdata`, file tải lên tại `./data/uploads/`).
+Toàn bộ bằng Docker: `docker compose up -d --build` – `db`, `redis` (AOF, volume `redisdata`), `api`, `worker` (cùng image, `python -m app.worker`); dữ liệu CSDL trong volume `pgdata`, file tải lên tại `./data/uploads/`.
+
+Chạy test trong image (stage `test` của `Dockerfile` – cùng phụ thuộc chạy và mã nguồn với image chạy):
+
+```bash
+docker build --target test -t logistics-3pl-platform:test .
+docker run --rm --network logistics-3pl-platform_default \
+  -e TEST_DATABASE_URL=postgresql+psycopg://logistics:logistics@db:5432/logistics_3pl_test \
+  -e TEST_JOB_QUEUE_URL=redis://redis:6379/15 logistics-3pl-platform:test
+```
 
 | File | Vai trò |
 |---|---|
@@ -64,6 +74,8 @@ Toàn bộ bằng Docker: `docker compose up -d --build` (dữ liệu CSDL trong
 Cấu hình: sao chép `.env.example` thành `.env` và đặt **`JWT_SECRET`** (bắt buộc, ≥ 32 ký tự) và **`TOTP_ENCRYPTION_KEY`** (bắt buộc, khóa Fernet riêng – sinh bằng `python -m app.core.secretbox`, không dùng lại `JWT_SECRET`); thiếu thì ứng dụng không khởi động. Biến khác: `DATABASE_URL` (mặc định CSDL dev ở trên), `TEST_DATABASE_URL` (tên CSDL bắt buộc kết thúc `_test`), `UPLOAD_DIR` (mặc định `./data/uploads`), `POSTGRES_PASSWORD` (mặc định `logistics` – chỉ cho máy dev), `POSTGRES_PORT`; danh sách đầy đủ: [`06`](docs/specs/06-quy-uoc-api-bao-mat.md) §6, `app/core/config.py`. Mã v1.1.0 nằm tại `app/legacy_v1/`, API `/api/v1/*` đánh dấu deprecated; mô tả chi tiết: [`90-hien-trang-v1.1.md`](docs/specs/90-hien-trang-v1.1.md).
 
 **Thay đổi thư viện (Giai đoạn 6, lý do bảo mật):** thêm `cryptography==50.0.2` vào phụ thuộc chạy để mã hóa `sys_users.totp_secret` bằng Fernet (khóa `TOTP_ENCRYPTION_KEY`) thay vì lưu dạng rõ. Hai file lock tạo lại trong venv sạch – chỉ thêm đúng dòng `cryptography==50.0.2` (`cffi`, `pycparser` đã có sẵn), các gói khác giữ nguyên phiên bản. Nâng cấp hệ thống đang chạy: đặt `TOTP_ENCRYPTION_KEY` **trước** khi khởi động bản mới – migration `0008` mã hóa secret hiện có bằng khóa này.
+
+**Thay đổi thư viện (Giai đoạn 7):** thêm `rq==2.9.1` + `redis==8.1.0` (hàng đợi tác vụ nền bền vững qua `JOB_QUEUE_URL` – email mời, đặt lại mật khẩu không mất khi tiến trình dừng, có thử lại). Chọn rq 2.9.1 (06/2026) thay vì 3.0.0 (phát hành 28/10/2026, bản major mới). Phụ thuộc bắc cầu mới trong lock: `croniter`, `python-dateutil`, `tzdata`; các gói cũ giữ nguyên phiên bản.
 
 ## 5. Giấy phép
 

@@ -160,7 +160,8 @@ def test_customer_admin_invite_sends_mail(client, world, accept_invite, login):
     ],
 )
 def test_mail_failure_keeps_account_and_allows_resend(client, world, monkeypatch, caplog, exc, reason):
-    """Gửi nền lỗi (kể cả lỗi bất ngờ): request vẫn 201, ghi log + nhật ký user.mail_failed; gửi lại được."""
+    """Chạy nền trong tiến trình API (không có JOB_QUEUE_URL) mà gửi lỗi (kể cả lỗi bất ngờ): request vẫn 201, ghi log
+    + nhật ký user.mail_failed (một lần thử); gửi lại được."""
 
     def broken(_mail, settings=None):
         raise exc
@@ -171,10 +172,10 @@ def test_mail_failure_keeps_account_and_allows_resend(client, world, monkeypatch
     assert (log.entity_id, log.actor_id, log.after) == (
         user["id"],
         _user("quan.ly").id,
-        {"purpose": "invite", "error": reason},
+        {"purpose": "invite", "error": reason, "attempts": 1},
     )
     assert log.request_id  # cùng request_id với request tạo tài khoản
-    assert "Không gửi được thư invite" in caplog.text or "Lỗi không xác định khi gửi thư invite" in caplog.text
+    assert "Không gửi được thư invite" in caplog.text
     assert [a.action for a in _actions("user.invite_sent")] == ["user.invite_sent"]
     monkeypatch.undo()
     r = client.post(f"/api/v2/md/parties/{world['a'].id}/users/{user['id']}:resend-invite", headers=world["manager"])
@@ -306,16 +307,21 @@ class _Queue:
 
 
 def test_service_queues_mail_instead_of_sending(client, staff):
-    """Hàm nghiệp vụ commit token rồi chỉ xếp thư – không gọi SMTP trong request; tác vụ nền gửi sau."""
+    """Hàm nghiệp vụ chỉ xếp tác vụ (tham số là id) – không gọi SMTP, không cấp token trong request; tác vụ nền cấp
+    token rồi gửi."""
     from app.shared.identity import email_flows
 
     queue = _Queue()
     with SessionLocal() as db:
         email_flows.request_password_reset(db, "nhan.vien", queue)
     assert mail.OUTBOX == [] and len(queue.tasks) == 1
-    with SessionLocal() as db:  # token đã commit trước khi thư được gửi
-        assert db.scalar(select(SysUserToken.id).where(SysUserToken.purpose == "password_reset")) is not None
+    func, args, _ = queue.tasks[0]
+    assert (func.__name__, args) == ("deliver_password_reset", (_user("nhan.vien").id,))  # không có token/bí mật
+    with SessionLocal() as db:
+        assert db.scalar(select(SysUserToken.id).where(SysUserToken.purpose == "password_reset")) is None
     assert queue.run() == [True]
+    with SessionLocal() as db:  # token cấp lúc gửi
+        assert db.scalar(select(SysUserToken.id).where(SysUserToken.purpose == "password_reset")) is not None
     assert [m.to for m in mail.OUTBOX] == ["nv@cty.vn"]
 
 
@@ -342,7 +348,7 @@ def test_forgot_and_reset_mail_failure_do_not_fail_request(client, staff, monkey
     token = sent[0].body.split("#token=")[1].split()[0]
     assert client.post(RESET, json={"token": token, "new_password": NEW}).status_code == 204
     [log] = _actions("user.mail_failed")
-    assert log.after == {"purpose": "password_changed", "error": "Gửi thư thất bại: TimeoutError"}
+    assert log.after == {"purpose": "password_changed", "error": "Gửi thư thất bại: TimeoutError", "attempts": 1}
     sent.clear()
 
     def broken(m, settings=None):
@@ -366,7 +372,7 @@ def test_audit_failure_in_background_is_swallowed(client, staff, monkeypatch, ca
 
     monkeypatch.setattr(mail, "send", broken)
     monkeypatch.setattr(email_flows, "SessionLocal", no_db)
-    assert email_flows.deliver(mail.Mail("a@b.vn", "s", "b"), 1, "invite", None) is False
+    assert email_flows.deliver_password_changed(1) is False
     assert "Không ghi được nhật ký lỗi gửi thư user_id=1" in caplog.text
 
 

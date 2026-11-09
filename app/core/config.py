@@ -102,10 +102,27 @@ class Settings(BaseSettings):
     transcription_model_path: Path | None = None
     transcription_device: Literal["cuda", "cpu"] = "cuda"
 
-    # Hàng đợi tác vụ nền
+    # Hàng đợi tác vụ nền bền vững (Giai đoạn 7): Redis + rq. Chưa đặt → tác vụ chạy nền trong tiến trình API
+    # (FastAPI BackgroundTasks – mất nếu tiến trình dừng, không retry; chỉ dùng cho máy dev).
     job_queue_url: str | None = None
+    test_job_queue_url: str = "redis://localhost:6379/15"
+    job_max_retries: int = Field(default=5, ge=0)
+    # Giây chờ trước lần thử lại thứ 1, 2, …; hết danh sách thì dùng giá trị cuối
+    job_retry_intervals: Annotated[tuple[int, ...], NoDecode] = (10, 30, 120, 600, 1800)
+    job_timeout_sec: int = Field(default=60, gt=0)
+    job_failure_ttl_days: int = Field(default=30, gt=0)
 
-    @field_validator("enabled_flows", "cors_origins", "turn_urls", "auth_2fa_required_roles", mode="before")
+    # Giới hạn tần suất mọi API và tải file theo tài khoản (Giai đoạn 7; 06 §3). Chưa đăng nhập: theo IP.
+    rate_limit_enabled: bool = True
+    rate_limit_window_sec: int = Field(default=60, gt=0)
+    rate_limit_api_per_user: int = Field(default=300, gt=0)
+    rate_limit_api_per_ip: int = Field(default=120, gt=0)
+    rate_limit_file_upload_per_user: int = Field(default=20, gt=0)
+    rate_limit_file_download_per_user: int = Field(default=120, gt=0)
+
+    @field_validator(
+        "enabled_flows", "cors_origins", "turn_urls", "auth_2fa_required_roles", "job_retry_intervals", mode="before"
+    )
     @classmethod
     def _parse_csv(cls, value: object) -> object:
         return _split_csv(value)
@@ -126,6 +143,25 @@ class Settings(BaseSettings):
         unknown = sorted(value - known)
         if unknown:
             raise ValueError(f"Vai trò không tồn tại: {', '.join(unknown)}")
+        return value
+
+    @field_validator("job_queue_url", mode="before")
+    @classmethod
+    def _empty_is_none(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("job_queue_url", "test_job_queue_url")
+    @classmethod
+    def _redis_url(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith(("redis://", "rediss://", "unix://")):
+            raise ValueError("JOB_QUEUE_URL phải là địa chỉ Redis: redis://, rediss:// hoặc unix://")
+        return value
+
+    @field_validator("job_retry_intervals")
+    @classmethod
+    def _intervals(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        if not value or any(v < 0 for v in value):
+            raise ValueError("JOB_RETRY_INTERVALS: danh sách số giây ≥ 0, vd. 10,30,120")
         return value
 
     @field_validator("public_base_url")

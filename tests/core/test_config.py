@@ -176,3 +176,40 @@ def test_totp_encryption_key_list_for_rotation(clean_env):
     s = make()
     assert s.totp_encryption_keys == (other, FERNET_KEY)
     assert FERNET_KEY not in repr(s)  # SecretStr – không lộ khóa trong log
+
+
+# --- Hàng đợi, giới hạn tần suất (Giai đoạn 7) -------------------------------------------------------------------
+
+
+def test_queue_and_rate_limit_defaults(clean_env):
+    clean_env.setenv("JWT_SECRET", SECRET)
+    s = make()
+    assert s.job_queue_url is None and s.test_job_queue_url == "redis://localhost:6379/15"
+    assert (s.job_max_retries, s.job_retry_intervals, s.job_timeout_sec) == (5, (10, 30, 120, 600, 1800), 60)
+    assert s.rate_limit_enabled is True and s.rate_limit_window_sec == 60
+    assert (s.rate_limit_api_per_user, s.rate_limit_api_per_ip) == (300, 120)
+    assert (s.rate_limit_file_upload_per_user, s.rate_limit_file_download_per_user) == (20, 120)
+
+
+@pytest.mark.parametrize(("value", "expected"), [("", None), ("  ", None), ("redis://r:6379/0", "redis://r:6379/0")])
+def test_job_queue_url(clean_env, value, expected):
+    clean_env.setenv("JWT_SECRET", SECRET)
+    clean_env.setenv("JOB_QUEUE_URL", value)
+    assert make().job_queue_url == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [("JOB_QUEUE_URL", "amqp://rabbit"), ("JOB_RETRY_INTERVALS", "10,-1"), ("JOB_RETRY_INTERVALS", " , ")],
+)
+def test_queue_settings_rejected(clean_env, name, value):
+    clean_env.setenv("JWT_SECRET", SECRET)
+    clean_env.setenv(name, value)
+    with pytest.raises(ValidationError):
+        make()
+
+
+def test_retry_intervals_csv(clean_env):
+    clean_env.setenv("JWT_SECRET", SECRET)
+    clean_env.setenv("JOB_RETRY_INTERVALS", "0, 5,60")
+    assert make().job_retry_intervals == (0, 5, 60)

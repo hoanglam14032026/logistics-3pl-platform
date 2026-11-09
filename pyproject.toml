@@ -7,6 +7,7 @@ requires-python = ">=3.12,<3.13"
 # Phụ thuộc chạy – chốt cứng (đặc tả 07 §2). Phụ thuộc bắc cầu khóa trong requirements-lock.txt.
 # JWT: PyJWT (HS256, không cần extra [crypto]); băm mật khẩu: argon2-cffi trực tiếp.
 # cryptography (Giai đoạn 6, lý do bảo mật): mã hóa totp_secret bằng Fernet, khóa TOTP_ENCRYPTION_KEY.
+# rq + redis (Giai đoạn 7): hàng đợi tác vụ nền bền vững (JOB_QUEUE_URL) – gửi email không mất khi tiến trình dừng.
 dependencies = [
     "fastapi==0.162.2",
     "pydantic==2.14.3",
@@ -19,6 +20,8 @@ dependencies = [
     "argon2-cffi==25.1.0",
     "python-multipart==0.0.33",
     "cryptography==50.0.2",
+    "rq==2.9.1",
+    "redis==8.1.0",
 ]
 
 [dependency-groups]

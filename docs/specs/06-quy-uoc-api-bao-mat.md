@@ -138,7 +138,15 @@ Phản hồi danh sách:
   `AUTH_LOGIN_RATE_WINDOW_SEC` (60) giây; vượt → `429 RATE_LIMITED` + `Retry-After`, kiểm tra **trước** khi băm mật khẩu
   (lần bị chặn không tính là đăng nhập sai). Bộ đếm cửa sổ cố định trong PostgreSQL (`sys_rate_limit_counters`) – đúng khi
   chạy nhiều worker/container. Sau reverse proxy: chạy `uvicorn --proxy-headers --forwarded-allow-ips=<IP proxy>` để
-  đếm theo IP thật. Ngưỡng: **CẦN XÁC NHẬN**. Giới hạn theo tài khoản cho API khác, tải file (`customer`): chưa làm.
+  đếm theo IP thật. Ngưỡng: **CẦN XÁC NHẬN**.
+- **Giới hạn tần suất mọi API và tải file (Giai đoạn 7, 09/11/2026)** – middleware `app/shared/identity/throttle.py`,
+  cùng bộ đếm PostgreSQL: mọi request `/api/…` theo tài khoản (access token hợp lệ – `RATE_LIMIT_API_PER_USER` = 300)
+  hoặc theo IP khi chưa đăng nhập / token không hợp lệ (`RATE_LIMIT_API_PER_IP` = 120); thêm `multipart/form-data`
+  (`RATE_LIMIT_FILE_UPLOAD_PER_USER` = 20) và `GET /api/v2/files/…` (`RATE_LIMIT_FILE_DOWNLOAD_PER_USER` = 120); mỗi
+  `RATE_LIMIT_WINDOW_SEC` = 60 giây. Vượt → `429 RATE_LIMITED` + `Retry-After` (như `/login`), kiểm **trước** khi đọc
+  body (file bị từ chối không được nhận); lần đầu vượt trong cửa sổ ghi nhật ký `api.rate_limited`. Token giả (sai chữ
+  ký) tính theo IP – không làm cạn hạn mức của tài khoản khác. Áp cho mọi vai trò (đặc tả nêu `customer`); ngưỡng
+  **CẦN XÁC NHẬN**; `RATE_LIMIT_ENABLED=false` tắt.
 - **Xác thực 2 lớp TOTP (Giai đoạn 5, 08/11/2026)** – `app/core/totp.py` (RFC 6238 viết bằng thư viện chuẩn, kiểm theo
   vector RFC; HMAC-SHA1, 6 số, 30 giây, lệch ±1 chu kỳ; mã đã dùng không dùng lại – `totp_last_step`),
   `app/shared/identity/twofactor.py`:
@@ -162,11 +170,20 @@ Phản hồi danh sách:
   `PUBLIC_BASE_URL/accept-invite#token=…`, `/reset-password#token=…` (token sau `#` – không lọt log máy chủ).
   `POST /api/v2/auth/invitations/accept`, `/password/forgot` (luôn `202` cùng nội dung; giới hạn tần suất như đăng nhập),
   `/password/reset` (thu hồi mọi phiên, mở khóa tạm, gửi thư báo mật khẩu đã đổi; 2FA giữ nguyên).
-  **Gửi thư là tác vụ nền** (Giai đoạn 6): commit token rồi xếp thư vào FastAPI `BackgroundTasks` – chạy sau khi đã trả
-  response (`smtplib`, STARTTLS/SSL), request không chờ SMTP (quên mật khẩu trả về cùng thời gian dù tài khoản có tồn
-  tại hay không). Lỗi gửi → log + nhật ký `user.mail_failed` (`purpose`: `invite` / `password_reset` /
-  `password_changed`, `error`), request không lỗi; gửi lại `:resend-invite` (`202`) hoặc quên mật khẩu lần nữa. Không
-  có hàng đợi bền vững: tiến trình dừng giữa chừng thì thư chưa gửi bị mất (token chỉ lưu hash – không gửi lại từ CSDL).
+  **Gửi thư là tác vụ nền** (Giai đoạn 6–7): request ghi nhật ký, commit rồi xếp tác vụ – tham số chỉ là id, **token
+  cấp lúc gửi** (hàng đợi không chứa token). Request không chờ SMTP (quên mật khẩu trả về cùng thời gian dù tài khoản
+  có tồn tại hay không).
+  - Có `JOB_QUEUE_URL` (Giai đoạn 7): hàng đợi bền vững **rq + Redis** (`app/core/jobs.py`, Redis bật AOF), worker
+    riêng `python -m app.worker` (dịch vụ `worker` trong docker-compose). API, Redis hay worker dừng/khởi động lại: tác
+    vụ không mất; worker chết giữa chừng → rq chạy lại tác vụ bị bỏ dở. Gửi lỗi → thử lại `JOB_MAX_RETRIES` (5) lần sau
+    `JOB_RETRY_INTERVALS` (10, 30, 120, 600, 1800 giây); mỗi lần thử cấp token mới (token chưa gửi được bị vô hiệu);
+    hết lượt → log + nhật ký `user.mail_failed` (`purpose`: `invite` / `password_reset` / `password_changed`, `error`,
+    `attempts`), tác vụ giữ trong FailedJobRegistry `JOB_FAILURE_TTL_DAYS` (30) ngày. Thư mời bỏ qua nếu tài khoản đã
+    nhận lời mời / bị vô hiệu hóa lúc chạy. rq chạy "ít nhất một lần": hiếm khi có thể nhận 2 thư (thư sau thay thư
+    trước).
+  - Không có `JOB_QUEUE_URL` (máy dev, test) hoặc Redis lỗi lúc xếp: chạy nền trong tiến trình API (`BackgroundTasks`)
+    – một lần, không thử lại, mất nếu tiến trình dừng; lỗi → log + `user.mail_failed`.
+  - Request không lỗi vì gửi thư; gửi lại `:resend-invite` (`202`) hoặc quên mật khẩu lần nữa.
 - Tích hợp SSO của trường/doanh nghiệp (Google Workspace, Microsoft Entra ID): **CẦN XÁC NHẬN**.
 - Mọi endpoint trừ `/health`, `/ready`, `/api/v2/auth/login`, trang khách mời phỏng vấn (`/api/v2/learning/interview-invitations/{token}` – xác thực bằng token, `04` BR-309) và webhook của máy chủ media phỏng vấn (xác thực bằng chữ ký) yêu cầu xác thực.
 - Tài khoản `customer`: bắt buộc xác thực 2 lớp; khóa tạm sau 5 lần đăng nhập sai; giới hạn tần suất gọi API và tải file theo tài khoản; phiên tối đa 8 giờ. **Lộ trình (đã chốt 08/11/2026):** Giai đoạn 0 (bước 0.6) chỉ làm JWT + refresh token + RBAC + khóa tạm sau nhiều lần đăng nhập sai; bảng `sys_users` có sẵn cột `totp_secret` (NULL) và `is_2fa_enabled` (mặc định `false`); endpoint và luồng xác thực 2 lớp làm cùng cổng khách hàng (Giai đoạn 2). Tài khoản nội bộ có quyền phê duyệt hợp đồng – tài chính (`manager`, `business_manager`) cũng bắt buộc xác thực 2 lớp; thao tác phê duyệt cấp 2 yêu cầu xác thực lại (nhập lại OTP) nếu phiên đã quá 30 phút.
@@ -244,6 +261,10 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
 | `INTERVIEW_MAX_PARTICIPANTS`, `INTERVIEW_MAX_HOURS` | `6`, `3` | `04` §3.3.1a |
 | `TRANSCRIPTION_ENGINE` | `faster_whisper` | Động cơ chuyển giọng nói thành văn bản chạy tại máy chủ đơn vị (`04` §3.3.1b) |
 | `TRANSCRIPTION_MODEL_PATH`, `TRANSCRIPTION_DEVICE` | – , `cuda` | Đường dẫn mô hình cục bộ; `cuda` / `cpu` |
-| `JOB_QUEUE_URL` | – | Hàng đợi tác vụ nền (xử lý media, tính KPI, phát sự kiện) |
+| `JOB_QUEUE_URL` | – | Hàng đợi tác vụ nền bền vững rq + Redis (`redis://…`) – Giai đoạn 7: gửi email; sau này: xử lý media, tính KPI, phát sự kiện. Chưa đặt: chạy nền trong tiến trình API (chỉ máy dev) |
+| `TEST_JOB_QUEUE_URL` | `redis://localhost:6379/15` | Redis cho test hàng đợi – bộ test xóa sạch CSDL Redis này (không được là số 0) |
+| `JOB_MAX_RETRIES`, `JOB_RETRY_INTERVALS`, `JOB_TIMEOUT_SEC`, `JOB_FAILURE_TTL_DAYS` | 5 / `10,30,120,600,1800` / 60 / 30 | Thử lại khi tác vụ lỗi (§3) |
+| `RATE_LIMIT_ENABLED`, `RATE_LIMIT_WINDOW_SEC` | `true` / 60 | Giới hạn tần suất mọi API (§3) |
+| `RATE_LIMIT_API_PER_USER`, `RATE_LIMIT_API_PER_IP`, `RATE_LIMIT_FILE_UPLOAD_PER_USER`, `RATE_LIMIT_FILE_DOWNLOAD_PER_USER` | 300 / 120 / 20 / 120 | Số request tối đa mỗi cửa sổ |
 
-Đọc bằng `app/core/config.py` (pydantic-settings): biến môi trường ưu tiên hơn file `.env` (mẫu `.env.example`); không phân biệt hoa thường; biến danh sách (`ENABLED_FLOWS`, `CORS_ORIGINS`, `TURN_URLS`) viết cách nhau bằng dấu phẩy; `FILE_LIMITS_JSON` là chuỗi JSON. Biến khác trong `.env` (vd. `POSTGRES_PASSWORD` của docker-compose) được bỏ qua.
+Đọc bằng `app/core/config.py` (pydantic-settings): biến môi trường ưu tiên hơn file `.env` (mẫu `.env.example`); không phân biệt hoa thường; biến danh sách (`ENABLED_FLOWS`, `CORS_ORIGINS`, `TURN_URLS`, `JOB_RETRY_INTERVALS`) viết cách nhau bằng dấu phẩy; `FILE_LIMITS_JSON` là chuỗi JSON. Biến khác trong `.env` (vd. `POSTGRES_PASSWORD` của docker-compose) được bỏ qua.

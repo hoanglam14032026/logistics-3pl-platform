@@ -23,6 +23,8 @@ os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-" + "x" * 32)
 os.environ.setdefault("TOTP_ENCRYPTION_KEY", "dGVzdC1vbmx5LXRvdHAta2V5LTMyLWJ5dGVzLWxvbmc=")
 # Thư không gửi thật: giữ trong app.shared.notifications.mail.OUTBOX để test đọc đường dẫn
 os.environ["MAIL_BACKEND"] = "memory"
+# Mặc định không dùng hàng đợi Redis (tác vụ chạy nền trong TestClient); test hàng đợi tự bật – tests/core/test_jobs.py
+os.environ["JOB_QUEUE_URL"] = ""
 
 from app.core.config import Settings, get_settings  # noqa: E402
 

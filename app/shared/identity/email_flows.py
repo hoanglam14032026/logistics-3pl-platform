@@ -8,23 +8,24 @@ Token: ngẫu nhiên 256 bit, CSDL chỉ lưu SHA-256 (`sys_user_tokens`), có h
 Quên mật khẩu luôn trả cùng một kết quả (không lộ tài khoản/email có tồn tại không); đặt lại xong: thu hồi mọi phiên,
 mở khóa tạm, gửi thư báo mật khẩu đã đổi. 2FA không đổi – lần đăng nhập sau vẫn cần mã TOTP.
 
-Gửi thư là **tác vụ nền** (Giai đoạn 6): hàm nghiệp vụ commit token rồi xếp thư vào `tasks` (FastAPI `BackgroundTasks`
-– chạy sau khi đã trả response, trong threadpool). Request không chờ SMTP; quên mật khẩu trả về cùng thời gian dù tài
-khoản có tồn tại hay không. Gửi lỗi: ghi log + nhật ký `user.mail_failed` (purpose, lỗi) – không làm lỗi request;
-gửi lại bằng `:resend-invite` / quên mật khẩu lần nữa. Thư chưa gửi bị mất nếu tiến trình dừng giữa chừng (không
-có hàng đợi bền vững) – token chỉ lưu SHA-256 nên không thể gửi lại từ CSDL.
+Gửi thư là **tác vụ nền** (Giai đoạn 6–7, `app.core.jobs`): request ghi nhật ký, commit rồi xếp tác vụ
+`deliver_invitation` / `deliver_password_reset` / `deliver_password_changed` – tham số chỉ là id. Tác vụ đọc CSDL,
+**cấp token lúc gửi** (Redis không chứa token) rồi gửi. Có `JOB_QUEUE_URL`: hàng đợi rq bền vững, gửi lỗi thì thử lại
+(mỗi lần thử cấp token mới, token chưa gửi được bị vô hiệu); không có: chạy nền trong tiến trình API, một lần.
+Request không chờ SMTP; quên mật khẩu trả về cùng thời gian dù tài khoản có tồn tại hay không. Lần thử cuối vẫn lỗi:
+log + nhật ký `user.mail_failed` (purpose, lỗi, số lần thử) – request không lỗi; gửi lại bằng `:resend-invite` /
+quên mật khẩu lần nữa.
 """
 
 import logging
 import secrets
 from collections.abc import Callable
 from datetime import timedelta
-from typing import Any, Protocol
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
-from app.core import rate_limit
+from app.core import jobs, rate_limit
 from app.core.config import get_settings
 from app.core.db import SessionLocal, engine
 from app.core.errors import AppError, ErrorCode
@@ -40,10 +41,7 @@ logger = logging.getLogger("app.identity.email")
 INVALID_LINK = "Đường dẫn không hợp lệ, đã dùng hoặc đã hết hạn"
 
 
-class TaskQueue(Protocol):
-    """Nơi xếp tác vụ nền – FastAPI `BackgroundTasks` thỏa giao diện này."""
-
-    def add_task(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> None: ...
+TaskQueue = jobs.TaskQueue
 
 
 def _issue(db: Session, user: SysUser, purpose: TokenPurpose, ttl: timedelta, actor_id: int | None) -> str:
@@ -96,43 +94,11 @@ def _link(path: str, raw: str) -> str:
     return f"{get_settings().public_base_url}/{path}#token={raw}"
 
 
-def _queue(tasks: TaskQueue, user: SysUser, purpose: str, subject: str, body: str, actor_id: int | None) -> None:
-    """Xếp thư vào tác vụ nền. Gọi **sau** khi commit: thư chỉ đi khi token đã lưu."""
-    tasks.add_task(deliver, mail.Mail(to=user.email, subject=subject, body=body), user.id, purpose, actor_id)
-
-
-def deliver(message: mail.Mail, user_id: int, purpose: str, actor_id: int | None) -> bool:
-    """Tác vụ nền: gửi thư; lỗi → log + nhật ký `user.mail_failed`, không ném lỗi ra ngoài (response đã trả)."""
-    try:
-        mail.send(message)
-        return True
-    except mail.MailError as exc:
-        reason = str(exc)
-        logger.error("Không gửi được thư %s tới user_id=%s: %s", purpose, user_id, reason)
-    except Exception as exc:  # tác vụ nền không được làm sập tiến trình
-        reason = f"Lỗi không xác định: {type(exc).__name__}"
-        logger.exception("Lỗi không xác định khi gửi thư %s tới user_id=%s", purpose, user_id)
-    try:
-        with SessionLocal() as log_db:
-            audit.record(
-                log_db, "user.mail_failed", "user", user_id, actor_id, after={"purpose": purpose, "error": reason}
-            )
-            log_db.commit()
-    except Exception:
-        logger.exception("Không ghi được nhật ký lỗi gửi thư user_id=%s", user_id)
-    return False
-
-
-# --- Thư mời -----------------------------------------------------------------------------------------------------
-
-
-def send_invitation(db: Session, user: SysUser, actor_id: int | None, tasks: TaskQueue) -> None:
-    """Cấp token mời, commit, rồi xếp thư gửi nền (`user.invite_sent` = đã cấp token và xếp thư; gửi lỗi ghi thêm
-    `user.mail_failed`, gửi lại qua `:resend-invite`)."""
+def _invitation_mail(db: Session, user: SysUser, actor_id: int | None) -> mail.Mail | None:
+    if not user.is_active or not invitation_pending(db, user):
+        return None  # đã nhận lời mời / bị vô hiệu hóa trong lúc chờ gửi
     settings = get_settings()
     raw = _issue(db, user, TokenPurpose.INVITE, timedelta(hours=settings.invite_token_ttl_hours), actor_id)
-    audit.record(db, "user.invite_sent", "user", user.id, actor_id, after={"email": user.email})
-    db.commit()
     body = (
         f"Xin chào {user.full_name},\n\n"
         f"Tài khoản cổng khách hàng của bạn đã được tạo (tên đăng nhập: {user.username}).\n"
@@ -142,7 +108,98 @@ def send_invitation(db: Session, user: SysUser, actor_id: int | None, tasks: Tas
         "(Google Authenticator, Microsoft Authenticator…).\n"
         "Nếu bạn không chờ thư này, hãy bỏ qua.\n"
     )
-    _queue(tasks, user, TokenPurpose.INVITE.value, "Mời đặt mật khẩu tài khoản cổng khách hàng", body, actor_id)
+    return mail.Mail(to=user.email, subject="Mời đặt mật khẩu tài khoản cổng khách hàng", body=body)
+
+
+def _reset_mail(db: Session, user: SysUser, actor_id: int | None) -> mail.Mail | None:
+    if not user.is_active:
+        return None
+    settings = get_settings()
+    raw = _issue(db, user, TokenPurpose.PASSWORD_RESET, timedelta(minutes=settings.password_reset_token_ttl_min), None)
+    body = (
+        f"Xin chào {user.full_name},\n\n"
+        "Có yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Đặt mật khẩu mới tại đường dẫn sau "
+        f"(hiệu lực {settings.password_reset_token_ttl_min} phút, dùng một lần):\n\n"
+        f"{_link('reset-password', raw)}\n\n"
+        "Nếu không phải bạn yêu cầu, hãy bỏ qua thư này – mật khẩu hiện tại vẫn giữ nguyên.\n"
+    )
+    return mail.Mail(to=user.email, subject="Đặt lại mật khẩu", body=body)
+
+
+def _changed_mail(db: Session, user: SysUser, actor_id: int | None) -> mail.Mail | None:
+    body = (
+        f"Xin chào {user.full_name},\n\n"
+        f"Mật khẩu tài khoản {user.username} vừa được đặt lại qua đường dẫn gửi tới email này; "
+        "mọi phiên đăng nhập cũ đã bị đăng xuất.\n"
+        "Nếu không phải bạn thực hiện, hãy dùng chức năng quên mật khẩu ngay và báo quản trị hệ thống.\n"
+    )
+    return mail.Mail(to=user.email, subject="Mật khẩu của bạn đã được đặt lại", body=body)
+
+
+MailBuilder = Callable[[Session, SysUser, int | None], mail.Mail | None]
+
+
+def _deliver(purpose: str, user_id: int, actor_id: int | None, build: MailBuilder) -> bool:
+    """Thân chung của tác vụ gửi thư. Trả True nếu đã gửi, False nếu bỏ qua / lỗi ở lần thử cuối ngoài worker.
+
+    Lỗi (SMTP, CSDL…): trong worker rq → ném lại để rq thử lại / chuyển FailedJobRegistry; lần thử cuối ghi nhật ký
+    `user.mail_failed`. Ngoài worker (chạy nền trong tiến trình API) → một lần, ghi nhật ký, không ném (response
+    đã trả).
+    """
+    try:
+        with SessionLocal() as db:
+            user = db.get(SysUser, user_id)
+            message = build(db, user, actor_id) if user is not None and user.email else None
+            if message is None:
+                logger.info("Bỏ qua thư %s cho user_id=%s (không còn cần gửi)", purpose, user_id)
+                return False
+            db.commit()  # token (nếu có) lưu trước khi gửi
+        mail.send(message)
+        return True
+    except mail.MailError as exc:
+        reason = str(exc)
+    except Exception as exc:  # tác vụ nền không được làm sập tiến trình
+        reason = f"Lỗi không xác định: {type(exc).__name__}"
+        logger.exception("Lỗi không xác định khi gửi thư %s tới user_id=%s", purpose, user_id)
+    number, last = jobs.attempt()
+    logger.error("Không gửi được thư %s tới user_id=%s (lần thử %s): %s", purpose, user_id, number, reason)
+    if last:
+        try:
+            with SessionLocal() as log_db:
+                after = {"purpose": purpose, "error": reason, "attempts": number}
+                audit.record(log_db, "user.mail_failed", "user", user_id, actor_id, after=after)
+                log_db.commit()
+        except Exception:
+            logger.exception("Không ghi được nhật ký lỗi gửi thư user_id=%s", user_id)
+    if jobs.in_worker():
+        raise mail.MailError(reason)
+    return False
+
+
+# Tác vụ nền (rq lưu đường dẫn hàm: đổi tên/chuyển chỗ thì tác vụ đang chờ trong Redis không chạy được)
+
+
+def deliver_invitation(user_id: int, actor_id: int | None) -> bool:
+    return _deliver(TokenPurpose.INVITE.value, user_id, actor_id, _invitation_mail)
+
+
+def deliver_password_reset(user_id: int) -> bool:
+    return _deliver(TokenPurpose.PASSWORD_RESET.value, user_id, None, _reset_mail)
+
+
+def deliver_password_changed(user_id: int) -> bool:
+    return _deliver("password_changed", user_id, user_id, _changed_mail)
+
+
+# --- Thư mời -----------------------------------------------------------------------------------------------------
+
+
+def send_invitation(db: Session, user: SysUser, actor_id: int | None, tasks: TaskQueue) -> None:
+    """Ghi nhật ký `user.invite_sent` (= đã xếp thư), commit, xếp tác vụ gửi. Gửi lỗi hết lượt thử → thêm
+    `user.mail_failed`; gửi lại qua `:resend-invite`."""
+    audit.record(db, "user.invite_sent", "user", user.id, actor_id, after={"email": user.email})
+    db.commit()
+    jobs.enqueue(tasks, deliver_invitation, user.id, actor_id)
 
 
 def invitation_pending(db: Session, user: SysUser) -> bool:
@@ -187,22 +244,13 @@ def check_forgot_rate(identifier: str, ip: str | None) -> None:
 
 def request_password_reset(db: Session, identifier: str, tasks: TaskQueue) -> None:
     """Tên đăng nhập hoặc email. Không tìm thấy / không có email / bị vô hiệu hóa: im lặng (không lộ thông tin)."""
-    settings = get_settings()
     key = identifier.strip().lower()
     user = db.scalar(select(SysUser).where(or_(SysUser.username == key, SysUser.email == key)))
     if user is None or not user.is_active or not user.email:
         return
-    raw = _issue(db, user, TokenPurpose.PASSWORD_RESET, timedelta(minutes=settings.password_reset_token_ttl_min), None)
     audit.record(db, "user.password_reset_requested", "user", user.id, None)
     db.commit()
-    body = (
-        f"Xin chào {user.full_name},\n\n"
-        "Có yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Đặt mật khẩu mới tại đường dẫn sau "
-        f"(hiệu lực {settings.password_reset_token_ttl_min} phút, dùng một lần):\n\n"
-        f"{_link('reset-password', raw)}\n\n"
-        "Nếu không phải bạn yêu cầu, hãy bỏ qua thư này – mật khẩu hiện tại vẫn giữ nguyên.\n"
-    )
-    _queue(tasks, user, TokenPurpose.PASSWORD_RESET.value, "Đặt lại mật khẩu", body, None)
+    jobs.enqueue(tasks, deliver_password_reset, user.id)  # token cấp lúc gửi
 
 
 def reset_password(db: Session, raw: str, new_password: str, tasks: TaskQueue) -> SysUser:
@@ -214,13 +262,7 @@ def reset_password(db: Session, raw: str, new_password: str, tasks: TaskQueue) -
     audit.record(db, "user.password_reset", "user", user.id, user.id, after={"method": "email_link"})
     db.commit()
     if user.email:
-        body = (
-            f"Xin chào {user.full_name},\n\n"
-            f"Mật khẩu tài khoản {user.username} vừa được đặt lại qua đường dẫn gửi tới email này; "
-            "mọi phiên đăng nhập cũ đã bị đăng xuất.\n"
-            "Nếu không phải bạn thực hiện, hãy dùng chức năng quên mật khẩu ngay và báo quản trị hệ thống.\n"
-        )
-        _queue(tasks, user, "password_changed", "Mật khẩu của bạn đã được đặt lại", body, user.id)
+        jobs.enqueue(tasks, deliver_password_changed, user.id)
     return user
 
 

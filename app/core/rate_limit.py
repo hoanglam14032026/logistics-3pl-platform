@@ -70,7 +70,8 @@ def hit(engine: Engine, scope: str, key: str, limit: int, window_sec: int, at: d
     )
     with engine.begin() as conn:
         count = conn.execute(stmt).scalar_one()
-        conn.execute(delete(SysRateLimitCounter).where(SysRateLimitCounter.window_start < at - _RETENTION))
+        if count == 1:  # dọn bộ đếm cũ khi mở cửa sổ mới (không phải mỗi request – Giai đoạn 7 đếm mọi API)
+            conn.execute(delete(SysRateLimitCounter).where(SysRateLimitCounter.window_start < at - _RETENTION))
     retry_after = max(1, math.ceil((start + timedelta(seconds=window_sec) - at).total_seconds()))
     return Hit(count=count, limit=limit, retry_after=retry_after)
 
