@@ -177,3 +177,113 @@ class ProfileOut(BaseModel):
     note: str | None
     updated_at: UtcDatetime
     row_version: int
+
+
+# --- Theo dõi thực thi, cảnh báo (Giai đoạn 12) -----------------------------------------------------------------
+
+Note = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+
+
+class TaskActionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note: Note | None = None
+
+
+class TaskBlockIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
+
+
+class TaskProgressIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    progress_pct: int = Field(ge=0, le=99, description="100% = dùng :complete")
+    note: Note | None = None
+
+
+class TaskTrackOut(TaskOut):
+    actual_start: UtcDatetime | None
+    actual_end: UtcDatetime | None
+    progress_pct: int
+    blocked_reason: str | None
+    blocked_at: UtcDatetime | None
+    note: str | None
+    updated_at: UtcDatetime | None
+    delay_hours: float = Field(0.0, description="Trễ so với planned_end (xong: thực tế; chưa xong: tới hiện tại)")
+
+
+class TaskUpdateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    action: str
+    from_status: str
+    to_status: str
+    progress_pct: int
+    note: str | None
+    actor_id: int | None
+    at: UtcDatetime
+
+
+class TaskDetailOut(TaskTrackOut):
+    updates: list[TaskUpdateOut] = []
+
+
+class HealthOut(BaseModel):
+    health: str = Field(
+        description="on_track | at_risk (có bước quá hạn) | late (dự kiến trễ hạn giao) | blocked | completed | closed"
+    )
+    progress_pct: float
+    task_counts: dict[str, int]
+    overdue_tasks: list[str]
+    current_step: str | None
+    planned_end: UtcDatetime | None
+    forecast_end: UtcDatetime | None
+    required_delivery_at: UtcDatetime | None
+    late_vs_required_hours: float
+
+
+class ShipmentTrackOut(ShipmentPlanOut):
+    tracking: HealthOut
+
+
+class ShipmentTrackDetailOut(ShipmentTrackOut):
+    tasks: list[TaskTrackOut] = []
+
+
+class PlanTrackOut(BaseModel):
+    plan_id: int
+    contract_id: int
+    contract_no: str
+    shipments: int
+    by_health: dict[str, int]
+    progress_pct: float
+    open_alerts: int
+
+
+class AlertOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    alert_type: str
+    severity: str
+    shipment_id: int
+    task_id: int | None
+    plan_id: int | None
+    recipient_id: int | None
+    message: str
+    details: dict[str, Any] | None
+    status: str
+    raised_at: UtcDatetime
+    acknowledged_at: UtcDatetime | None
+    acknowledged_by: int | None
+    resolved_at: UtcDatetime | None
+    resolved_by: int | None
+    resolution_note: str | None
+
+
+class ResolveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]

@@ -51,6 +51,37 @@ class WorkStatus(StrEnum):
     CLOSED = "closed"  # lô đã giao / đóng / hủy (EV-112, EV-142) – không còn tính vào tải công việc
 
 
+class TaskStatus(StrEnum):
+    """Trạng thái bước (Giai đoạn 12): open → in_progress → done; in_progress ⇄ blocked (lỗi, chờ…); closed: lô đã
+    đóng/hủy (EV-112)."""
+
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    BLOCKED = "blocked"
+    DONE = "done"
+    CLOSED = "closed"
+
+
+ACTIVE_TASK_STATUSES = (TaskStatus.OPEN.value, TaskStatus.IN_PROGRESS.value, TaskStatus.BLOCKED.value)
+
+
+class AlertType(StrEnum):
+    TASK_BLOCKED = "task_blocked"  # bước gặp lỗi / bị chặn
+    TASK_OVERDUE = "task_overdue"  # quá thời hạn kế hoạch mà chưa xong
+    SHIPMENT_LATE_RISK = "shipment_late_risk"  # dự kiến xong sau hạn giao yêu cầu (SLA)
+
+
+class AlertSeverity(StrEnum):
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
+class AlertStatus(StrEnum):
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    RESOLVED = "resolved"
+
+
 class AssignMethod(StrEnum):
     AUTO = "auto"
     MANUAL = "manual"
@@ -158,7 +189,13 @@ class CtlShipmentTask(Base):
     __tablename__ = "ctl_shipment_tasks"
     __table_args__ = (
         UniqueConstraint("shipment_plan_id", "step_code", name="uq_ctl_shipment_tasks_plan_step"),
-        CheckConstraint(f"status IN ({_in(WorkStatus)})", name="status_valid"),
+        CheckConstraint(f"status IN ({_in(TaskStatus)})", name="status_valid"),
+        CheckConstraint("progress_pct BETWEEN 0 AND 100", name="progress_range"),
+        CheckConstraint("(status = 'blocked') = (blocked_reason IS NOT NULL)", name="blocked_has_reason"),
+        CheckConstraint("status <> 'done' OR (actual_end IS NOT NULL AND progress_pct = 100)", name="done_has_end"),
+        CheckConstraint(
+            "actual_end IS NULL OR actual_start IS NULL OR actual_end >= actual_start", name="actual_order"
+        ),
         CheckConstraint(
             "controller_id IS NULL OR assignee_id IS NULL OR controller_id <> assignee_id", name="four_eyes"
         ),
@@ -183,6 +220,15 @@ class CtlShipmentTask(Base):
     assignee_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("sys_users.id", ondelete="RESTRICT"))
     controller_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("sys_users.id", ondelete="RESTRICT"))
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    # Thực tế (Giai đoạn 12)
+    actual_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    actual_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    progress_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    blocked_reason: Mapped[str | None] = mapped_column(String(500))
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(String(1000))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_by: Mapped[int | None] = mapped_column(BigInteger)
 
 
 class CtlAssignment(Base):
@@ -235,3 +281,62 @@ class CtlStaffProfile(AuditColumnsMixin, Base):
     )
     is_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
     note: Mapped[str | None] = mapped_column(String(500))
+
+
+class CtlTaskUpdate(Base):
+    """Nhật ký cập nhật thực tế của bước (Giai đoạn 12) – chỉ ghi thêm: bắt đầu, % tiến độ, chặn/gỡ chặn, hoàn thành."""
+
+    __tablename__ = "ctl_task_updates"
+    __table_args__ = (Index("ix_ctl_task_updates_task", "task_id", "id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ctl_shipment_tasks.id", ondelete="RESTRICT"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(16), nullable=False)  # start | progress | block | unblock | complete
+    from_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    to_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    progress_pct: Mapped[int] = mapped_column(Integer, nullable=False)
+    note: Mapped[str | None] = mapped_column(String(1000))
+    actor_id: Mapped[int | None] = mapped_column(BigInteger)
+    at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+
+
+class CtlAlert(Base):
+    """Cảnh báo chậm / lỗi cho manager (03 §3.5 – Giai đoạn 12). Người nhận: `account_manager` của kế hoạch; không có →
+    NULL = mọi `manager`. Một cảnh báo chưa xử lý cho mỗi `dedup_key` (không cảnh báo lặp)."""
+
+    __tablename__ = "ctl_alerts"
+    __table_args__ = (
+        CheckConstraint(f"alert_type IN ({_in(AlertType)})", name="alert_type_valid"),
+        CheckConstraint(f"severity IN ({_in(AlertSeverity)})", name="severity_valid"),
+        CheckConstraint(f"status IN ({_in(AlertStatus)})", name="status_valid"),
+        CheckConstraint("(status = 'resolved') = (resolved_at IS NOT NULL)", name="resolved_has_time"),
+        Index(
+            "uq_ctl_alerts_dedup_unresolved", "dedup_key", unique=True, postgresql_where=text("status <> 'resolved'")
+        ),
+        Index("ix_ctl_alerts_recipient_status", "recipient_id", "status"),
+        Index("ix_ctl_alerts_shipment", "shipment_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    alert_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    dedup_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    shipment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    task_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ctl_shipment_tasks.id", ondelete="RESTRICT"))
+    plan_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ctl_contract_plans.id", ondelete="RESTRICT"))
+    recipient_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("sys_users.id", ondelete="RESTRICT"))
+    message: Mapped[str] = mapped_column(String(500), nullable=False)
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    raised_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acknowledged_by: Mapped[int | None] = mapped_column(BigInteger)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[int | None] = mapped_column(BigInteger)  # NULL: hệ thống tự đóng (bước xong / gỡ chặn)
+    resolution_note: Mapped[str | None] = mapped_column(String(500))

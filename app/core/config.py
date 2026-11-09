@@ -128,6 +128,11 @@ class Settings(BaseSettings):
     event_stream_prefix: str = Field(default="l3pl:events:", pattern=r"^[A-Za-z0-9:._-]{1,64}$")
     event_stream_maxlen: int = Field(default=100_000, gt=0)
 
+    # Luồng 2 – theo dõi thực thi (Giai đoạn 12): chu kỳ quét chậm trễ (tác vụ rq tự xếp lại; 0 = tắt), bước trễ từ N
+    # giờ trở lên → cảnh báo mức critical.
+    control_scan_interval_sec: int = Field(default=300, ge=0)
+    control_overdue_critical_hours: float = Field(default=24, gt=0)
+
     # AI local trích xuất chứng từ (Giai đoạn 9). Chỉ gọi máy chủ model trong máy / mạng nội bộ: OLLAMA_URL ngoài
     # localhost / mạng riêng → ứng dụng KHÔNG khởi động (app/core/netguard.py). Danh mục model đọc từ bảng `ai_models`
     # (admin quản lý) – không ghi tên model trong mã nghiệp vụ.

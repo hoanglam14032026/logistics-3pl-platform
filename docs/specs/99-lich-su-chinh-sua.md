@@ -346,3 +346,14 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | `tests/conftest.py` xóa sạch mọi bảng | Nạp lại dữ liệu seed (quy trình mẫu) sau mỗi lần xóa | Quy trình mẫu là dữ liệu migration |
 | – | 18 test mới (17 Luồng 2 trên PostgreSQL + Redis thật – chuỗi outbox → Luồng 2 → EV-202 → Luồng 1, năng lực, tải/sức chứa, không có người, BR-204, BR-201, quy trình nội địa / không có quy trình, không xử lý trùng, lỗi → thử lại → dead, replay không Redis, hủy lô giảm tải, điều chuyển tay, phân quyền, hồ sơ năng lực, tắt Luồng 2, trigger; 1 migration); 3 test cũ cập nhật (EV-111 thêm trường, head `0012`, tên CHECK) | `07` §5 |
 
+### 10.27. Mã nguồn – Giai đoạn 12: Luồng 2 – theo dõi thực thi, sự kiện, cảnh báo (09/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Bước của lô chỉ `open` / `closed` | `open` → `in_progress` → `done`, `blocked` (lý do); thực tế `actual_start`/`actual_end`, `progress_pct`; API `:start` / `PATCH` / `:block` / `:unblock` / `:complete`; `ctl_task_updates` (chỉ ghi thêm), nhật ký `task.*`; tải công việc tính mọi bước chưa xong | Yêu cầu Giai đoạn 12 (mục 1 – cập nhật thực tế) |
+| – | `/api/v2/control/tracking/shipments`, `/tracking/shipments/{id}`, `/tracking/contract-plans/{id}`, `/tasks/{id}`: tình trạng (on_track, at_risk, late, blocked, completed, closed), % tiến độ, bước hiện tại, dự kiến xong, trễ | Yêu cầu Giai đoạn 12 (mục 1) |
+| Luồng 2 chỉ phát EV-202 | Thêm `ctl.task.started` / `completed` / `blocked` / `delayed`, `ctl.alert.raised` (luồng nhận 4) qua outbox | Yêu cầu Giai đoạn 12 (mục 2) – mã EV chính thức **CẦN XÁC NHẬN** |
+| – | `ctl_alerts`: `task_blocked`, `task_overdue` (warning → critical), `shipment_late_risk`; người nhận account_manager / mọi manager; không lặp; tự đóng; quét định kỳ (tác vụ rq tự xếp lại, `CONTROL_SCAN_INTERVAL_SEC`); API `/alerts` + `:acknowledge` / `:resolve` / `:scan`; nhật ký `alert.*` | Yêu cầu Giai đoạn 12 (mục 3); `03` §3.5 |
+| – | Migration `0013`: 8 cột + 5 CHECK `ctl_shipment_tasks`, `ctl_task_updates`, `ctl_alerts`, trigger (nhật ký bước chỉ ghi thêm, không xóa cảnh báo) | `07` §6 điểm 3 |
+| – | 9 test mới (PostgreSQL + Redis thật – vòng đời bước + sự kiện tới stream Luồng 4, chặn → cảnh báo → gỡ tự đóng, quét quá hạn → nâng mức → xong tự đóng, nguy cơ trễ hạn giao, API cảnh báo + phân quyền, theo dõi + phân quyền, hủy lô đóng bước đang làm, tác vụ quét tự xếp lại, trigger/CHECK); test migration cập nhật (head `0013`, tên CHECK) | `07` §5 |
+

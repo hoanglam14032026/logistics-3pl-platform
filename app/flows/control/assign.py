@@ -7,8 +7,9 @@ Phân công tự động (Giai đoạn 11) – chọn người theo **vai trò**
    mọi `ops_staff`. Người được chọn được hệ thống thêm làm thành viên (`added_by` NULL – không giới hạn lần sau).
 3. Năng lực: `ctl_staff_profiles.skills` {mã: mức 1–5} so với `required_skill` các bước của lô – ưu tiên người đủ nhiều
    năng lực nhất, rồi mức trung bình cao hơn.
-4. Tải công việc: tổng giờ chuẩn các bước **đang mở** đã giao (`ctl_shipment_tasks`), so với `max_load_hours` (mặc
-   định 40). Ưu tiên người không vượt sức chứa sau khi nhận lô, rồi tỉ lệ tải thấp nhất, ít bước mở hơn, id nhỏ hơn.
+4. Tải công việc: tổng giờ chuẩn các bước **chưa xong** (open, in_progress, blocked) đã giao, so với
+   `max_load_hours` (mặc định 40). Ưu tiên người không vượt sức chứa sau khi nhận lô, rồi tỉ lệ tải thấp nhất, ít bước
+   mở hơn, id nhỏ hơn.
 
 Thứ tự so sánh: (thiếu năng lực ít nhất, không quá tải, tỉ lệ tải sau khi nhận thấp, mức năng lực cao, ít bước mở, id).
 Kết quả kèm giải thích (`score`) – ghi vào `ctl_assignments` và nhật ký.
@@ -20,7 +21,7 @@ from decimal import Decimal
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from app.flows.control.models import CtlShipmentTask, CtlStaffProfile, WorkStatus
+from app.flows.control.models import ACTIVE_TASK_STATUSES, CtlShipmentTask, CtlStaffProfile
 from app.shared.identity.models import SysUser, SysUserRole
 
 DEFAULT_MAX_LOAD = Decimal("40")
@@ -73,7 +74,7 @@ def users_with_role(db: Session, role: str) -> list[SysUser]:
 def loads(db: Session, exclude_shipment_plan_id: int | None = None) -> dict[int, tuple[Decimal, int]]:
     stmt = select(
         CtlShipmentTask.assignee_id, func.coalesce(func.sum(CtlShipmentTask.standard_duration_hours), 0), func.count()
-    ).where(CtlShipmentTask.status == WorkStatus.OPEN.value, CtlShipmentTask.assignee_id.is_not(None))
+    ).where(CtlShipmentTask.status.in_(ACTIVE_TASK_STATUSES), CtlShipmentTask.assignee_id.is_not(None))
     if exclude_shipment_plan_id is not None:
         stmt = stmt.where(CtlShipmentTask.shipment_plan_id != exclude_shipment_plan_id)
     return {

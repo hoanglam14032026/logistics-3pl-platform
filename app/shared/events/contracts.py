@@ -112,6 +112,69 @@ class AssignmentChanged(EventData):
     reason: str | None = None
 
 
+# --- ctl.* – theo dõi thực thi của Luồng 2 (Giai đoạn 12) – luồng nhận: Luồng 4 (KPI) --------------------------------
+# Danh mục 01 §5 chưa có mã cho các sự kiện này (EV-131/132/133 là bước của Luồng 1) – dùng mã dạng tên (CẦN XÁC NHẬN).
+
+
+class _CtlTaskEvent(EventData):
+    consumers: ClassVar[tuple[str, ...]] = ("assessment",)
+
+    shipment_id: int
+    task_id: int
+    step_code: str
+    plan_id: int | None
+    assignee_id: int | None
+    planned_start: UtcDatetime
+    planned_end: UtcDatetime
+
+
+class CtlTaskStarted(_CtlTaskEvent):
+    code: ClassVar[str] = "ctl.task.started"
+    name: ClassVar[str] = "ctl.task.started"
+
+    actual_start: UtcDatetime
+    start_delay_hours: float
+
+
+class CtlTaskCompleted(_CtlTaskEvent):
+    code: ClassVar[str] = "ctl.task.completed"
+    name: ClassVar[str] = "ctl.task.completed"
+
+    actual_start: UtcDatetime | None
+    actual_end: UtcDatetime
+    delay_hours: float  # > 0: xong sau planned_end
+    is_checkpoint: bool
+
+
+class CtlTaskBlocked(_CtlTaskEvent):
+    code: ClassVar[str] = "ctl.task.blocked"
+    name: ClassVar[str] = "ctl.task.blocked"
+
+    reason: str
+
+
+class CtlTaskDelayed(_CtlTaskEvent):
+    code: ClassVar[str] = "ctl.task.delayed"
+    name: ClassVar[str] = "ctl.task.delayed"
+
+    overdue_hours: float
+    status: str
+
+
+class CtlAlertRaised(EventData):
+    code: ClassVar[str] = "ctl.alert.raised"
+    name: ClassVar[str] = "ctl.alert.raised"
+    consumers: ClassVar[tuple[str, ...]] = ("assessment",)
+
+    alert_id: int
+    alert_type: str
+    severity: str
+    shipment_id: int
+    task_id: int | None
+    plan_id: int | None
+    recipient_id: int | None
+
+
 # --- doc.* – job trích xuất chứng từ AI local (Giai đoạn 10) -------------------------------------------------------
 
 

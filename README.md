@@ -50,7 +50,7 @@ python -m app.worker                                     # worker: email, OCR + 
 python -m app.shared.events.cli dispatch [--failed]      # xếp gửi lại sự kiện còn chờ trong outbox
 python -m app.shared.events.cli replay control           # Luồng 2 xử lý lại sự kiện từ outbox (idempotent, không cần Redis)
 python -m app.shared.identity.cli create-admin --username admin --full-name "Quản trị"   # admin đầu tiên
-pytest                                                   # 771 test: 550 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 220 đơn vị + 1 model thật (bỏ qua mặc định)
+pytest                                                   # 780 test: 559 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 220 đơn vị + 1 model thật (bỏ qua mặc định)
 ruff check . && ruff format --check .
 ```
 
@@ -111,6 +111,8 @@ curl -X POST http://127.0.0.1:8000/api/v2/admin/ai-models/2:probe -H "Authorizat
 **Duyệt 2 người (Giai đoạn 10):** job hợp đồng và hóa đơn giá trị lớn (`DOCAI_DUAL_APPROVAL_THRESHOLDS`) sau lần duyệt đầu ở trạng thái `pending_second_approval`; người duyệt thứ 2 (thường là `manager`) gọi lại `POST …/approve` – phải khác người tải lên và khác người duyệt đầu. Hóa đơn: sau khi duyệt, `POST /api/v2/ops/commercial-invoices?source_doc_job_id={id}` với `form` + `shipment_id` hoặc `contract_id`.
 
 **Luồng 2 – kế hoạch, phân công tự động (Giai đoạn 11):** worker nhận EV-101 → kế hoạch hợp đồng nháp; EV-111 → các bước từ quy trình mẫu + phân công tự động theo vai trò, năng lực, tải → EV-202 → Luồng 1 đặt người phụ trách lô. Manager đặt năng lực/sức chứa: `PUT /api/v2/control/staff-profiles/{user_id}` `{"skills": {"CUSTOMS_CLEARANCE": 4, "DOCS": 3}, "max_load_hours": "40"}`; xem `GET /api/v2/control/workload`, điều chuyển `POST /api/v2/control/assignments`.
+
+**Theo dõi thực thi (Giai đoạn 12):** người được giao cập nhật bước `POST /api/v2/control/tasks/{id}:start` · `PATCH` (% tiến độ) · `:block` (lý do) · `:unblock` · `:complete`; theo dõi `GET /api/v2/control/tracking/shipments?health=late`; manager xem cảnh báo chậm / lỗi `GET /api/v2/control/alerts?mine=true`, `:acknowledge`, `:resolve`. Worker quét chậm trễ mỗi `CONTROL_SCAN_INTERVAL_SEC` giây.
 
 Test với model thật (bỏ qua mặc định): `DOCAI_LIVE_OLLAMA=1 pytest tests/shared/docai/test_live_ollama.py`.
 

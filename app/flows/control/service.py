@@ -26,6 +26,7 @@ from app.core.rbac import Role
 from app.core.timeutil import now_utc
 from app.flows.control import assign
 from app.flows.control.models import (
+    ACTIVE_TASK_STATUSES,
     AssignMethod,
     CtlAssignment,
     CtlContractPlan,
@@ -35,6 +36,7 @@ from app.flows.control.models import (
     CtlShipmentTask,
     CtlStaffProfile,
     PlanStatus,
+    TaskStatus,
     WorkStatus,
 )
 from app.shared.audit import service as audit
@@ -202,7 +204,7 @@ def on_shipment_created(db: Session, envelope: dict[str, Any]) -> dict[str, Any]
                 checkpoint_type=step.checkpoint_type,
                 planned_start=cursor,
                 planned_end=end,
-                status=WorkStatus.OPEN.value,
+                status=TaskStatus.OPEN.value,
             )
             db.add(task)
             tasks.append(task)
@@ -297,7 +299,7 @@ def _apply(
     sp.updated_by = actor_id
     tasks = tasks_of(db, sp)
     for t in tasks:
-        if t.status == WorkStatus.OPEN.value and t.responsible_role == Role.OPS_STAFF.value:
+        if t.status in ACTIVE_TASK_STATUSES and t.responsible_role == Role.OPS_STAFF.value:
             t.assignee_id = assignee_id
     _set_controllers(db, sp, tasks, assignee_id)
     body = None
@@ -363,7 +365,7 @@ def _apply(
 def _set_controllers(db: Session, sp: CtlShipmentPlan, tasks: list[CtlShipmentTask], performer: int | None) -> None:
     """Người kiểm soát bước điểm kiểm soát: account_manager của kế hoạch; trùng người thực hiện → manager khác ít việc
     nhất (BR-201 – nguyên tắc 4 mắt)."""
-    checkpoints = [t for t in tasks if t.is_checkpoint and t.status == WorkStatus.OPEN.value]
+    checkpoints = [t for t in tasks if t.is_checkpoint and t.status in ACTIVE_TASK_STATUSES]
     if not checkpoints:
         return
     plan = db.get(CtlContractPlan, sp.plan_id) if sp.plan_id else None
@@ -378,7 +380,7 @@ def _set_controllers(db: Session, sp: CtlShipmentPlan, tasks: list[CtlShipmentTa
 def auto_assign(db: Session, sp: CtlShipmentPlan, actor_id: int | None, reason: str) -> CtlAssignment | None:
     assign.lock(db)
     tasks = [
-        t for t in tasks_of(db, sp) if t.status == WorkStatus.OPEN.value and t.responsible_role == Role.OPS_STAFF.value
+        t for t in tasks_of(db, sp) if t.status in ACTIVE_TASK_STATUSES and t.responsible_role == Role.OPS_STAFF.value
     ]
     skills = {t.required_skill for t in tasks if t.required_skill}
     hours = sum((Decimal(t.standard_duration_hours) for t in tasks), Decimal(0))
@@ -410,8 +412,8 @@ def on_shipment_status_changed(db: Session, envelope: dict[str, Any]) -> dict[st
     if data["to"] in CLOSING_STATUSES and sp.status == WorkStatus.OPEN.value:
         closed = db.execute(
             update(CtlShipmentTask)
-            .where(CtlShipmentTask.shipment_plan_id == sp.id, CtlShipmentTask.status == WorkStatus.OPEN.value)
-            .values(status=WorkStatus.CLOSED.value)
+            .where(CtlShipmentTask.shipment_plan_id == sp.id, CtlShipmentTask.status.in_(ACTIVE_TASK_STATUSES))
+            .values(status=TaskStatus.CLOSED.value, blocked_reason=None)
         ).rowcount
         sp.status = WorkStatus.CLOSED.value
         sp.closed_at = now_utc()
@@ -621,6 +623,6 @@ def workload(db: Session) -> list[dict[str, Any]]:
 
 def my_tasks(db: Session, user: SysUser) -> list[CtlShipmentTask]:
     stmt = select(CtlShipmentTask).where(
-        CtlShipmentTask.assignee_id == user.id, CtlShipmentTask.status == WorkStatus.OPEN.value
+        CtlShipmentTask.assignee_id == user.id, CtlShipmentTask.status.in_(ACTIVE_TASK_STATUSES)
     )
     return list(db.scalars(stmt.order_by(CtlShipmentTask.planned_start, CtlShipmentTask.id)))
