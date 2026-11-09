@@ -41,6 +41,7 @@ OPS_TABLES = {
     "ops_shipment_status_history",
     "ops_delivery_records",
 }
+DOCAI_TABLES = {"ai_models", "sys_doc_jobs", "sys_doc_extractions"}
 
 
 @pytest.fixture(autouse=True)
@@ -66,13 +67,13 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0009"
+    assert head_revision() == "0010"
 
 
 def test_upgrade_from_empty_creates_all_tables():
     reset_database()
     assert upgrade_to_head(engine) == head_revision()
-    expected = BASELINE_TABLES | IDENTITY_TABLES | MASTERDATA_TABLES | AUDIT_TABLES | OPS_TABLES
+    expected = BASELINE_TABLES | IDENTITY_TABLES | MASTERDATA_TABLES | AUDIT_TABLES | OPS_TABLES | DOCAI_TABLES
     assert _tables() == expected | {"alembic_version"}
 
 
@@ -151,3 +152,28 @@ def test_0008_encrypts_existing_totp_secrets_and_downgrade_decrypts():
     _alembic(command.downgrade, "0007")
     with engine.connect() as conn:
         assert conn.scalar(text("SELECT totp_secret FROM sys_users WHERE username = 'a'")) == plain
+
+
+def test_0010_seeds_sample_model_and_downgrade_keeps_old_data():
+    """0010 thêm model mẫu qwen3.8:27b (endpoint NULL = OLLAMA_URL); 0010 → 0009 → 0010 không mất dữ liệu cũ."""
+    reset_database()
+    upgrade_to_head(engine)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT code, model_id, provider, endpoint, model_type, is_active, is_seeded FROM ai_models")
+        ).all()
+    assert rows == [("qwen3.8-27b", "qwen3.8:27b", "ollama", None, "vision", True, True)]
+    with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO md_parties (party_type, name, tax_code) VALUES ('customer', 'Cty A', '0101234567')")
+        )
+    _alembic(command.downgrade, "0009")
+    assert not (DOCAI_TABLES & _tables())
+    with engine.connect() as conn:
+        cols = {c["name"] for c in inspect(conn).get_columns("md_parties")}
+        assert "source_doc_job_id" not in cols
+        assert conn.scalar(text("SELECT name FROM md_parties")) == "Cty A"
+    _alembic(command.upgrade, "0010")
+    with engine.connect() as conn:
+        assert conn.scalar(text("SELECT source_doc_job_id FROM md_parties WHERE name = 'Cty A'")) is None
+        assert conn.scalar(text("SELECT count(*) FROM ai_models")) == 1

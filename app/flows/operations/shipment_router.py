@@ -17,7 +17,7 @@ from app.core.pagination import Page, PageParams
 from app.core.rbac import Role, require_roles
 from app.core.versioning import etag, parse_if_match
 from app.flows.operations import shipment_service as service
-from app.flows.operations.models import ShipmentStatus
+from app.flows.operations.models import OpsShipment, ShipmentStatus
 from app.flows.operations.shipment_schemas import (
     AssignIn,
     CancelIn,
@@ -28,6 +28,7 @@ from app.flows.operations.shipment_schemas import (
     ShipmentOut,
     ShipmentUpdate,
 )
+from app.shared.docai import linking as docai_linking
 from app.shared.identity.models import SysUser
 
 router = APIRouter(prefix="/api/v2/ops/shipments", tags=["Ops – Shipments"])
@@ -67,9 +68,12 @@ def list_shipments(
 def create_shipment(
     body: ShipmentCreate,
     response: Response,
+    source_doc_job_id: int | None = Query(None, gt=0, description=docai_linking.QUERY_DESCRIPTION),
     actor: SysUser = Depends(_staff),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
+    if source_doc_job_id is not None:  # Giai đoạn 9: nối job trích xuất đã duyệt – logic tạo không đổi
+        docai_linking.attach(db, source_doc_job_id, "shipment", OpsShipment, actor)
     shipment = service.create_shipment(db, body, actor)
     response.headers["Location"] = f"/api/v2/ops/shipments/{shipment.id}"
     return _detail(db, response, shipment)

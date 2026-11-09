@@ -113,6 +113,8 @@ Phản hồi danh sách:
 
 **Đã làm (Giai đoạn 4, 08/11/2026)** – `app/shared/files/`: `sys_files` (`storage_key` = `<module>/<yyyy>/<mm>/<uuid4>`, tên gốc đã làm sạch, MIME theo nội dung, SHA-256, `owner_type`/`owner_id`); `LocalStorage` ghi theo luồng 1 MiB vào file tạm rồi đổi tên, dừng ngay khi vượt dung lượng, chặn `storage_key` thoát khỏi `UPLOAD_DIR`; nhận dạng magic bytes `pdf`, `jpg`, `png`, `docx`, `xlsx`, `pptx` (chưa dùng thư viện `filetype`); mục đích `contract_document` (`pdf, jpg, png, docx, xlsx` ≤ 20 MB, ghi đè bằng `FILE_LIMITS_JSON`); `0 byte` → `422`, quá dung lượng → `413`, sai loại → `415`; lỗi sau khi ghi file → xóa file (không file mồ côi). `GET /api/v2/files/{id}`: kiểm quyền qua `ACCESS_CHECKERS[owner_type]` (module sở hữu đăng ký), không có quyền → `404`; `Range`, `Content-Disposition` (tên UTF-8), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, `Cache-Control: private, no-store`. Chưa làm: upload theo phần (> 100 MB), S3, quét mã độc, dọn file mồ côi định kỳ. Giới hạn kích thước body ở reverse proxy (vd. `client_max_body_size`) – Starlette nhận trọn file trước khi ứng dụng kiểm dung lượng.
 
+**Giai đoạn 9 (09/11/2026)** – mục đích `doc_ai_source` (chứng từ đưa vào AI trích xuất): `jpg, png, tiff, webp, pdf, docx, xlsx, txt` ≤ 20 MB. Nhận dạng thêm `tiff`, `webp`, `txt` theo nội dung: `txt` chỉ nhận khi **toàn bộ** file là UTF-8, không có byte điều khiển và không mở đầu như HTML/XML/SVG/script (file thực thi hay HTML đổi đuôi → `415`); `doc`/`xls` cũ (OLE2) nhận ra để trả `415` kèm hướng dẫn lưu lại thành `docx`/`xlsx` (chưa chuyển đổi – **CẦN XÁC NHẬN**). Quyền tải file gốc: `owner_type = doc_job` – người tạo job, `manager`.
+
 ## 3. Xác thực
 
 - Đăng nhập tài khoản nội bộ, mật khẩu băm Argon2/bcrypt; JWT truy cập (15 phút) + refresh token (7 ngày, thu hồi được).
@@ -188,6 +190,24 @@ Phản hồi danh sách:
 - Mọi endpoint trừ `/health`, `/ready`, `/api/v2/auth/login`, trang khách mời phỏng vấn (`/api/v2/learning/interview-invitations/{token}` – xác thực bằng token, `04` BR-309) và webhook của máy chủ media phỏng vấn (xác thực bằng chữ ký) yêu cầu xác thực.
 - Tài khoản `customer`: bắt buộc xác thực 2 lớp; khóa tạm sau 5 lần đăng nhập sai; giới hạn tần suất gọi API và tải file theo tài khoản; phiên tối đa 8 giờ. **Lộ trình (đã chốt 08/11/2026):** Giai đoạn 0 (bước 0.6) chỉ làm JWT + refresh token + RBAC + khóa tạm sau nhiều lần đăng nhập sai; bảng `sys_users` có sẵn cột `totp_secret` (NULL) và `is_2fa_enabled` (mặc định `false`); endpoint và luồng xác thực 2 lớp làm cùng cổng khách hàng (Giai đoạn 2). Tài khoản nội bộ có quyền phê duyệt hợp đồng – tài chính (`manager`, `business_manager`) cũng bắt buộc xác thực 2 lớp; thao tác phê duyệt cấp 2 yêu cầu xác thực lại (nhập lại OTP) nếu phiên đã quá 30 phút.
 
+### 3.1. AI local trích xuất chứng từ – bảo mật nội bộ (Giai đoạn 9, 09/11/2026)
+
+Mọi thông tin nội bộ không ra ngoài: chỉ dùng model AI chạy trong máy / mạng nội bộ, **không gọi API cloud nào**. Áp dụng
+cho mọi tiến trình có nhập chứng từ qua module chung `app/shared/docai/` (hợp đồng, lô hàng/vận đơn, khách hàng/đối tác,
+hóa đơn…).
+
+| Quy định | Nội dung |
+|---|---|
+| Máy chủ model | Chỉ Ollama (`provider = ollama`) tại `OLLAMA_URL` hoặc `endpoint` riêng của model trong danh mục `ai_models`. Kiểm khi khởi động (`OLLAMA_URL` sai → ứng dụng **không khởi động**), khi admin lưu model (`422`) và **mỗi lần gọi** (`app/core/netguard.py`) |
+| Địa chỉ cho phép | `http`/`https`, không tên đăng nhập/mật khẩu/query trong URL; máy chủ: IP loopback, mạng riêng RFC 1918, `fc00::/7`; tên `localhost`, tên một nhãn (dịch vụ docker), hậu tố `.localhost`, `.local`, `.internal`, `.lan`, `.home.arpa`, hoặc `AI_ALLOWED_HOSTS`. Chặn IP công khai, link-local `169.254.0.0/16` (metadata máy ảo đám mây), CGNAT, multicast |
+| Lúc kết nối | Phân giải DNS – **mọi** địa chỉ phải nội bộ, kết nối thẳng IP đã kiểm (chống DNS rebinding); bỏ qua `HTTP(S)_PROXY`; không theo chuyển hướng; giới hạn dung lượng phản hồi; không ghi nội dung chứng từ vào log |
+| Dữ liệu | File gốc (kho `shared/files`, nội bộ), văn bản OCR + bbox, đầu ra thô của model, kết quả đã chuẩn hóa chỉ lưu trong CSDL (`sys_doc_jobs`, `sys_doc_extractions`) và ổ đĩa nội bộ. Mã hóa `totp_secret` (Fernet) giữ nguyên |
+| Hàng đợi | rq + Redis (Giai đoạn 7): tác vụ `process_doc_job` chỉ mang `job_id`, `user_id` – Redis không chứa file, văn bản, kết quả AI, token, bí mật. Không đưa token, mật khẩu vào log |
+| OCR | Tesseract (`vie+eng`) chạy cục bộ qua tiến trình con; PaddleOCR (tùy chọn) chỉ nạp model tải sẵn (`DOCAI_PADDLE_MODEL_DIR`), tắt kiểm tra/tải model từ Internet; hoặc model loại `ocr` trong danh mục |
+| Chọn model | Người thực hiện **bắt buộc** chọn `model_id` (danh sách `GET /api/v2/ai-models/active`, không có `endpoint`); hệ thống không tự chọn model mặc định. `AI_MODEL_DEFAULT` chỉ đánh dấu gợi ý hiển thị |
+| Duyệt | Upload → OCR → AI trích xuất → tự điền form (không lưu bảng nghiệp vụ) → người duyệt xem, sửa → duyệt/từ chối. Độ tin cậy < `DOCAI_MIN_CONFIDENCE` (0,9) hoặc thiếu trường bắt buộc → `needs_review` (trường thấp phải sửa hoặc xác nhận từng trường); ≥ 0,9 vẫn phải duyệt. Chưa duyệt → không tạo được bản ghi nghiệp vụ (`source_doc_job_id`) |
+| Lời nhắc | Văn bản chứng từ được đánh dấu là **dữ liệu**, model được dặn bỏ qua câu lệnh trong văn bản; đầu ra luôn qua kiểm kiểu + người duyệt |
+
 ## 4. Phân quyền (RBAC)
 
 Ký hiệu: **Q** = toàn quyền ghi; **G** = ghi trong phạm vi được giao; **Đ** = chỉ đọc; **Đ\*** = chỉ đọc dữ liệu của bản thân/lớp phụ trách; **–** = không có quyền.
@@ -220,6 +240,8 @@ Ký hiệu: **Q** = toàn quyền ghi; **G** = ghi trong phạm vi được giao
 
 Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, không chỉ ở router.
 
+**Đã làm – AI trích xuất chứng từ (Giai đoạn 9)**: danh mục model `/api/v2/admin/ai-models` – chỉ `admin` (xem đủ, thêm, sửa, xóa mềm, bật/tắt, thử kết nối); `GET /api/v2/ai-models/active` – `ops_staff`, `manager`, `admin` (không có `endpoint`, tên model trong máy chủ); job `/api/v2/doc-jobs`, `/api/v2/doc-types` – `ops_staff` (tải lên, xem, sửa, duyệt/từ chối job **của mình**), `manager` (mọi job); vai trò khác, `customer` → `403`; job không có quyền → `404`. Tạo bản ghi từ job vẫn theo quyền của API tạo (`md_parties`: `manager`, `admin`; hợp đồng: `ops_staff`, `manager`; lô hàng: `ops_staff`) và phải thấy được job.
+
 **Đã làm – L1 Lô hàng (Giai đoạn 8)**: đọc `ops_staff`, `manager`, `business_manager`, `instructor`, `admin`; tạo `ops_staff`; sửa nháp, chuyển trạng thái, hủy – `ops_staff` **được phân công** (khác → `403`); `manager` chỉ đọc + phân công lại (tạm); `customer` xem mốc tiến độ lô của khách hàng mình qua cổng; `learner`, `content_editor` → `403`. Gửi chứng từ (`customer` – G): chưa làm.
 
 ## 5. Nhật ký và giám sát
@@ -234,6 +256,7 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
   `expire` (Giai đoạn 3). **API đọc (Giai đoạn 3)**: `GET /api/v2/audit-logs` (`admin`; §2.3 – lọc `action` khớp đúng hoặc
   tiền tố `party.`, `entity_type` + `entity_id`, `actor_id`, `request_id`, `from`/`to` ISO 8601 có múi giờ; mặc định
   `-at`), `GET /api/v2/audit-logs/{id}`; không có API sửa/xóa.
+  **Giai đoạn 9**: `ai_model.create`/`update`/`delete`/`activate`/`deactivate`; `file.uploaded` (sha256, MIME, dung lượng, chủ sở hữu); `doc_job.create` (loại chứng từ, model đã chọn: `ai_model_id`, `model_code`, `model_ref`, OCR), `doc_job.extracted` (AI trích ra gì: giá trị + độ tin cậy từng trường, lần chạy, thời gian OCR/AI – tác vụ nền ghi `request_id`, `ip` của request tải lên), `doc_job.review` (từng trường: giá trị AI / trước / sau), `doc_job.approve` (dữ liệu đã duyệt, trường được xác nhận), `doc_job.reject` (lý do), `doc.failed` (lỗi, số lần thử), `doc_job.linked` (bản ghi nghiệp vụ tạo từ job + trường người tạo đổi khác dữ liệu đã duyệt). Giá trị dài rút gọn trong nhật ký; bản đầy đủ ở `sys_doc_jobs`/`sys_doc_extractions`.
 - Log ứng dụng dạng JSON, có `request_id`.
 - `/ready` kiểm tra kết nối CSDL, kho file và độ trễ outbox (số sự kiện tồn > ngưỡng → `503`).
 
@@ -268,5 +291,12 @@ Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, kh
 | `JOB_MAX_RETRIES`, `JOB_RETRY_INTERVALS`, `JOB_TIMEOUT_SEC`, `JOB_FAILURE_TTL_DAYS` | 5 / `10,30,120,600,1800` / 60 / 30 | Thử lại khi tác vụ lỗi (§3) |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_WINDOW_SEC` | `true` / 60 | Giới hạn tần suất mọi API (§3) |
 | `RATE_LIMIT_API_PER_USER`, `RATE_LIMIT_API_PER_IP`, `RATE_LIMIT_FILE_UPLOAD_PER_USER`, `RATE_LIMIT_FILE_DOWNLOAD_PER_USER` | 300 / 120 / 20 / 120 | Số request tối đa mỗi cửa sổ |
+| `OLLAMA_URL` | `http://localhost:11434` | Giai đoạn 9 – máy chủ model AI local mặc định (model có `endpoint` NULL). **Chỉ localhost / mạng nội bộ** (§3.1) – sai thì ứng dụng không khởi động. Danh mục model đọc từ bảng `ai_models`, không cấu hình bằng biến |
+| `AI_ALLOWED_HOSTS` | rỗng | Tên máy chủ nội bộ thêm (cách dấu phẩy); lúc gọi vẫn kiểm DNS ra địa chỉ mạng riêng |
+| `AI_MODEL_DEFAULT` | – | `code` model được đánh dấu `suggested` trong `GET /api/v2/ai-models/active` – chỉ gợi ý hiển thị, API vẫn bắt buộc `model_id` |
+| `DOCAI_OCR_ENGINE`, `DOCAI_TESSERACT_CMD`, `DOCAI_OCR_LANGS`, `DOCAI_PADDLE_MODEL_DIR`, `DOCAI_OCR_TIMEOUT_SEC` | `tesseract` / `tesseract` / `vie+eng` / – / 120 | OCR cục bộ; `paddle` cần `DOCAI_PADDLE_MODEL_DIR` (model tải sẵn `det/`, `rec/`) và nhóm `ocr-paddle` |
+| `DOCAI_MIN_CONFIDENCE` | `0.9` | Dưới ngưỡng / thiếu trường bắt buộc → `needs_review` |
+| `DOCAI_MAX_PAGES`, `DOCAI_PDF_DPI`, `DOCAI_MAX_TEXT_CHARS`, `DOCAI_VISION_MAX_PAGES` | 30 / 200 / 60000 / 4 | Giới hạn chuyển đổi, lời nhắc; số trang ảnh gửi model `vision` |
+| `DOCAI_LLM_TIMEOUT_SEC`, `DOCAI_JOB_TIMEOUT_SEC` | 600 / 1800 | Thời gian chờ một lần gọi model; một lần chạy tác vụ trong worker |
 
-Đọc bằng `app/core/config.py` (pydantic-settings): biến môi trường ưu tiên hơn file `.env` (mẫu `.env.example`); không phân biệt hoa thường; biến danh sách (`ENABLED_FLOWS`, `CORS_ORIGINS`, `TURN_URLS`, `JOB_RETRY_INTERVALS`) viết cách nhau bằng dấu phẩy; `FILE_LIMITS_JSON` là chuỗi JSON. Biến khác trong `.env` (vd. `POSTGRES_PASSWORD` của docker-compose) được bỏ qua.
+Đọc bằng `app/core/config.py` (pydantic-settings): biến môi trường ưu tiên hơn file `.env` (mẫu `.env.example`); không phân biệt hoa thường; biến danh sách (`ENABLED_FLOWS`, `CORS_ORIGINS`, `TURN_URLS`, `JOB_RETRY_INTERVALS`, `AI_ALLOWED_HOSTS`) viết cách nhau bằng dấu phẩy; `FILE_LIMITS_JSON` là chuỗi JSON. Biến khác trong `.env` (vd. `POSTGRES_PASSWORD` của docker-compose) được bỏ qua.

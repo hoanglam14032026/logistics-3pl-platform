@@ -1,0 +1,35 @@
+{
+  "code": "shipment",
+  "version": 1,
+  "name": "Lô hàng – vận đơn (B/L, AWB), booking, lệnh vận chuyển",
+  "description": "Tự điền form tạo lô hàng (ops_shipments). Hợp đồng, người gửi/nhận (md_parties): người duyệt chọn trên form theo tên trích được.",
+  "instructions": "direction: import nếu hàng nhập vào Việt Nam, export nếu xuất từ Việt Nam, domestic nếu trong nước. transport_mode: sea_fcl (container nguyên), sea_lcl (hàng lẻ), air, road, rail, multimodal. incoterm là mã Incoterms 2020 (FOB, CIF, EXW…). etd/eta dạng ISO 8601 (vd. 2026-11-20T00:00:00+07:00). Trọng lượng tính kg, thể tích m3.",
+  "target": "shipment",
+  "fields": [
+    {"key": "transport_doc_no", "label": "Số vận đơn / booking", "type": "string", "required": true, "max_length": 100},
+    {"key": "direction", "label": "Chiều", "type": "enum", "required": true, "values": ["import", "export", "domestic"], "form_field": "direction"},
+    {"key": "transport_mode", "label": "Phương thức vận tải", "type": "enum", "required": true,
+     "values": ["sea_fcl", "sea_lcl", "air", "road", "rail", "multimodal"], "form_field": "transport_mode"},
+    {"key": "incoterm", "label": "Incoterms 2020", "type": "enum",
+     "values": ["EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF"], "form_field": "incoterm"},
+    {"key": "incoterm_place", "label": "Địa điểm Incoterms", "type": "string", "max_length": 200, "form_field": "incoterm_place"},
+    {"key": "shipper_name", "label": "Người gửi hàng", "type": "string", "required": true, "max_length": 300},
+    {"key": "consignee_name", "label": "Người nhận hàng", "type": "string", "required": true, "max_length": 300},
+    {"key": "notify_party_name", "label": "Bên nhận thông báo", "type": "string", "max_length": 300},
+    {"key": "origin_location", "label": "Nơi đi (cảng/sân bay/kho)", "type": "string", "required": true, "max_length": 200, "form_field": "origin_location"},
+    {"key": "destination_location", "label": "Nơi đến", "type": "string", "required": true, "max_length": 200, "form_field": "destination_location"},
+    {"key": "vessel_voyage", "label": "Tàu / chuyến (chuyến bay)", "type": "string", "max_length": 200},
+    {"key": "etd", "label": "Dự kiến khởi hành (ETD)", "type": "datetime", "form_field": "etd"},
+    {"key": "eta", "label": "Dự kiến đến (ETA)", "type": "datetime", "form_field": "eta"},
+    {"key": "packages", "label": "Số kiện", "type": "integer"},
+    {"key": "gross_weight_kg", "label": "Trọng lượng cả bì (kg)", "type": "number"},
+    {"key": "volume_cbm", "label": "Thể tích (m³)", "type": "number"},
+    {"key": "cargo_description", "label": "Mô tả hàng", "type": "text", "max_length": 4000},
+    {"key": "containers", "label": "Container", "type": "array",
+     "items": [
+       {"key": "container_no", "label": "Số container", "type": "string", "required": true, "max_length": 20},
+       {"key": "container_type", "label": "Loại (20GP, 40HC…)", "type": "string", "max_length": 10},
+       {"key": "seal_no", "label": "Số seal", "type": "string", "max_length": 30}
+     ]}
+  ]
+}

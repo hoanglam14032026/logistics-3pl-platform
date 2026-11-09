@@ -47,8 +47,12 @@ def get_queue(settings: Settings | None = None, url: str | None = None) -> Queue
     return Queue(QUEUE_NAME, connection=redis_connection(url))
 
 
-def enqueue(tasks: TaskQueue, func: Callable[..., Any], *args: Any) -> Literal["queue", "background"]:
-    """Xếp tác vụ. Gọi **sau** khi commit dữ liệu tác vụ cần đọc. Trả nơi tác vụ được xếp."""
+def enqueue(
+    tasks: TaskQueue, func: Callable[..., Any], *args: Any, timeout: int | None = None
+) -> Literal["queue", "background"]:
+    """Xếp tác vụ. Gọi **sau** khi commit dữ liệu tác vụ cần đọc. Trả nơi tác vụ được xếp.
+
+    `timeout`: giây tối đa một lần chạy trong worker (mặc định `JOB_TIMEOUT_SEC`)."""
     settings = get_settings()
     queue = get_queue(settings)
     if queue is not None:
@@ -58,7 +62,7 @@ def enqueue(tasks: TaskQueue, func: Callable[..., Any], *args: Any) -> Literal["
                 func,
                 *args,
                 retry=retry if settings.job_max_retries > 0 else None,
-                job_timeout=settings.job_timeout_sec,
+                job_timeout=timeout or settings.job_timeout_sec,
                 failure_ttl=settings.job_failure_ttl_days * 86400,
                 result_ttl=3600,
                 meta={"max_retries": settings.job_max_retries},

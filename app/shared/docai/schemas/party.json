@@ -1,0 +1,19 @@
+{
+  "code": "party",
+  "version": 1,
+  "name": "Khách hàng / đối tác (giấy ĐKKD, hợp đồng, hóa đơn, danh thiếp)",
+  "description": "Thông tin doanh nghiệp để tạo bản ghi danh mục md_parties.",
+  "instructions": "Trích thông tin của MỘT doanh nghiệp chính trong chứng từ (bên được đăng ký / khách hàng). Mã số thuế Việt Nam gồm 10 số hoặc dạng 0101234567-001. country_code là mã ISO 3166-1 alpha-2 (Việt Nam = VN). party_type: customer nếu là khách hàng trong nước; foreign_seller/foreign_buyer cho người bán/mua nước ngoài; shipping_line, airline, agent, carrier, warehouse theo ngành nghề.",
+  "target": "party",
+  "fields": [
+    {"key": "party_type", "label": "Loại đối tác", "type": "enum", "required": true, "form_field": "party_type",
+     "values": ["customer", "foreign_seller", "foreign_buyer", "shipping_line", "airline", "agent", "carrier", "warehouse"]},
+    {"key": "name", "label": "Tên doanh nghiệp", "type": "string", "required": true, "max_length": 300, "form_field": "name"},
+    {"key": "tax_code", "label": "Mã số thuế", "type": "string", "max_length": 32, "form_field": "tax_code"},
+    {"key": "country_code", "label": "Quốc gia (ISO alpha-2)", "type": "string", "max_length": 2, "form_field": "country_code"},
+    {"key": "address", "label": "Địa chỉ", "type": "string", "max_length": 500, "form_field": "address"},
+    {"key": "contact_name", "label": "Người liên hệ / đại diện", "type": "string", "max_length": 200, "form_field": "contact_name"},
+    {"key": "phone", "label": "Điện thoại", "type": "string", "max_length": 30, "form_field": "phone"},
+    {"key": "email", "label": "Email", "type": "string", "max_length": 254, "form_field": "email"}
+  ]
+}

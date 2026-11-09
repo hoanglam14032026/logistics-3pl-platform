@@ -33,7 +33,18 @@ def _zip(names: list[str]) -> bytes:
         (b"PK\x03\x04hong", None),  # zip hỏng
         (b"MZ\x90\x00 tep thuc thi", None),
         (b"<html><script>alert(1)</script>", None),
-        (b"Day la van ban", None),
+        # Giai đoạn 9: txt nhận dạng khi toàn bộ là UTF-8 không có byte điều khiển, không mở đầu như HTML/XML/SVG
+        (b"Day la van ban", sniff.TXT),
+        ("Hóa đơn số 01\r\n\tTổng: 1.500.000 đ".encode(), sniff.TXT),
+        (b"\xef\xbb\xbf<!DOCTYPE html><p>x</p>", None),  # HTML có BOM đổi đuôi .txt
+        (b"  <svg onload=alert(1)>", None),
+        (b"<?xml version='1.0'?><a/>", None),
+        (b"\x7fELF\x02\x01\x01", None),  # file thực thi Linux
+        (b"van ban \xff\xfe hong", None),  # không phải UTF-8
+        (b"II*\x00" + b"0" * 20, sniff.TIFF),
+        (b"MM\x00*" + b"0" * 20, sniff.TIFF),
+        (b"RIFF\x10\x00\x00\x00WEBPVP8 " + b"0" * 10, sniff.WEBP),
+        (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"0" * 20, sniff.OLE2),  # doc/xls cũ
     ],
 )
 def test_sniff_by_content(tmp_path, content, expected):

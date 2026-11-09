@@ -29,7 +29,13 @@ from app.legacy_v1.api import business_guide
 from app.legacy_v1.api.business_data import records as business_data_records
 from app.legacy_v1.api.training import documents as training_documents
 from app.legacy_v1.api.video import resources as video_resources
+from app.shared.ai_models.router import admin_router as ai_models_admin_router
+from app.shared.ai_models.router import router as ai_models_router
 from app.shared.audit.router import router as audit_router
+from app.shared.docai import registry as docai_registry
+from app.shared.docai import service as docai_service
+from app.shared.docai.router import router as doc_jobs_router
+from app.shared.docai.router import types_router as doc_types_router
 from app.shared.files.router import router as files_router
 from app.shared.identity.portal_router import router as portal_users_router
 from app.shared.identity.router import auth_router, users_router
@@ -69,6 +75,9 @@ def _include_legacy_v1_routers(app: FastAPI) -> None:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+    # Giai đoạn 9: schema loại chứng từ (app/shared/docai/schemas/*.json) sai → dừng ngay, không chạy với schema hỏng.
+    # OLLAMA_URL ngoài localhost / mạng nội bộ đã bị chặn khi đọc Settings (app/core/netguard.py).
+    docai_registry.all_schemas()
 
     app = FastAPI(
         title=APP_TITLE,
@@ -115,6 +124,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(portal_users_router)
     app.include_router(audit_router)
     app.include_router(files_router)
+    # AI local trích xuất chứng từ (Giai đoạn 9) – dùng chung mọi tiến trình
+    app.include_router(ai_models_admin_router)
+    app.include_router(ai_models_router)
+    app.include_router(doc_types_router)
+    app.include_router(doc_jobs_router)
+    docai_service.register_file_access()
     # Điều kiện của Luồng 1 với danh mục khách hàng, tài khoản cổng: luôn đăng ký (kể cả khi tắt Luồng 1 – khi đó
     # không có hợp đồng nào nên manager không tạo được tài khoản customer; dữ liệu vẫn nhất quán).
     ops_service.register_guards()

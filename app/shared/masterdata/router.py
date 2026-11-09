@@ -14,10 +14,11 @@ from app.core.db import get_db
 from app.core.pagination import Page, PageParams
 from app.core.rbac import INTERNAL_ROLES, Role, require_roles
 from app.core.versioning import etag, parse_if_match
+from app.shared.docai import linking as docai_linking
 from app.shared.identity.models import SysUser
 from app.shared.identity.schemas import CustomerAccountCreate, InvitationQueued, UserOut
 from app.shared.masterdata import service
-from app.shared.masterdata.models import PartyType
+from app.shared.masterdata.models import MdParty, PartyType
 from app.shared.masterdata.schemas import PartyCreate, PartyOut, PartyUpdate
 
 router = APIRouter(prefix="/api/v2/md/parties", tags=["Master data – Parties"])
@@ -53,9 +54,12 @@ def list_parties(
 def create_party(
     body: PartyCreate,
     response: Response,
+    source_doc_job_id: int | None = Query(None, gt=0, description=docai_linking.QUERY_DESCRIPTION),
     actor: SysUser = Depends(_writer),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
+    if source_doc_job_id is not None:  # Giai đoạn 9: nối job trích xuất đã duyệt – logic tạo không đổi
+        docai_linking.attach(db, source_doc_job_id, "party", MdParty, actor)
     party = service.create_party(db, body, actor.id)
     response.headers["Location"] = f"/api/v2/md/parties/{party.id}"
     return _with_etag(response, party)

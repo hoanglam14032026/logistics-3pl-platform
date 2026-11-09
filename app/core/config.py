@@ -14,6 +14,8 @@ from typing import Annotated, Literal
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.core.netguard import ExternalAddressError, check_internal_url
+
 Flow = Literal["ops", "control", "learning", "assessment"]
 ALL_FLOWS: tuple[Flow, ...] = ("ops", "control", "learning", "assessment")
 
@@ -120,8 +122,39 @@ class Settings(BaseSettings):
     rate_limit_file_upload_per_user: int = Field(default=20, gt=0)
     rate_limit_file_download_per_user: int = Field(default=120, gt=0)
 
+    # AI local trích xuất chứng từ (Giai đoạn 9). Chỉ gọi máy chủ model trong máy / mạng nội bộ: OLLAMA_URL ngoài
+    # localhost / mạng riêng → ứng dụng KHÔNG khởi động (app/core/netguard.py). Danh mục model đọc từ bảng `ai_models`
+    # (admin quản lý) – không ghi tên model trong mã nghiệp vụ.
+    ollama_url: str = "http://localhost:11434"
+    # Tên máy chủ nội bộ thêm (vd. ai.noibo.congty.vn) – lúc gọi vẫn kiểm DNS phải ra địa chỉ mạng riêng.
+    ai_allowed_hosts: Annotated[tuple[str, ...], NoDecode] = ()
+    # `code` của model được giao diện ĐÁNH DẤU gợi ý trong GET /api/v2/ai-models/active. Chỉ là gợi ý hiển thị:
+    # API tạo job vẫn bắt buộc `model_id` người dùng chọn, không tự dùng model này.
+    ai_model_default: str | None = None
+    docai_ocr_engine: Literal["tesseract", "paddle"] = "tesseract"
+    docai_tesseract_cmd: str = "tesseract"
+    docai_ocr_langs: str = Field(default="vie+eng", pattern=r"^[a-z_]{3,}(\+[a-z_]{3,})*$")
+    # PaddleOCR: thư mục model tải sẵn (det/rec) – bắt buộc khi DOCAI_OCR_ENGINE=paddle; không tải model từ Internet.
+    docai_paddle_model_dir: Path | None = None
+    docai_ocr_timeout_sec: int = Field(default=120, gt=0)
+    # Dưới ngưỡng ở bất kỳ trường nào (hoặc thiếu trường bắt buộc) → needs_review. Đủ ngưỡng vẫn phải duyệt.
+    docai_min_confidence: float = Field(default=0.9, gt=0, le=1)
+    docai_max_pages: int = Field(default=30, gt=0, le=500)
+    docai_pdf_dpi: int = Field(default=200, ge=72, le=600)
+    docai_max_text_chars: int = Field(default=60000, gt=1000)
+    docai_vision_max_pages: int = Field(default=4, ge=0, le=50)
+    docai_llm_timeout_sec: int = Field(default=600, gt=0)
+    # Thời gian tối đa một lần chạy tác vụ trích xuất trong worker (OCR + model lớn chạy CPU/GPU cục bộ: lâu hơn email).
+    docai_job_timeout_sec: int = Field(default=1800, gt=0)
+
     @field_validator(
-        "enabled_flows", "cors_origins", "turn_urls", "auth_2fa_required_roles", "job_retry_intervals", mode="before"
+        "enabled_flows",
+        "cors_origins",
+        "turn_urls",
+        "auth_2fa_required_roles",
+        "job_retry_intervals",
+        "ai_allowed_hosts",
+        mode="before",
     )
     @classmethod
     def _parse_csv(cls, value: object) -> object:
@@ -196,6 +229,24 @@ class Settings(BaseSettings):
                     "tạo bằng: python -m app.core.secretbox"
                 )
         return SecretStr(",".join(keys))
+
+    @field_validator("ai_model_default", mode="before")
+    @classmethod
+    def _blank_none(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @model_validator(mode="after")
+    def _ollama_internal(self) -> "Settings":
+        try:
+            check_internal_url(self.ollama_url, self.ai_allowed_hosts)
+        except ExternalAddressError as exc:
+            raise ValueError(f"OLLAMA_URL: {exc}") from exc
+        object.__setattr__(self, "ollama_url", self.ollama_url.strip().rstrip("/"))
+        if self.docai_ocr_engine == "paddle" and self.docai_paddle_model_dir is None:
+            raise ValueError(
+                "DOCAI_OCR_ENGINE=paddle cần DOCAI_PADDLE_MODEL_DIR (model tải sẵn, không tải từ Internet)"
+            )
+        return self
 
     @model_validator(mode="after")
     def _separate_keys(self) -> "Settings":

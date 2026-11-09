@@ -17,7 +17,7 @@ from app.core.pagination import Page, PageParams
 from app.core.rbac import Role, require_roles
 from app.core.versioning import etag, parse_if_match
 from app.flows.operations import service
-from app.flows.operations.models import AttachmentKind, ContractStatus, OpsContractVersion
+from app.flows.operations.models import AttachmentKind, ContractStatus, OpsContractVersion, OpsServiceContract
 from app.flows.operations.schemas import (
     AttachmentOut,
     ContractCreate,
@@ -29,6 +29,7 @@ from app.flows.operations.schemas import (
     VersionCreate,
     VersionOut,
 )
+from app.shared.docai import linking as docai_linking
 from app.shared.identity.models import SysUser
 
 router = APIRouter(prefix="/api/v2/ops/service-contracts", tags=["Ops – Service contracts"])
@@ -70,9 +71,12 @@ def list_contracts(
 def create_contract(
     body: ContractCreate,
     response: Response,
+    source_doc_job_id: int | None = Query(None, gt=0, description=docai_linking.QUERY_DESCRIPTION),
     actor: SysUser = Depends(_editor),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
+    if source_doc_job_id is not None:  # Giai đoạn 9: nối job trích xuất đã duyệt – logic tạo không đổi
+        docai_linking.attach(db, source_doc_job_id, "service_contract", OpsServiceContract, actor)
     contract = service.create_contract(db, body, actor.id)
     response.headers["Location"] = f"/api/v2/ops/service-contracts/{contract.id}"
     return _detail(db, response, contract)

@@ -33,6 +33,11 @@ class Purpose:
 #   {"contract_document": {"max_mb": 30, "ext": ["pdf"]}}
 _DEFAULT_PURPOSES = {
     "contract_document": Purpose(frozenset({sniff.PDF, sniff.JPEG, sniff.PNG, sniff.DOCX, sniff.XLSX}), 20 * MB),
+    # Chứng từ đưa vào AI local trích xuất (Giai đoạn 9). doc (Word 97–2003) chưa nhận – CẦN XÁC NHẬN.
+    "doc_ai_source": Purpose(
+        frozenset({sniff.JPEG, sniff.PNG, sniff.TIFF, sniff.WEBP, sniff.PDF, sniff.DOCX, sniff.XLSX, sniff.TXT}),
+        20 * MB,
+    ),
 }
 _EXT_TO_MIME = {ext: mime for mime, ext in sniff.EXTENSIONS.items()}
 
@@ -88,7 +93,8 @@ def store(
     if mime not in rule.mime_types:
         storage.delete(blob.storage_key)
         allowed = ", ".join(sorted(sniff.EXTENSIONS[m] for m in rule.mime_types))
-        raise _error(ErrorCode.UNSUPPORTED_FILE_TYPE, 415, f"Loại file không được phép (cho phép: {allowed})")
+        legacy = " – file Office 97–2003 (doc/xls): lưu lại thành docx/xlsx" if mime == sniff.OLE2 else ""
+        raise _error(ErrorCode.UNSUPPORTED_FILE_TYPE, 415, f"Loại file không được phép (cho phép: {allowed}){legacy}")
     record = SysFile(
         storage_key=blob.storage_key,
         original_filename=safe_filename(upload.filename),

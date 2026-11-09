@@ -8,6 +8,8 @@ requires-python = ">=3.12,<3.13"
 # JWT: PyJWT (HS256, không cần extra [crypto]); băm mật khẩu: argon2-cffi trực tiếp.
 # cryptography (Giai đoạn 6, lý do bảo mật): mã hóa totp_secret bằng Fernet, khóa TOTP_ENCRYPTION_KEY.
 # rq + redis (Giai đoạn 7): hàng đợi tác vụ nền bền vững (JOB_QUEUE_URL) – gửi email không mất khi tiến trình dừng.
+# pypdfium2, pillow, python-docx, openpyxl (Giai đoạn 9 – AI local trích xuất chứng từ): chuyển pdf/ảnh/docx/xlsx
+# thành ảnh + văn bản trước OCR. OCR mặc định: chương trình tesseract (vie+eng) của hệ điều hành, gọi qua tiến trình con.
 dependencies = [
     "fastapi==0.162.2",
     "pydantic==2.14.3",
@@ -22,6 +24,18 @@ dependencies = [
     "cryptography==50.0.2",
     "rq==2.9.1",
     "redis==8.1.0",
+    "pypdfium2==5.15.1",
+    "pillow==13.0.0",
+    "python-docx==1.2.0",
+    "openpyxl==3.1.5",
+]
+
+[project.optional-dependencies]
+# OCR PaddleOCR (DOCAI_OCR_ENGINE=paddle) – tùy chọn: ~1 GB, ~57 gói bắc cầu, paddlex ghim PyYAML==6.0.2.
+# Khóa riêng: requirements-ocr-paddle-lock.txt (cài sau requirements-lock.txt, lệnh riêng).
+ocr-paddle = [
+    "paddleocr==3.7.0",
+    "paddlepaddle==3.3.1",
 ]
 
 [dependency-groups]

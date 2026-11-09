@@ -1,0 +1,33 @@
+{
+  "code": "service_contract",
+  "version": 1,
+  "name": "Hợp đồng dịch vụ logistics",
+  "description": "Hợp đồng dịch vụ với khách hàng – tự điền form tạo hợp đồng (ops_service_contracts). Khách hàng (customer_id), phạm vi dịch vụ, biểu giá theo mã: người duyệt chọn trên form.",
+  "instructions": "Ngày ghi dạng YYYY-MM-DD. valid_from/valid_to là thời hạn hiệu lực của hợp đồng. payment_due_days là số ngày phải thanh toán (vd. 'trong vòng 30 ngày' → 30). Bên khách hàng là bên thuê dịch vụ (không phải công ty logistics).",
+  "target": "service_contract",
+  "fields": [
+    {"key": "customer_name", "label": "Tên khách hàng (bên thuê dịch vụ)", "type": "string", "required": true, "max_length": 300},
+    {"key": "customer_tax_code", "label": "MST khách hàng", "type": "string", "max_length": 32},
+    {"key": "customer_contract_ref", "label": "Số hợp đồng", "type": "string", "max_length": 100, "form_field": "customer_contract_ref"},
+    {"key": "signed_date", "label": "Ngày ký", "type": "date", "form_field": "signed_date"},
+    {"key": "valid_from", "label": "Hiệu lực từ", "type": "date", "required": true, "form_field": "valid_from"},
+    {"key": "valid_to", "label": "Hiệu lực đến", "type": "date", "required": true, "form_field": "valid_to"},
+    {"key": "payment_terms", "label": "Điều khoản thanh toán", "type": "text", "max_length": 20000, "form_field": "payment_terms"},
+    {"key": "payment_due_days", "label": "Hạn thanh toán (ngày)", "type": "integer", "form_field": "payment_due_days"},
+    {"key": "advance_required", "label": "Có tạm ứng trước", "type": "boolean", "form_field": "advance_required"},
+    {"key": "liability_terms", "label": "Điều khoản trách nhiệm", "type": "text", "max_length": 20000, "form_field": "liability_terms"},
+    {"key": "services", "label": "Dịch vụ trong hợp đồng", "type": "array",
+     "items": [
+       {"key": "service_name", "label": "Dịch vụ", "type": "string", "required": true, "max_length": 300},
+       {"key": "description", "label": "Mô tả / phạm vi", "type": "string", "max_length": 1000}
+     ]},
+    {"key": "rates", "label": "Biểu giá", "type": "array",
+     "items": [
+       {"key": "charge_name", "label": "Khoản phí", "type": "string", "required": true, "max_length": 200},
+       {"key": "unit_price", "label": "Đơn giá", "type": "number"},
+       {"key": "currency", "label": "Tiền tệ", "type": "string", "max_length": 3},
+       {"key": "unit", "label": "Đơn vị tính", "type": "string", "max_length": 100},
+       {"key": "tax_rate", "label": "Thuế suất (%)", "type": "number"}
+     ]}
+  ]
+}

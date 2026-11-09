@@ -1,0 +1,62 @@
+# Khóa nhóm tùy chọn ocr-paddle (Giai đoạn 9): CHỈ cài khi DOCAI_OCR_ENGINE=paddle – sau requirements-lock.txt:
+#   pip install -r requirements-lock.txt && pip install -r requirements-ocr-paddle-lock.txt   (hai lệnh riêng)
+# Gồm các gói thêm vào so với requirements-lock.txt (pip freeze venv có paddleocr + paddlepaddle, Python 3.12, 09/11/2026).
+# paddlex kéo theo SDK tải model (modelscope, huggingface_hub, aistudio_sdk, bce-python-sdk): app đặt
+# PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True, chỉ nạp model từ DOCAI_PADDLE_MODEL_DIR – không tải từ Internet.
+# Lưu ý: paddlex ghim PyYAML==6.0.2 (lock chính 6.0.3, bắc cầu của uvicorn[standard]) – lệnh thứ hai hạ PyYAML xuống
+# 6.0.2; croniter giữ 6.2.4 của lock chính.
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.5
+aiosignal==1.4.0
+aistudio_sdk==0.3.9
+attrs==26.1.0
+bce-python-sdk==0.9.79
+certifi==2026.10.23
+chardet==7.7.0
+charset-normalizer==3.5.2
+colorlog==6.12.0
+crc32c==2.9.post0
+filelock==4.2.9
+frozenlist==1.8.0
+fsspec==2026.9.0
+future==1.0.0
+hf-xet==1.8.0
+httpcore2==2.16.0
+httpcore==1.0.9
+httpx2==2.16.0
+httpx==0.28.1
+huggingface_hub==2.4.0
+imagesize==2.0.1
+modelscope-hub==0.6.1
+modelscope==1.40.2
+multidict==7.2.1
+networkx==3.7
+numpy==2.3.5
+opencv-contrib-python==4.10.0.84
+opt-einsum==3.3.0
+packaging==26.3
+paddleocr==3.7.0
+paddlepaddle==3.3.1
+paddlex==3.7.2
+pandas==3.1.1
+prettytable==3.18.0
+propcache==0.5.4
+protobuf==7.36.2
+psutil==7.2.2
+py-cpuinfo==9.0.0
+pyclipper==1.4.0
+pycryptodome==4.4.0
+python-bidi==0.6.12
+PyYAML==6.0.2
+requests==2.34.2
+ruamel.yaml==0.19.1
+safetensors==0.8.0
+setuptools==84.2.1
+shapely==2.2.0
+six==1.17.0
+tqdm==4.70.1
+truststore==0.10.5
+ujson==6.1.0
+urllib3==2.8.0
+wcwidth==0.9.4
+yarl==1.25.1

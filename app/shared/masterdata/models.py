@@ -8,7 +8,7 @@ Chủ ghi: `manager`, `admin` (06 §4). Không xóa cứng – lưu trữ (`arch
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, String, Text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import AuditColumnsMixin, Base
@@ -60,3 +60,7 @@ class MdParty(AuditColumnsMixin, Base):
     )
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     archived_by: Mapped[int | None] = mapped_column(BigInteger)
+    # Job trích xuất chứng từ AI đã duyệt dùng tạo bản ghi (Giai đoạn 9) – NULL: nhập tay. Một job → tối đa một bản ghi
+    source_doc_job_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("sys_doc_jobs.id", ondelete="RESTRICT"), unique=True
+    )

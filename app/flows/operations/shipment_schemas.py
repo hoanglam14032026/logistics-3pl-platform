@@ -184,6 +184,7 @@ class ShipmentOut(BaseModel):
     created_at: UtcDatetime
     created_by: int | None
     updated_at: UtcDatetime
+    source_doc_job_id: int | None = None  # job trích xuất AI đã duyệt (Giai đoạn 9)
     row_version: int
 
 

@@ -281,6 +281,7 @@ class ContractOut(BaseModel):
     closed_at: UtcDatetime | None
     created_at: UtcDatetime
     updated_at: UtcDatetime
+    source_doc_job_id: int | None = None  # job trích xuất AI đã duyệt (Giai đoạn 9)
     row_version: int
 
 

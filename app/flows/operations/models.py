@@ -131,6 +131,10 @@ class OpsServiceContract(AuditColumnsMixin, Base):
     liquidation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_by: Mapped[int | None] = mapped_column(BigInteger)
+    # Job trích xuất chứng từ AI đã duyệt dùng tạo bản ghi (Giai đoạn 9) – NULL: nhập tay. Một job → tối đa một bản ghi
+    source_doc_job_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("sys_doc_jobs.id", ondelete="RESTRICT"), unique=True
+    )
 
 
 def _contract_fk() -> Mapped[int]:
@@ -344,6 +348,10 @@ class OpsShipment(AuditColumnsMixin, Base):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Job trích xuất chứng từ AI đã duyệt dùng tạo bản ghi (Giai đoạn 9) – NULL: nhập tay. Một job → tối đa một bản ghi
+    source_doc_job_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("sys_doc_jobs.id", ondelete="RESTRICT"), unique=True
+    )
 
 
 class OpsShipmentStatusHistory(Base):
