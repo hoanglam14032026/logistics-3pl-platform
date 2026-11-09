@@ -138,6 +138,7 @@ flowchart LR
 
 Quy định:
 - Thêm trường mới vào `data` → giữ `schema_version`; xóa/đổi nghĩa trường → tăng `schema_version`, người nhận hỗ trợ song song 2 phiên bản trong 1 kỳ phát hành.
+- **Đã làm (Giai đoạn 8, 09/11/2026)**: phát EV-101 (kích hoạt hợp đồng), EV-111, EV-112, EV-142 (lô hàng) – `app/shared/events/` (`contracts.py`: model `data`; `publisher.py`). Tạm **ghi vào `sys_audit_logs`** trong cùng giao dịch với thay đổi: `action = event.<mã>`, `after` = phong bì đầy đủ ở trên; chưa có outbox `sys_events`, bộ phát, người nhận (Luồng 2, 4 chưa làm). EV-111 thêm `shipment_no`, `customer_id` (thêm trường – giữ `schema_version` 1); `process_code`/`process_version` null, `planned_tasks` rỗng (chưa có quy trình mẫu).
 - Sự kiện `mode = training` **không** được Luồng 2 dùng để tính cảnh báo vận hành thật (BR-01).
 
 ## 6. Giao diện đọc công bố (`public.py`)

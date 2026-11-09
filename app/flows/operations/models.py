@@ -4,6 +4,7 @@ Hợp đồng dịch vụ `ops_service_contracts` (02 §3.1, §6.1 – Luồng 1
 Giai đoạn 3: khách hàng (+ bản chụp tên, MST), hiệu lực, trạng thái, `portal_enabled`, điều khoản dạng văn bản.
 Giai đoạn 4: phạm vi dịch vụ, SLA, biểu giá theo `contract_version`; bản chụp từng phiên bản; file đính kèm; thanh lý,
 đóng. Chưa có: chế độ `training` (cột `mode` có sẵn, API chỉ nhận `production`).
+Giai đoạn 8: lô hàng `ops_shipments`, lịch sử trạng thái, biên bản giao hàng.
 """
 
 from datetime import date, datetime
@@ -234,6 +235,151 @@ class OpsContractVersion(Base):
     amendment_ref: Mapped[str | None] = mapped_column(String(30))  # vd. PL-01 – tới khi có ops_contract_amendments
     reason: Mapped[str | None] = mapped_column(String(500))
     attachment_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ops_contract_attachments.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(BigInteger)
+
+
+# --- Lô hàng / vận đơn (02 §3.2, §6.2 – Giai đoạn 8) ----------------------------------------------------------------
+
+
+class ShipmentStatus(StrEnum):
+    """02 §6.2: draft → docs_collecting → docs_verified → in_execution → delivered → closed; cancelled từ mọi trạng
+    thái trước delivered (có lý do)."""
+
+    DRAFT = "draft"
+    DOCS_COLLECTING = "docs_collecting"
+    DOCS_VERIFIED = "docs_verified"
+    IN_EXECUTION = "in_execution"
+    DELIVERED = "delivered"
+    CLOSED = "closed"
+    CANCELLED = "cancelled"
+
+
+class Direction(StrEnum):
+    IMPORT = "import"
+    EXPORT = "export"
+    DOMESTIC = "domestic"
+
+
+class TransportMode(StrEnum):
+    SEA_FCL = "sea_fcl"
+    SEA_LCL = "sea_lcl"
+    AIR = "air"
+    ROAD = "road"
+    RAIL = "rail"
+    MULTIMODAL = "multimodal"
+
+
+class Priority(StrEnum):
+    NORMAL = "normal"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
+# Incoterms 2020 (02 §3.2 → md_incoterms – tới khi có danh mục, kiểm bằng danh sách cố định)
+INCOTERMS_2020 = ("EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF")
+TERMINAL_SHIPMENT_STATUSES = (ShipmentStatus.CLOSED.value, ShipmentStatus.CANCELLED.value)
+
+
+def _party_fk(nullable: bool = False) -> Mapped:
+    return mapped_column(BigInteger, ForeignKey("md_parties.id", ondelete="RESTRICT"), nullable=nullable)
+
+
+class OpsShipment(AuditColumnsMixin, Base):
+    """Lô hàng (02 §3.2 `ops_shipments`). Thuộc hợp đồng `active` lúc tạo; giữ `contract_version` lúc tạo (02 §3.7).
+
+    Chưa có (làm cùng các phần tương ứng của 02): quy trình mẫu (`process_code`, `process_version`), `md_locations`
+    (điểm đi/đến tạm là văn bản), `md_incoterms`, yêu cầu dịch vụ (`service_request_id`), bước `ops_tasks`."""
+
+    __tablename__ = "ops_shipments"
+    __table_args__ = (
+        CheckConstraint(f"mode IN ({_in(ContractMode)})", name="mode_valid"),
+        CheckConstraint(f"status IN ({_in(ShipmentStatus)})", name="status_valid"),
+        CheckConstraint(f"direction IN ({_in(Direction)})", name="direction_valid"),
+        CheckConstraint(f"transport_mode IN ({_in(TransportMode)})", name="transport_mode_valid"),
+        CheckConstraint(f"priority IN ({_in(Priority)})", name="priority_valid"),
+        CheckConstraint(
+            "incoterm IS NULL OR incoterm IN (" + ", ".join(f"'{t}'" for t in INCOTERMS_2020) + ")",
+            name="incoterm_valid",
+        ),
+        # 02 §3.2: Incoterms bắt buộc khi nhập/xuất khẩu
+        CheckConstraint("direction = 'domestic' OR incoterm IS NOT NULL", name="incoterm_required_cross_border"),
+        CheckConstraint("etd IS NULL OR eta IS NULL OR etd <= eta", name="etd_before_eta"),
+        CheckConstraint("status <> 'cancelled' OR status_reason IS NOT NULL", name="cancel_has_reason"),
+        Index("ix_ops_shipments_contract_status", "contract_id", "status"),
+        Index("ix_ops_shipments_customer_status", "customer_id", "status"),
+        Index("ix_ops_shipments_assignee_status", "assignee_id", "status"),
+    )
+
+    shipment_no: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)
+    contract_id: Mapped[int] = _contract_fk()
+    contract_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)  # kế thừa từ hợp đồng
+    customer_id: Mapped[int] = _party_fk()  # = khách hàng của hợp đồng (lọc cổng khách hàng – BR-111)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False)
+    transport_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    incoterm: Mapped[str | None] = mapped_column(String(3))
+    incoterm_place: Mapped[str | None] = mapped_column(String(200))
+    shipper_id: Mapped[int] = _party_fk()
+    shipper_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    consignee_id: Mapped[int] = _party_fk()
+    consignee_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    notify_party_id: Mapped[int | None] = _party_fk(nullable=True)
+    notify_party_name: Mapped[str | None] = mapped_column(String(300))
+    origin_location: Mapped[str] = mapped_column(String(200), nullable=False)
+    destination_location: Mapped[str] = mapped_column(String(200), nullable=False)
+    cargo_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    etd: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    eta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    required_delivery_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # hạn SLA
+    claims_preferential_tariff: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    priority: Mapped[str] = mapped_column(String(16), nullable=False, default="normal", server_default="normal")
+    assignee_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("sys_users.id", ondelete="RESTRICT"))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", server_default="draft")
+    status_reason: Mapped[str | None] = mapped_column(String(500))  # lý do hủy
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OpsShipmentStatusHistory(Base):
+    """Lịch sử trạng thái lô – theo dõi tiến độ (nhân viên: đủ; khách hàng: mốc + thời điểm, không người/ghi chú)."""
+
+    __tablename__ = "ops_shipment_status_history"
+    __table_args__ = (Index("ix_ops_shipment_status_history_shipment", "shipment_id", "id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    shipment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"), nullable=False
+    )
+    from_status: Mapped[str | None] = mapped_column(String(20))  # NULL: lúc tạo
+    to_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+    changed_by: Mapped[int | None] = mapped_column(BigInteger)
+    note: Mapped[str | None] = mapped_column(String(500))
+
+
+class OpsDeliveryRecord(Base):
+    """Biên bản giao hàng (02 §3 `ops_delivery_records`) – điều kiện `in_execution → delivered`. Chưa có `pod_file_id`
+    (file biên bản/POD – làm cùng chứng từ)."""
+
+    __tablename__ = "ops_delivery_records"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    shipment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"), nullable=False, unique=True
+    )
+    delivered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    receiver_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    in_full: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    damage_free: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    remarks: Mapped[str | None] = mapped_column(String(1000))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
     )

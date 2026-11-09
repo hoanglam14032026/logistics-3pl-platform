@@ -48,7 +48,7 @@ cp .env.example .env                                     # rồi điền JWT_SEC
 uvicorn app.main:create_app --factory --reload           # http://127.0.0.1:8000/docs; tự chạy alembic upgrade head
 python -m app.worker                                     # worker gửi email (cần JOB_QUEUE_URL=redis://localhost:6379/0)
 python -m app.shared.identity.cli create-admin --username admin --full-name "Quản trị"   # admin đầu tiên
-pytest                                                   # 523 test: 395 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 128 đơn vị
+pytest                                                   # 562 test: 434 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 128 đơn vị
 ruff check . && ruff format --check .
 ```
 

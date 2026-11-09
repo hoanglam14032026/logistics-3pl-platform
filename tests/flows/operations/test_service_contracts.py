@@ -268,6 +268,7 @@ def test_suspend_and_resume(client, as_role, party):
     assert _actions(c["id"]) == [
         "contract.create",
         "contract.attachment_add",
+        "event.EV-101",  # sự kiện ops.contract.activated (Giai đoạn 8) – cùng giao dịch với kích hoạt
         "contract.activate",
         "contract.suspend",
         "contract.resume",

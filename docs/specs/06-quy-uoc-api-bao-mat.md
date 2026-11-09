@@ -220,6 +220,8 @@ Ký hiệu: **Q** = toàn quyền ghi; **G** = ghi trong phạm vi được giao
 
 Phạm vi dữ liệu (row-level) được kiểm tra trong lớp `services`, không chỉ ở router.
 
+**Đã làm – L1 Lô hàng (Giai đoạn 8)**: đọc `ops_staff`, `manager`, `business_manager`, `instructor`, `admin`; tạo `ops_staff`; sửa nháp, chuyển trạng thái, hủy – `ops_staff` **được phân công** (khác → `403`); `manager` chỉ đọc + phân công lại (tạm); `customer` xem mốc tiến độ lô của khách hàng mình qua cổng; `learner`, `content_editor` → `403`. Gửi chứng từ (`customer` – G): chưa làm.
+
 ## 5. Nhật ký và giám sát
 
 - `sys_audit_logs`: `actor_id`, `action`, `entity_type`, `entity_id`, `before` (JSON), `after` (JSON), `ip`, `request_id`, `at`. Không ghi nội dung file, mật khẩu, token.

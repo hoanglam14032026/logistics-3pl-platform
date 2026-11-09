@@ -290,3 +290,14 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | `Dockerfile` một stage; `docker-compose.yml`: `db`, `api` | `Dockerfile` nhiều stage (`runtime` mặc định, `test` có công cụ dev + `tests/`); compose thêm `redis` (AOF), `worker`, `env_file: .env` cho `api`/`worker`; `.dockerignore` không loại `tests/` (chỉ stage `test` chép) | Chạy pytest trong image; yêu cầu Giai đoạn 7 |
 | – | Không thêm migration (bảng `sys_rate_limit_counters` từ `0004` dùng được; hàng đợi ở Redis) – head vẫn `0008` | – |
 | – | 22 test mới (7 hàng đợi trên Redis thật – gồm tác vụ còn sau khi API dừng, thử lại tới khi gửi được, hết lượt, kill -9 worker thật giữa lúc gửi, Redis không chạy; 7 giới hạn tần suất – gồm token giả, upload bị chặn không lưu file, body không bị đọc; 8 cấu hình); 5 test cũ cập nhật (token cấp lúc gửi, `attempts`) | `07` §5 |
+
+### 10.23. Mã nguồn – Giai đoạn 8: lô hàng (vận đơn), theo dõi trên cổng, sự kiện (09/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| `02` §3.2, §6.2, §8: lô hàng (chưa làm) | `ops_shipments`, `ops_shipment_status_history`, `ops_delivery_records`; `/api/v2/ops/shipments` (tạo, xem, PATCH nháp, `:submit` / `:verify-documents` / `:start` / `:deliver` / `:close` / `:cancel`, `:assign`); số `LH-yyyy-nnnnnn`; nhật ký `shipment.*` | Yêu cầu Giai đoạn 8 |
+| PRT-06 (chưa làm) | `/api/v2/portal/shipments` (+ `/{id}` có mốc tiến độ) – BR-111 | Yêu cầu Giai đoạn 8 |
+| Yêu cầu: "EV-101 khi vận đơn được tạo, cập nhật trạng thái" | Theo danh mục `01` §5: tạo lô = **EV-111** `ops.shipment.created`, đổi trạng thái = **EV-112** `ops.shipment.status_changed`, giao hàng = EV-142; **EV-101** = `ops.contract.activated` – phát khi kích hoạt hợp đồng. Ghi vào `sys_audit_logs` (`event.<mã>`, phong bì `01` §5) cùng giao dịch – **CẦN XÁC NHẬN** | Giữ đúng mã sự kiện mà Luồng 2, 4 nhận (`03` §6, `05`) |
+| `close_contract`: chưa kiểm lô hàng | Chặn đóng khi còn lô chưa `closed`/`cancelled` (BR-110 – phần lô) | `02` §3.9 |
+| – | Migration `0009` (3 bảng, 2 function + 3 trigger viết tay) | `07` §6 điểm 3 |
+| – | 39 test mới (35 lô hàng – gồm ma trận 8 vai trò + `customer`, người được phân công, 10 lô tạo song song không trùng số, tạm dừng hợp đồng song song với tạo lô, đủ vòng đời + EV-111/112/142, chuyển sai, hủy, If-Match, trigger chặn sửa/xóa, sự kiện cùng giao dịch, EV-101; 4 cổng – BR-111, không lộ dữ liệu nội bộ); 2 test cũ cập nhật (nhật ký có `event.EV-101`, head `0009`) | `07` §5 |

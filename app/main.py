@@ -21,7 +21,9 @@ from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
 from app.core.migrations import upgrade_to_head
 from app.flows.operations import service as ops_service
 from app.flows.operations.portal.router import router as portal_contracts_router
+from app.flows.operations.portal.shipments_router import router as portal_shipments_router
 from app.flows.operations.router import router as ops_contracts_router
+from app.flows.operations.shipment_router import router as ops_shipments_router
 from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào Base.metadata)
 from app.legacy_v1.api import business_guide
 from app.legacy_v1.api.business_data import records as business_data_records
@@ -118,6 +120,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ops_service.register_guards()
     if "ops" in settings.enabled_flows:
         app.include_router(ops_contracts_router)
+        app.include_router(ops_shipments_router)
         app.include_router(portal_contracts_router)
+        app.include_router(portal_shipments_router)
     _include_legacy_v1_routers(app)
     return app

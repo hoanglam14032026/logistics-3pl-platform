@@ -94,6 +94,8 @@ Khóa ngoại chỉ trong nội bộ Luồng 1 và tới `md_*`/`sys_*` (N3). Tr
 | `priority` | ENUM `normal`, `high`, `urgent` (snapshot từ EV-207) | B (mặc định `normal`) | Mức ưu tiên do người giám sát, điều phối đặt; danh sách việc sắp xếp theo ưu tiên rồi hạn |
 | `status` | ENUM | B | §6.2 |
 
+**Đã làm (Giai đoạn 8, 09/11/2026)** – migration `0009`, `app/flows/operations/shipment_*.py`: `ops_shipments` với các trường trên trừ `process_code`/`process_version` (chưa có quy trình mẫu), `service_request_id` (chưa có yêu cầu dịch vụ); `incoterm` kiểm theo danh sách Incoterms 2020 cố định (chưa có `md_incoterms`); điểm đi/đến tạm là văn bản `origin_location`/`destination_location` (chưa có `md_locations` – **CẦN XÁC NHẬN**); thêm `contract_version` (phiên bản hợp đồng lúc tạo – §3.7), `customer_id` (= khách hàng của hợp đồng), `status_reason` (lý do hủy), `delivered_at`/`closed_at`/`cancelled_at`. Bảng thêm: `ops_shipment_status_history` (lịch sử trạng thái – theo dõi tiến độ), `ops_delivery_records` (chưa có `pod_file_id`). Lô `closed`/`cancelled` chỉ đọc, không xóa lô, lịch sử và biên bản giao chỉ ghi thêm – service + trigger CSDL. Số lô `LH-yyyy-nnnnnn` từ `sys_doc_sequences` (tạo song song không trùng số).
+
 ### 3.3. `ops_documents` – Chứng từ
 
 | Trường | Kiểu | B/T | Ghi chú |
@@ -463,6 +465,8 @@ draft → docs_collecting → docs_verified → in_execution → delivered → c
 | `delivered → closed` | Mọi bước `done` hoặc `skipped` có phê duyệt |
 | Chứng từ phiên bản mới khi đang `docs_verified`/`in_execution` | Lô quay về `docs_collecting` nếu kiểm tra lại có lỗi chặn mới (ghi nhật ký) |
 
+**Đã làm (Giai đoạn 8, 09/11/2026)**: đủ các chuyển trạng thái trên – tạo → `draft` (hợp đồng `active`, khóa `FOR SHARE`); `:submit` (hợp đồng vẫn `active`; **chưa** sinh `ops_tasks`); `:verify-documents` – tạm do nhân viên xác nhận, BR-103 làm cùng kiểm tra chứng từ (**CẦN XÁC NHẬN**); `:start`; `:deliver` (kèm biên bản giao: thời điểm ≤ hiện tại, người nhận, `in_full`, `damage_free`); `:close` (chưa kiểm "mọi bước done/skipped"); `:cancel` (mọi trạng thái trước `delivered`, bắt buộc lý do). Chưa có: quay về `docs_collecting` khi có chứng từ mới. Người ghi: `ops_staff` được phân công (người tạo lô được phân công mặc định); phân công lại tạm do `manager` (`:assign`) tới khi có EV-202 (**CẦN XÁC NHẬN**). Sự kiện: tạo → EV-111; mỗi lần đổi trạng thái → EV-112; giao hàng → EV-142 (ghi vào `sys_audit_logs` – `01` §5). Đóng hợp đồng (`:close`) bị chặn khi còn lô chưa `closed`/`cancelled` (BR-110 – phần lô hàng).
+
 ### 6.3. Chứng từ
 
 `received → data_entered → checked` (đạt) hoặc `→ discrepancy` (còn sai lệch); bất kỳ trạng thái nào `→ superseded` khi có phiên bản mới.
@@ -521,9 +525,9 @@ Quy tắc bổ sung:
 | GET/POST | `/api/v2/ops/service-contracts` | Danh sách / tạo |
 | GET/PATCH | `/api/v2/ops/service-contracts/{id}` | Chi tiết / sửa (chỉ `draft`) |
 | POST | `/api/v2/ops/service-contracts/{id}:activate` · `:suspend` · `:resume` | Chuyển trạng thái (thanh lý: xem dưới) |
-| GET/POST | `/api/v2/ops/shipments` | Lọc theo `contract_id`, `status`, `assignee_id`, `mode`, `from`, `to` |
-| GET/PATCH | `/api/v2/ops/shipments/{id}` | |
-| POST | `/api/v2/ops/shipments/{id}:cancel` | |
+| GET/POST | `/api/v2/ops/shipments` | Lọc theo `contract_id`, `status`, `assignee_id`, `mode`, `from`, `to`. **Đã làm (Giai đoạn 8)** trừ `mode` (chỉ `production` – BR-01); `from`/`to` = ngày tạo (giờ Việt Nam); thêm `q` (số lô, tên người gửi/nhận) |
+| GET/PATCH | `/api/v2/ops/shipments/{id}` | **Đã làm (Giai đoạn 8)**: chi tiết kèm lịch sử trạng thái, biên bản giao; PATCH chỉ `draft` |
+| POST | `/api/v2/ops/shipments/{id}:cancel` | **Đã làm (Giai đoạn 8)**; thêm tạm `:submit`, `:verify-documents`, `:start`, `:deliver`, `:close` (§6.2), `:assign` (`manager` – tạm thay EV-202) |
 | GET/POST | `/api/v2/ops/shipments/{id}/documents` | Tải chứng từ (multipart: `file` + `meta` JSON) |
 | GET/PATCH | `/api/v2/ops/documents/{id}` | Nhập/sửa `header_data`, dòng hàng (khi chưa `checked`) |
 | POST | `/api/v2/ops/documents/{id}:new-version` | Phiên bản mới (BR-03) |
@@ -594,7 +598,7 @@ Kênh để khách hàng (chủ hàng) **tự gửi** yêu cầu dịch vụ, ch
 | PRT-03 | Gửi yêu cầu dịch vụ; theo dõi trạng thái; bổ sung thông tin khi `need_info`; rút yêu cầu | §3.6 |
 | PRT-04 | Gửi chứng từ cho lô: tải file, khai loại, số, ngày; xem danh mục chứng từ còn thiếu; gửi phiên bản mới khi được thông báo sai lệch | Chứng từ có `received_from = portal`, nhân viên nhập/kiểm tra dữ liệu (B4–B5) |
 | PRT-05 | Nhận thông báo yêu cầu bổ sung/sửa chứng từ: nhân viên chọn sai lệch cần gửi và soạn nội dung (`ops_customer_notices`) | Không tự động lộ toàn bộ kết quả kiểm tra |
-| PRT-06 | Theo dõi tiến độ lô: các mốc cho khách hàng thấy (bước có cờ `customer_visible_milestone` trong quy trình mẫu: đã nhận chứng từ, đã truyền tờ khai, đã thông quan, đang vận chuyển, đã giao), thời gian dự kiến giao | |
+| PRT-06 | Theo dõi tiến độ lô: các mốc cho khách hàng thấy (bước có cờ `customer_visible_milestone` trong quy trình mẫu: đã nhận chứng từ, đã truyền tờ khai, đã thông quan, đang vận chuyển, đã giao), thời gian dự kiến giao | **Đã làm (Giai đoạn 8)**: `GET /api/v2/portal/shipments`, `/{id}` – mọi tài khoản `customer`; chỉ lô (không nháp) của hợp đồng `production`, `portal_enabled`, của khách hàng mình (BR-111; khác → `404`); mốc tạm là các trạng thái lô đã qua + thời điểm (tới khi có mốc theo bước quy trình); không có người phụ trách, ưu tiên, lý do hủy, ghi chú |
 | PRT-07 | Xem bảng kê phí theo lô và bảng kê đối soát định kỳ; xác nhận hoặc khiếu nại từng dòng | §3.8 |
 | PRT-08 | Xem bảng quyết toán; xác nhận hoặc khiếu nại; tải biên bản thanh lý để in, ký; tải bản scan đã ký hoặc xác nhận bản scan do công ty tải (tương tự với phụ lục) | §3.9, §3.11 |
 | PRT-09 | Trao đổi tin nhắn theo hợp đồng/lô (`ops_portal_messages`), kèm file | |

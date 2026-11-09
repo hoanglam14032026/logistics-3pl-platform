@@ -24,6 +24,7 @@ from app.core.pagination import PageParams, like_pattern, order_by_clause, pagin
 from app.core.rbac import Role
 from app.core.timeutil import now_utc, today_vn
 from app.flows.operations.models import (
+    TERMINAL_SHIPMENT_STATUSES,
     AttachmentKind,
     ContractMode,
     ContractStatus,
@@ -33,6 +34,7 @@ from app.flows.operations.models import (
     OpsContractSla,
     OpsContractVersion,
     OpsServiceContract,
+    OpsShipment,
 )
 from app.flows.operations.schemas import (
     ContractCreate,
@@ -43,6 +45,8 @@ from app.flows.operations.schemas import (
     VersionCreate,
 )
 from app.shared.audit import service as audit
+from app.shared.events import publisher
+from app.shared.events.contracts import ContractActivated
 from app.shared.files import service as files
 from app.shared.files.models import SysFile
 from app.shared.masterdata import service as md_service
@@ -374,6 +378,7 @@ def activate_contract(db: Session, contract_id: int, actor_id: int, expected_ver
     _customer_snapshot(db, contract.customer_id)  # khách hàng vẫn đang hoạt động
     contract.activated_at = now_utc()
     contract.activated_by = actor_id
+    publisher.publish(db, _activated_event(db, contract), "service_contract", contract.id, actor_id, contract.mode)
     # Bản chụp phiên bản 1 (02 §3.1 ops_contract_versions)
     db.add(
         OpsContractVersion(
@@ -385,6 +390,21 @@ def activate_contract(db: Session, contract_id: int, actor_id: int, expected_ver
         )
     )
     return _transition(db, contract, "contract.activate", ContractStatus.ACTIVE, actor_id)
+
+
+def _activated_event(db: Session, contract: OpsServiceContract) -> ContractActivated:
+    """EV-101 `ops.contract.activated` (01 §5) – phạm vi, SLA của phiên bản đang kích hoạt (Luồng 2 điền sẵn mục tiêu
+    KPI kế hoạch từ SLA – 03 CTL-F01)."""
+    current = children(db, contract)
+    return ContractActivated(
+        contract_id=contract.id,
+        contract_no=contract.contract_no,
+        customer_id=contract.customer_id,
+        service_scope=[s.model_dump(mode="json") for s in current["service_scopes"]],
+        sla={s.sla_code: s.model_dump(mode="json", exclude={"sla_code", "penalty_rule"}) for s in current["sla_terms"]},
+        valid_from=contract.valid_from,
+        valid_to=contract.valid_to,
+    )
 
 
 def suspend_contract(db: Session, contract_id: int, reason: str, actor_id: int, expected_version: int | None):
@@ -522,11 +542,23 @@ def close_contract(db: Session, contract_id: int, actor_id: int, expected_versio
     _check_version(contract, expected_version)
     if contract.status != ContractStatus.LIQUIDATING.value:
         raise _transition_error(f"Chỉ đóng được hợp đồng đang thanh lý (đang {contract.status})")
+    problems = []
     if not _has_attachment(db, contract.id, AttachmentKind.LIQUIDATION_MINUTES):
-        raise _requirements_error(
-            "Chưa đủ điều kiện đóng hợp đồng",
-            [("attachments", "Cần bản scan biên bản thanh lý đã ký (file đính kèm loại liquidation_minutes)")],
+        problems.append(
+            ("attachments", "Cần bản scan biên bản thanh lý đã ký (file đính kèm loại liquidation_minutes)")
         )
+    # BR-110 (phần lô hàng – Giai đoạn 8): mọi lô closed/cancelled
+    open_shipment = db.scalar(
+        select(
+            exists().where(
+                OpsShipment.contract_id == contract.id, OpsShipment.status.not_in(TERMINAL_SHIPMENT_STATUSES)
+            )
+        )
+    )
+    if open_shipment:
+        problems.append(("shipments", "Còn lô hàng chưa đóng/hủy (BR-110)"))
+    if problems:
+        raise _requirements_error("Chưa đủ điều kiện đóng hợp đồng", problems)
     contract.closed_at = now_utc()
     contract.closed_by = actor_id
     return _transition(db, contract, "contract.close", ContractStatus.CLOSED, actor_id, contract.status_reason)
