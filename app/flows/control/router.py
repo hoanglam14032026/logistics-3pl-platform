@@ -180,7 +180,9 @@ def put_profile(
     actor: SysUser = Depends(_manager),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
-    prof = service.upsert_profile(db, user_id, body.skills, body.max_load_hours, body.is_available, body.note, actor)
+    prof = service.upsert_profile(
+        db, user_id, body.skills, body.max_load_hours, body.is_available, body.note, actor, body.zalo_user_id
+    )
     response.headers["ETag"] = etag(prof.row_version)
     return prof
 
@@ -286,6 +288,8 @@ def get_task(task_id: int, user: SysUser = Depends(_reader), db: Session = Depen
 
 
 _actor = require_roles(Role.OPS_STAFF, Role.MANAGER)
+# BR-205: business_manager xử lý cảnh báo đã leo thang (kiểm trong tracking)
+_alert_handler = require_roles(Role.MANAGER, Role.BUSINESS_MANAGER)
 
 
 @router.post("/tasks/{task_id:int}:start", response_model=TaskDetailOut, summary="Bắt đầu bước → ctl.task.started")
@@ -352,7 +356,9 @@ def complete_task(
 @router.get("/alerts", response_model=list[AlertOut], summary="Cảnh báo chậm / lỗi")
 def list_alerts(
     status_: str | None = Query(None, alias="status", pattern=r"^(open|acknowledged|resolved|unresolved)$"),
-    alert_type: str | None = Query(None, pattern=r"^(task_blocked|task_overdue|shipment_late_risk)$"),
+    alert_type: str | None = Query(
+        None, pattern=r"^(task_blocked|task_overdue|shipment_late_risk|task_sync_conflict)$"
+    ),
     shipment_id: int | None = Query(None, gt=0),
     mine: bool = Query(False, description="Chỉ cảnh báo gửi tôi (hoặc gửi mọi manager)"),
     user: SysUser = Depends(_manager_view),  # noqa: B008
@@ -368,12 +374,15 @@ def list_alerts(
     if shipment_id:
         stmt = stmt.where(CtlAlert.shipment_id == shipment_id)
     if mine:
-        stmt = stmt.where(or_(CtlAlert.recipient_id == user.id, CtlAlert.recipient_id.is_(None)))
+        if Role.MANAGER.value in user.role_codes:
+            stmt = stmt.where(or_(CtlAlert.recipient_id == user.id, CtlAlert.recipient_id.is_(None)))
+        else:  # business_manager: cảnh báo đã leo thang (BR-205)
+            stmt = stmt.where(CtlAlert.escalated_to_role == Role.BUSINESS_MANAGER.value)
     return db.scalars(stmt.order_by(CtlAlert.id.desc()).limit(500)).all()
 
 
 @router.post("/alerts/{alert_id:int}:acknowledge", response_model=AlertOut, summary="Xác nhận đã nhận cảnh báo")
-def acknowledge_alert(alert_id: int, actor: SysUser = Depends(_manager), db: Session = Depends(get_db)):  # noqa: B008
+def acknowledge_alert(alert_id: int, actor: SysUser = Depends(_alert_handler), db: Session = Depends(get_db)):  # noqa: B008
     return tracking.acknowledge(db, alert_id, actor)
 
 
@@ -381,7 +390,7 @@ def acknowledge_alert(alert_id: int, actor: SysUser = Depends(_manager), db: Ses
 def resolve_alert(
     alert_id: int,
     body: ResolveIn,
-    actor: SysUser = Depends(_manager),  # noqa: B008
+    actor: SysUser = Depends(_alert_handler),  # noqa: B008
     db: Session = Depends(get_db),
 ):  # noqa: B008
     return tracking.resolve(db, alert_id, body.note, actor)
@@ -390,3 +399,16 @@ def resolve_alert(
 @router.post("/alerts:scan", summary="Quét chậm trễ ngay (bình thường chạy định kỳ trong worker)")
 def scan_alerts(_: SysUser = Depends(_manager), db: Session = Depends(get_db)) -> dict[str, int]:  # noqa: B008
     return tracking.scan(db)
+
+
+@router.post(
+    "/shipment-plans/{shipment_id:int}:resync",
+    summary="Gửi lại trạng thái chuẩn các bước cho Luồng 1 (khi một bên lỡ sự kiện) – Giai đoạn 13",
+)
+def resync_shipment(
+    shipment_id: int,
+    actor: SysUser = Depends(_manager),  # noqa: B008
+    db: Session = Depends(get_db),
+) -> dict[str, int]:  # noqa: B008
+    sp = service.get_shipment_plan(db, shipment_id)
+    return {"tasks": tracking.resync(db, sp, actor.id)}

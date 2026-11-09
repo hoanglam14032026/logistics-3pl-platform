@@ -50,7 +50,7 @@ python -m app.worker                                     # worker: email, OCR + 
 python -m app.shared.events.cli dispatch [--failed]      # xếp gửi lại sự kiện còn chờ trong outbox
 python -m app.shared.events.cli replay control           # Luồng 2 xử lý lại sự kiện từ outbox (idempotent, không cần Redis)
 python -m app.shared.identity.cli create-admin --username admin --full-name "Quản trị"   # admin đầu tiên
-pytest                                                   # 780 test: 559 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 220 đơn vị + 1 model thật (bỏ qua mặc định)
+pytest                                                   # 793 test: 572 tích hợp (PostgreSQL logistics_3pl_test, Redis số 15) + 220 đơn vị + 1 model thật (bỏ qua mặc định)
 ruff check . && ruff format --check .
 ```
 
@@ -113,6 +113,8 @@ curl -X POST http://127.0.0.1:8000/api/v2/admin/ai-models/2:probe -H "Authorizat
 **Luồng 2 – kế hoạch, phân công tự động (Giai đoạn 11):** worker nhận EV-101 → kế hoạch hợp đồng nháp; EV-111 → các bước từ quy trình mẫu + phân công tự động theo vai trò, năng lực, tải → EV-202 → Luồng 1 đặt người phụ trách lô. Manager đặt năng lực/sức chứa: `PUT /api/v2/control/staff-profiles/{user_id}` `{"skills": {"CUSTOMS_CLEARANCE": 4, "DOCS": 3}, "max_load_hours": "40"}`; xem `GET /api/v2/control/workload`, điều chuyển `POST /api/v2/control/assignments`.
 
 **Theo dõi thực thi (Giai đoạn 12):** người được giao cập nhật bước `POST /api/v2/control/tasks/{id}:start` · `PATCH` (% tiến độ) · `:block` (lý do) · `:unblock` · `:complete`; theo dõi `GET /api/v2/control/tracking/shipments?health=late`; manager xem cảnh báo chậm / lỗi `GET /api/v2/control/alerts?mine=true`, `:acknowledge`, `:resolve`. Worker quét chậm trễ mỗi `CONTROL_SCAN_INTERVAL_SEC` giây.
+
+**Đồng bộ bước, leo thang, Zalo (Giai đoạn 13):** bước của lô có ở cả Luồng 2 (`/api/v2/control/tasks/…`) và Luồng 1 (`/api/v2/ops/tasks/{id}:start|:complete|:block|:unblock`), đồng bộ hai chiều qua outbox (Luồng 2 là nguồn chuẩn; lệch → `POST /api/v2/control/shipment-plans/{id}:resync`). Cảnh báo chưa xử lý sau 2 giờ leo thang lên `business_manager`. Gửi cảnh báo qua email (cần SMTP) và Zalo OA: đặt `ZALO_TOKEN` + `zalo_user_id` trong hồ sơ (`PUT /api/v2/control/staff-profiles/{user_id}`).
 
 Test với model thật (bỏ qua mặc định): `DOCAI_LIVE_OLLAMA=1 pytest tests/shared/docai/test_live_ollama.py`.
 

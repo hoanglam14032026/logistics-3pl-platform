@@ -462,7 +462,7 @@ def test_profile_validation_and_audit(client, world):
     )
     profile(client, world, "s1", {"DOCS": 3}, max_load="35.5")
     [log] = _logs("staff_profile.update")
-    assert log.after == {"skills": {"DOCS": 3}, "max_load_hours": "35.5", "is_available": True}
+    assert log.after == {"skills": {"DOCS": 3}, "max_load_hours": "35.5", "is_available": True, "zalo_user_id": None}
 
 
 def test_control_disabled_keeps_events_waiting(client, make_party, make_contract, monkeypatch, redis_url):

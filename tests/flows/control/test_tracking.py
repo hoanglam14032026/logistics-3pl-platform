@@ -145,7 +145,7 @@ def test_block_raises_alert_and_unblock_resolves_it(client, world, setup):
 def test_overdue_scan_warns_escalates_and_resolves(client, world, setup):
     _, t = _new(client, world, setup)
     nk1 = t["NK-01"]["id"]
-    assert _scan(0) == {"task_overdue": 0, "shipment_late_risk": 0, "resolved": 0}
+    assert _scan(0) == {"task_overdue": 0, "shipment_late_risk": 0, "resolved": 0, "escalated": 0}
     stats = _scan(5)  # NK-01 kế hoạch 4 giờ
     assert stats["task_overdue"] == 1
     [alert] = _alerts()
@@ -250,7 +250,7 @@ def test_scan_reschedules_itself_in_worker_queue(client, setup, monkeypatch):
     assert tracking.schedule_scan() is True
     queue = Queue(jobs.QUEUE_NAME, connection=Redis.from_url(setup["url"]))
     assert tracking.SCAN_JOB_ID in ScheduledJobRegistry(queue=queue).get_job_ids()
-    assert tracking.scheduled_scan() == {"task_overdue": 0, "shipment_late_risk": 0, "resolved": 0}
+    assert tracking.scheduled_scan() == {"task_overdue": 0, "shipment_late_risk": 0, "resolved": 0, "escalated": 0}
     monkeypatch.setenv("CONTROL_SCAN_INTERVAL_SEC", "0")
     get_settings.cache_clear()
     assert tracking.schedule_scan() is False

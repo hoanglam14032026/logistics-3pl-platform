@@ -357,3 +357,14 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | Migration `0013`: 8 cột + 5 CHECK `ctl_shipment_tasks`, `ctl_task_updates`, `ctl_alerts`, trigger (nhật ký bước chỉ ghi thêm, không xóa cảnh báo) | `07` §6 điểm 3 |
 | – | 9 test mới (PostgreSQL + Redis thật – vòng đời bước + sự kiện tới stream Luồng 4, chặn → cảnh báo → gỡ tự đóng, quét quá hạn → nâng mức → xong tự đóng, nguy cơ trễ hạn giao, API cảnh báo + phân quyền, theo dõi + phân quyền, hủy lô đóng bước đang làm, tác vụ quét tự xếp lại, trigger/CHECK); test migration cập nhật (head `0013`, tên CHECK) | `07` §5 |
 
+### 10.28. Mã nguồn – Giai đoạn 13: đồng bộ bước Luồng 2 ↔ Luồng 1, BR-205, cảnh báo qua email / Zalo (09/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Bước chỉ ở Luồng 2 | `ops_tasks` (Luồng 1) đồng bộ theo `revision` (Luồng 2 nguồn chuẩn): `ctl.task.synced` → Luồng 1 ghi đè + phát EV-131/132/133/`ops.task.unblocked`; thao tác ở Luồng 1 → EV-13x → Luồng 2 kiểm tra, áp dụng / xác nhận / trả trạng thái chuẩn khi xung đột (cảnh báo `task_sync_conflict`); không vòng lặp (`origin`); lô hủy/đóng đóng bước hai bên; `:resync` | Yêu cầu Giai đoạn 13 (mục 1) |
+| Cảnh báo không leo thang | BR-205: chưa xử lý sau `CONTROL_ESCALATION_HOURS` → `business_manager` (một lần), nhật ký `alert.escalate`, `ctl.alert.escalated`; business_manager xử lý cảnh báo đã leo thang | Yêu cầu Giai đoạn 13 (mục 2); `03` BR-205 |
+| Cảnh báo chỉ trong ứng dụng | `ctl_alert_notifications` + tác vụ rq gửi email / Zalo OA (`ZALO_TOKEN`), thử lại như Giai đoạn 7, hết lượt `failed` + `alert.notify_failed`; không có hàng đợi → gửi ngay; `zalo_user_id` trong hồ sơ nhân viên | Yêu cầu Giai đoạn 13 (mục 3) |
+| Cảnh báo tạo khi quét lấy giờ hệ thống | Lấy thời điểm của lần quét (`raised_at`) | Leo thang tính đúng thời gian chưa xử lý |
+| – | Migration `0014`: `ops_tasks` (chép bước đã có), `ctl_alert_notifications`, cột `revision`, `escalated_at`, `escalated_to_role`, `zalo_user_id`, loại cảnh báo `task_sync_conflict`, trigger không xóa thông báo | `07` §6 điểm 3 |
+| – | 13 test mới (PostgreSQL + Redis thật; Zalo giả lập trên 127.0.0.1): đồng bộ L2 → L1 + EV-13x, L1 → L2, đổi đồng thời hội tụ, Luồng 1 lệch → xung đột → sửa, sự kiện cũ bỏ qua + phân quyền + hủy lô, điều chuyển, `:resync`, leo thang sau 2 giờ + email business_manager, không leo thang cảnh báo đã xử lý, Zalo (token không lọt hàng đợi/log), Zalo lỗi → thử lại → gửi được, email hết lượt → failed + FailedJobRegistry, không hàng đợi → gửi ngay); 3 test cũ cập nhật (head `0014`, kết quả quét có `escalated`, nhật ký hồ sơ có `zalo_user_id`) | `07` §5 |
+

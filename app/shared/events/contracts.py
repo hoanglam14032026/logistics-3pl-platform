@@ -161,6 +161,52 @@ class CtlTaskDelayed(_CtlTaskEvent):
     status: str
 
 
+class CtlTaskSynced(EventData):
+    """Đồng bộ bước Luồng 2 → Luồng 1 (Giai đoạn 13): trạng thái **đầy đủ** của bước + `revision` (Luồng 2 là nguồn
+    chuẩn, tăng mỗi lần đổi). Luồng 1 ghi đè `ops_tasks` khi `revision` ≥ bản đang có. `origin`: phía khởi phát thay
+    đổi (`control` – thao tác ở Luồng 2; `ops` – xác nhận thay đổi Luồng 1 gửi lên). `conflict`: thay đổi của Luồng 1 bị
+    từ chối (xung đột) – đây là trạng thái chuẩn để Luồng 1 quay về."""
+
+    code: ClassVar[str] = "ctl.task.synced"
+    name: ClassVar[str] = "ctl.task.synced"
+    consumers: ClassVar[tuple[str, ...]] = ("ops",)
+
+    task_id: int
+    shipment_id: int
+    step_code: str
+    seq: int
+    name: str
+    responsible_role: str
+    depends_on: list[str]
+    is_checkpoint: bool
+    planned_start: UtcDatetime
+    planned_end: UtcDatetime
+    assignee_id: int | None
+    status: str
+    progress_pct: int
+    actual_start: UtcDatetime | None
+    actual_end: UtcDatetime | None
+    blocked_reason: str | None
+    revision: int
+    origin: str
+    conflict: bool = False
+
+
+class CtlAlertEscalated(EventData):
+    """BR-205 (Giai đoạn 13): cảnh báo chưa xử lý quá hạn → leo thang lên business_manager."""
+
+    code: ClassVar[str] = "ctl.alert.escalated"
+    name: ClassVar[str] = "ctl.alert.escalated"
+    consumers: ClassVar[tuple[str, ...]] = ("assessment",)
+
+    alert_id: int
+    alert_type: str
+    severity: str
+    shipment_id: int
+    escalated_to_role: str
+    unresolved_hours: float
+
+
 class CtlAlertRaised(EventData):
     code: ClassVar[str] = "ctl.alert.raised"
     name: ClassVar[str] = "ctl.alert.raised"
@@ -173,6 +219,58 @@ class CtlAlertRaised(EventData):
     task_id: int | None
     plan_id: int | None
     recipient_id: int | None
+
+
+# --- EV-131/132/133 – bước của Luồng 1 (Giai đoạn 13: đồng bộ với Luồng 2) ---------------------------------------
+# Trường thêm so với 01 §5 (giữ schema_version 1): `ctl_task_id` (bước tương ứng ở Luồng 2), `base_revision` (revision
+# Luồng 1 đang có khi đổi), `origin` (`ops`: thao tác ở Luồng 1; `control`: chuyển tiếp thay đổi từ Luồng 2).
+
+
+class _OpsTaskEvent(EventData):
+    task_id: int
+    ctl_task_id: int
+    shipment_id: int
+    step_code: str
+    base_revision: int
+    origin: str
+
+
+class OpsTaskStarted(_OpsTaskEvent):
+    code: ClassVar[str] = "EV-131"
+    name: ClassVar[str] = "ops.task.started"
+
+    performer_id: int | None
+    actual_start: UtcDatetime
+
+
+class OpsTaskCompleted(_OpsTaskEvent):
+    code: ClassVar[str] = "EV-132"
+    name: ClassVar[str] = "ops.task.completed"
+
+    performer_id: int | None
+    planned_end: UtcDatetime
+    actual_end: UtcDatetime
+    sequence_ok: bool
+    evidence_ok: bool | None = None  # chưa kiểm chứng từ đầu ra (CẦN XÁC NHẬN)
+
+
+class OpsTaskBlocked(_OpsTaskEvent):
+    code: ClassVar[str] = "EV-133"
+    name: ClassVar[str] = "ops.task.blocked"
+    consumers: ClassVar[tuple[str, ...]] = ("control",)
+
+    reason_code: str
+    note: str | None
+
+
+class OpsTaskUnblocked(_OpsTaskEvent):
+    """Gỡ chặn – 01 §5 chưa có mã EV (CẦN XÁC NHẬN)."""
+
+    code: ClassVar[str] = "ops.task.unblocked"
+    name: ClassVar[str] = "ops.task.unblocked"
+    consumers: ClassVar[tuple[str, ...]] = ("control",)
+
+    note: str | None
 
 
 # --- doc.* – job trích xuất chứng từ AI local (Giai đoạn 10) -------------------------------------------------------

@@ -451,3 +451,52 @@ class OpsCommercialInvoiceItem(Base):
     unit: Mapped[str | None] = mapped_column(String(20))
     unit_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+
+
+class OpsTaskStatus(StrEnum):
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    BLOCKED = "blocked"
+    DONE = "done"
+    CLOSED = "closed"
+
+
+class OpsTask(Base):
+    """Bước thực hiện của lô ở Luồng 1 (02 `ops_tasks` – Giai đoạn 13): bản đồng bộ của `ctl_shipment_tasks` (Luồng 2 –
+    nguồn chuẩn, `revision`). Người phụ trách lô thao tác được ở đây (→ EV-131/132/133 → Luồng 2 xác nhận); thay đổi ở
+    Luồng 2 đến qua `ctl.task.synced`. `pending_local`: thay đổi ở Luồng 1 chưa được Luồng 2 xác nhận."""
+
+    __tablename__ = "ops_tasks"
+    __table_args__ = (
+        UniqueConstraint("shipment_id", "step_code", name="uq_ops_tasks_shipment_step"),
+        CheckConstraint(f"status IN ({_in(OpsTaskStatus)})", name="status_valid"),
+        CheckConstraint("progress_pct BETWEEN 0 AND 100", name="progress_range"),
+        CheckConstraint("revision >= 0", name="revision_non_negative"),
+        Index("ix_ops_tasks_assignee_status", "assignee_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    shipment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"), nullable=False
+    )
+    # Bước tương ứng ở Luồng 2 – tham chiếu qua sự kiện, không FK (N2)
+    ctl_task_id: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
+    step_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    responsible_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    depends_on: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    is_checkpoint: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    planned_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    planned_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    assignee_id: Mapped[int | None] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    progress_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actual_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    actual_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    blocked_reason: Mapped[str | None] = mapped_column(String(500))
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pending_local: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_by: Mapped[int | None] = mapped_column(BigInteger)

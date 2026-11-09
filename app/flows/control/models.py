@@ -69,6 +69,7 @@ class AlertType(StrEnum):
     TASK_BLOCKED = "task_blocked"  # bước gặp lỗi / bị chặn
     TASK_OVERDUE = "task_overdue"  # quá thời hạn kế hoạch mà chưa xong
     SHIPMENT_LATE_RISK = "shipment_late_risk"  # dự kiến xong sau hạn giao yêu cầu (SLA)
+    TASK_SYNC_CONFLICT = "task_sync_conflict"  # Giai đoạn 13: thay đổi bước ở Luồng 1 xung đột với Luồng 2
 
 
 class AlertSeverity(StrEnum):
@@ -229,6 +230,8 @@ class CtlShipmentTask(Base):
     note: Mapped[str | None] = mapped_column(String(1000))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_by: Mapped[int | None] = mapped_column(BigInteger)
+    # Giai đoạn 13: tăng mỗi lần đổi trạng thái/người – Luồng 1 (`ops_tasks`) đồng bộ theo số này (nguồn chuẩn)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
 class CtlAssignment(Base):
@@ -281,6 +284,8 @@ class CtlStaffProfile(AuditColumnsMixin, Base):
     )
     is_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
     note: Mapped[str | None] = mapped_column(String(500))
+    # Giai đoạn 13: user_id người theo dõi Zalo OA – nhận cảnh báo qua Zalo khi đặt ZALO_TOKEN
+    zalo_user_id: Mapped[str | None] = mapped_column(String(64))
 
 
 class CtlTaskUpdate(Base):
@@ -340,3 +345,40 @@ class CtlAlert(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_by: Mapped[int | None] = mapped_column(BigInteger)  # NULL: hệ thống tự đóng (bước xong / gỡ chặn)
     resolution_note: Mapped[str | None] = mapped_column(String(500))
+    # BR-205 (Giai đoạn 13): chưa xử lý sau CONTROL_ESCALATION_HOURS → leo thang lên business_manager
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    escalated_to_role: Mapped[str | None] = mapped_column(String(32))
+
+
+class NotificationStatus(StrEnum):
+    PENDING = "pending"
+    SENT = "sent"
+    FAILED = "failed"  # hết lượt thử lại
+
+
+class CtlAlertNotification(Base):
+    """Thông báo cảnh báo ra ngoài ứng dụng (Giai đoạn 13): mỗi (cảnh báo, mục đích, kênh, người nhận) một dòng – gửi
+    qua hàng đợi rq, thử lại như Giai đoạn 7. Kênh `email` (email tài khoản), `zalo` (ZALO_TOKEN + `zalo_user_id`)."""
+
+    __tablename__ = "ctl_alert_notifications"
+    __table_args__ = (
+        UniqueConstraint("alert_id", "purpose", "channel", "user_id", name="uq_ctl_alert_notifications_target"),
+        CheckConstraint("channel IN ('email', 'zalo')", name="channel_valid"),
+        CheckConstraint("purpose IN ('raised', 'escalated')", name="purpose_valid"),
+        CheckConstraint(f"status IN ({_in(NotificationStatus)})", name="status_valid"),
+        CheckConstraint("(status = 'sent') = (sent_at IS NOT NULL)", name="sent_has_time"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    alert_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("ctl_alerts.id", ondelete="RESTRICT"), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(16), nullable=False)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("sys_users.id", ondelete="RESTRICT"), nullable=False)
+    address: Mapped[str] = mapped_column(String(254), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )

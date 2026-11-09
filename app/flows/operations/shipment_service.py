@@ -32,6 +32,7 @@ from app.core.pagination import PageParams, like_pattern, order_by_clause, pagin
 from app.core.rbac import Role, forbidden
 from app.core.timeutil import VN_TZ, now_utc, today_vn
 from app.flows.operations import service as contracts
+from app.flows.operations import task_service
 from app.flows.operations.models import (
     TERMINAL_SHIPMENT_STATUSES,
     ContractMode,
@@ -351,8 +352,10 @@ def _transition(
     if target is S.CANCELLED:
         shipment.status_reason = reason
         shipment.cancelled_at = now
+        task_service.close_for_shipment(db, shipment.id)  # Giai đoạn 13: bước chưa xong → closed
     elif target is S.CLOSED:
         shipment.closed_at = now
+        task_service.close_for_shipment(db, shipment.id)
     elif target is S.DELIVERED:
         if delivery_in.delivered_at > now:
             raise _field_error("delivered_at", "Thời điểm giao không được ở tương lai")

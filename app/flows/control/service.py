@@ -24,7 +24,7 @@ from app.core.errors import AppError, ErrorCode
 from app.core.pagination import PageParams, order_by_clause, paginate
 from app.core.rbac import Role
 from app.core.timeutil import now_utc
-from app.flows.control import assign
+from app.flows.control import assign, tracking
 from app.flows.control.models import (
     ACTIVE_TASK_STATUSES,
     AssignMethod,
@@ -226,6 +226,10 @@ def on_shipment_created(db: Session, envelope: dict[str, Any]) -> dict[str, Any]
         },
     )
     assignment = auto_assign(db, sp, None, "Tự phân công khi tạo lô (EV-111)")
+    for task in tasks:  # bước chưa đồng bộ (không có người nhận) → gửi Luồng 1 tạo ops_tasks
+        if task.revision == 0:
+            task.revision = 1
+            tracking.publish_synced(db, task, sp, "control", None)
     return {
         "shipment_plan_id": sp.id,
         "created": True,
@@ -298,10 +302,19 @@ def _apply(
     sp.assignee_id = assignee_id
     sp.updated_by = actor_id
     tasks = tasks_of(db, sp)
+    changed = []
     for t in tasks:
-        if t.status in ACTIVE_TASK_STATUSES and t.responsible_role == Role.OPS_STAFF.value:
+        if (
+            t.status in ACTIVE_TASK_STATUSES
+            and t.responsible_role == Role.OPS_STAFF.value
+            and t.assignee_id != assignee_id
+        ):
             t.assignee_id = assignee_id
+            changed.append(t)
     _set_controllers(db, sp, tasks, assignee_id)
+    for t in changed:  # Giai đoạn 13: người thực hiện mới → đồng bộ bước sang Luồng 1
+        t.revision += 1
+        tracking.publish_synced(db, t, sp, "control", actor_id)
     body = None
     if assignee_id is not None:
         _ensure_member(db, sp.plan_id, assignee_id)
@@ -468,21 +481,29 @@ def upsert_profile(
     available: bool,
     note: str | None,
     actor: SysUser,
+    zalo_user_id: str | None = None,
 ) -> CtlStaffProfile:
     user = db.get(SysUser, user_id)
-    if user is None or Role.OPS_STAFF.value not in user.role_codes and Role.MANAGER.value not in user.role_codes:
-        raise _not_found("Không có nhân viên ops_staff/manager này")
+    allowed = {Role.OPS_STAFF.value, Role.MANAGER.value, Role.BUSINESS_MANAGER.value}
+    if user is None or not allowed & set(user.role_codes):
+        raise _not_found("Không có nhân viên ops_staff/manager/business_manager này")
     prof = db.scalar(select(CtlStaffProfile).where(CtlStaffProfile.user_id == user_id).with_for_update())
     before = None
     if prof is None:
         prof = CtlStaffProfile(user_id=user_id, created_by=actor.id)
         db.add(prof)
     else:
-        before = {"skills": prof.skills, "max_load_hours": str(prof.max_load_hours), "is_available": prof.is_available}
+        before = {
+            "skills": prof.skills,
+            "max_load_hours": str(prof.max_load_hours),
+            "is_available": prof.is_available,
+            "zalo_user_id": prof.zalo_user_id,
+        }
     prof.skills, prof.max_load_hours, prof.is_available, prof.note = skills, max_load, available, note
+    prof.zalo_user_id = zalo_user_id
     prof.updated_by = actor.id
     db.flush()
-    after = {"skills": skills, "max_load_hours": str(max_load), "is_available": available}
+    after = {"skills": skills, "max_load_hours": str(max_load), "is_available": available, "zalo_user_id": zalo_user_id}
     audit.record(db, "staff_profile.update", "staff_profile", user_id, actor.id, before, after)
     db.commit()
     return prof

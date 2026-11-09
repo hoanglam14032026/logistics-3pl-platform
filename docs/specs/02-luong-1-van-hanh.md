@@ -334,6 +334,8 @@ Mỗi quy trình mẫu: `process_code`, `version`, `name`, `service_codes[]`, `d
 
 **Đã làm (Giai đoạn 11)**: `md_process_templates`, `md_process_steps` ở `app/shared/masterdata/` (thêm `required_skill` – năng lực cần để phân công tự động), seed `QT-NK-SEA-FCL` v1 (bảng trên; NK-06 lấy 8 giờ, NK-08 24 giờ, NK-09 8 giờ – minh họa) và `QT-VC-NOIDIA` v1 (VC-01…03); API đọc `/api/v2/md/process-templates`. Các bước của lô do Luồng 2 sinh (`ctl_shipment_tasks`) khi nhận EV-111; `ops_tasks` của Luồng 1 (thực hiện, chứng từ ra/vào, EV-131/132/133): chưa làm. Thêm/sửa/duyệt quy trình mẫu qua API: chưa làm.
 
+**Đã làm (Giai đoạn 13)**: `ops_tasks` – bản đồng bộ bước của Luồng 2 (theo `revision`; Luồng 2 là nguồn chuẩn); `GET /api/v2/ops/shipments/{id}/tasks`; người phụ trách lô `POST /api/v2/ops/tasks/{id}:start` · `:complete` · `:block` · `:unblock` → EV-131 / EV-132 / EV-133 / `ops.task.unblocked`; lô hủy/đóng → bước chưa xong `closed`. Chưa có: chứng từ vào/ra của bước, checklist, `evidence_ok`.
+
 ## 5. Kiểm tra chéo bộ chứng từ
 
 ### 5.1. Ma trận chứng từ bắt buộc (`md_required_documents`) – ví dụ

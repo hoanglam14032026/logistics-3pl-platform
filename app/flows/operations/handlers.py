@@ -55,3 +55,11 @@ def on_assignment_changed(db: Session, envelope: dict[str, Any]) -> dict[str, An
         },
     )
     return {"applied": True, "previous_assignee_id": before, "assignee_id": assignee_id}
+
+
+@consumer.handler(CONSUMER, "ctl.task.synced")
+def on_task_synced(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
+    """Giai đoạn 13: trạng thái bước từ Luồng 2 (nguồn chuẩn) → `ops_tasks`."""
+    from app.flows.operations import task_service
+
+    return task_service.apply_synced(db, envelope)

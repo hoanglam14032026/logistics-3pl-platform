@@ -132,6 +132,14 @@ class Settings(BaseSettings):
     # giờ trở lên → cảnh báo mức critical.
     control_scan_interval_sec: int = Field(default=300, ge=0)
     control_overdue_critical_hours: float = Field(default=24, gt=0)
+    # BR-205 (Giai đoạn 13): cảnh báo chưa xử lý sau N giờ → leo thang lên business_manager
+    control_escalation_hours: float = Field(default=2, gt=0)
+
+    # Zalo OA (Giai đoạn 13): gửi cảnh báo qua Zalo khi đặt ZALO_TOKEN (access token của Official Account) và người nhận
+    # có `zalo_user_id` (ctl_staff_profiles). Không đặt → chỉ gửi email. Token không ghi vào log, Redis.
+    zalo_token: SecretStr | None = None
+    zalo_api_url: str = "https://openapi.zalo.me/v3.0/oa/message/cs"
+    zalo_timeout_sec: int = Field(default=10, gt=0)
 
     # AI local trích xuất chứng từ (Giai đoạn 9). Chỉ gọi máy chủ model trong máy / mạng nội bộ: OLLAMA_URL ngoài
     # localhost / mạng riêng → ứng dụng KHÔNG khởi động (app/core/netguard.py). Danh mục model đọc từ bảng `ai_models`
@@ -194,6 +202,18 @@ class Settings(BaseSettings):
         unknown = sorted(value - known)
         if unknown:
             raise ValueError(f"Vai trò không tồn tại: {', '.join(unknown)}")
+        return value
+
+    @field_validator("zalo_token", mode="before")
+    @classmethod
+    def _zalo_blank(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("zalo_api_url")
+    @classmethod
+    def _zalo_url(cls, value: str) -> str:
+        if not value.startswith(("https://", "http://")):
+            raise ValueError("ZALO_API_URL phải bắt đầu bằng https://")
         return value
 
     @field_validator("job_queue_url", mode="before")

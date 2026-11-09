@@ -157,6 +157,9 @@ class ProfileIn(BaseModel):
     max_load_hours: Decimal = Field(Decimal("40"), gt=0, le=1000, max_digits=7, decimal_places=2)
     is_available: bool = True
     note: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+    zalo_user_id: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[0-9A-Za-z_-]{1,64}$")] | None = (
+        Field(None, description="user_id người theo dõi Zalo OA – nhận cảnh báo qua Zalo (Giai đoạn 13)")
+    )
 
     @field_validator("skills")
     @classmethod
@@ -175,6 +178,7 @@ class ProfileOut(BaseModel):
     max_load_hours: Decimal
     is_available: bool
     note: str | None
+    zalo_user_id: str | None
     updated_at: UtcDatetime
     row_version: int
 
@@ -281,6 +285,8 @@ class AlertOut(BaseModel):
     resolved_at: UtcDatetime | None
     resolved_by: int | None
     resolution_note: str | None
+    escalated_at: UtcDatetime | None = None
+    escalated_to_role: str | None = None
 
 
 class ResolveIn(BaseModel):
