@@ -58,10 +58,28 @@ ALL_METADATA = [LegacyBase.metadata, Base.metadata]
 DEFAULT_PASSWORD = "MatKhau@2026"
 
 
+# Dữ liệu khởi tạo do migration seed (Giai đoạn 11: quy trình mẫu) – nạp lại sau mỗi lần xóa dữ liệu giữa các test.
+SEED_TABLES = ("md_process_templates", "md_process_steps")
+_SEED: dict[str, list[dict]] = {}
+
+
+def capture_seed() -> None:
+    with engine.connect() as conn:
+        for table in SEED_TABLES:
+            _SEED[table] = [dict(r) for r in conn.execute(text(f"SELECT * FROM {table} ORDER BY id")).mappings()]
+
+
 def truncate_all() -> None:
     tables = ", ".join(t.name for md in ALL_METADATA for t in md.sorted_tables)
     with engine.begin() as conn:
         conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+        for table in SEED_TABLES:
+            rows = _SEED.get(table)
+            if rows:
+                conn.execute(Base.metadata.tables[table].insert(), rows)
+                conn.execute(
+                    text(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), (SELECT max(id) FROM {table}))")
+                )
 
 
 def reset_database() -> None:
@@ -76,6 +94,7 @@ def _database():
     """Mỗi phiên test: CSDL trống rồi tạo schema bằng Alembic (không dùng create_all)."""
     reset_database()
     upgrade_to_head(engine)
+    capture_seed()
     yield
     engine.dispose()
 

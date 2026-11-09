@@ -14,11 +14,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import handlers as _event_handlers  # noqa: F401  (Giai đoạn 11: xử lý sự kiện của các luồng)
 from app.core.config import Settings, get_settings
 from app.core.db import SessionLocal, engine
 from app.core.errors import UnhandledErrorMiddleware, register_exception_handlers
 from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
 from app.core.migrations import upgrade_to_head
+from app.flows.control.router import router as control_router
 from app.flows.operations import service as ops_service
 from app.flows.operations.invoice_router import router as ops_invoices_router
 from app.flows.operations.portal.router import router as portal_contracts_router
@@ -42,6 +44,7 @@ from app.shared.files.router import router as files_router
 from app.shared.identity.portal_router import router as portal_users_router
 from app.shared.identity.router import auth_router, users_router
 from app.shared.identity.throttle import RateLimitMiddleware
+from app.shared.masterdata.process_router import router as process_templates_router
 from app.shared.masterdata.router import router as parties_router
 
 APP_TITLE = "3PL Logistics Business Guide"
@@ -124,6 +127,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(users_router)
     app.include_router(parties_router)
+    app.include_router(process_templates_router)
     app.include_router(portal_users_router)
     app.include_router(audit_router)
     app.include_router(files_router)
@@ -142,5 +146,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(ops_invoices_router)  # Giai đoạn 10
         app.include_router(portal_contracts_router)
         app.include_router(portal_shipments_router)
+    if "control" in settings.enabled_flows:  # Luồng 2 (Giai đoạn 11)
+        app.include_router(control_router)
     _include_legacy_v1_routers(app)
     return app

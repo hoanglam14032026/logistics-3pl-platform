@@ -65,6 +65,12 @@ class ShipmentCreated(EventData):
     planned_tasks: list[PlannedTask] = []
     scenario_assignment_id: int | None = None
     learner_id: int | None = None
+    # Thêm Giai đoạn 11 (giữ schema_version 1): Luồng 2 chọn quy trình mẫu, tính thời gian kế hoạch. Sự kiện cũ thiếu
+    # các trường này → Luồng 2 vẫn tạo kế hoạch lô, không sinh bước.
+    direction: str | None = None
+    transport_mode: str | None = None
+    required_delivery_at: UtcDatetime | None = None
+    service_codes: list[str] = []
 
 
 class ShipmentStatusChanged(EventData):
@@ -89,6 +95,21 @@ class ShipmentDelivered(EventData):
     sla_due_at: UtcDatetime
     in_full: bool
     damage_free: bool
+
+
+class AssignmentChanged(EventData):
+    """EV-202 `ctl.assignment.changed` – Luồng 2 → 1 (Giai đoạn 11): người phụ trách lô (`task_id` null) hoặc bước."""
+
+    code: ClassVar[str] = "EV-202"
+    name: ClassVar[str] = "ctl.assignment.changed"
+    consumers: ClassVar[tuple[str, ...]] = ("ops",)
+
+    shipment_id: int
+    task_id: int | None = None
+    assignee_id: int | None
+    previous_assignee_id: int | None = None
+    method: str  # auto | manual
+    reason: str | None = None
 
 
 # --- doc.* – job trích xuất chứng từ AI local (Giai đoạn 10) -------------------------------------------------------

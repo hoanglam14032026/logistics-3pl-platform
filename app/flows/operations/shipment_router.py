@@ -158,7 +158,12 @@ def cancel(
     return _detail(db, response, service.cancel(db, shipment_id, body.reason, actor, parse_if_match(if_match)))
 
 
-@router.post("/{shipment_id:int}:assign", response_model=ShipmentDetailOut, summary="Phân công lại (manager)")
+@router.post(
+    "/{shipment_id:int}:assign",
+    response_model=ShipmentDetailOut,
+    summary="Phân công lại (manager) – DEPRECATED: dùng POST /api/v2/control/assignments (Luồng 2, EV-202)",
+    deprecated=True,
+)
 def assign(
     shipment_id: int,
     body: AssignIn,

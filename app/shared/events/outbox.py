@@ -109,7 +109,7 @@ def schedule_pending(include_failed: bool = False, limit: int = 10_000) -> int:
 # --- Gửi (chạy trong worker) ---------------------------------------------------------------------------------------
 
 
-def _deliver_one(db: Session, event_id: int, redis_conn, enabled: frozenset[str]) -> str | None:
+def _deliver_one(db: Session, event_id: int, redis_conn, enabled: frozenset[str], delivered: set[str]) -> str | None:
     """Gửi một sự kiện cho các luồng nhận còn thiếu. Trả lỗi (nếu có) – đã ghi vào dòng outbox."""
     ev = db.scalar(select(SysEvent).where(SysEvent.id == event_id).with_for_update(skip_locked=True))
     if ev is None or ev.status == EventStatus.SENT.value:
@@ -139,6 +139,7 @@ def _deliver_one(db: Session, event_id: int, redis_conn, enabled: frozenset[str]
             continue
         sid = stream_id.decode() if isinstance(stream_id, bytes) else str(stream_id)
         deliveries[consumer] = {"status": "sent", "at": to_utc_iso(now_utc()), "stream_id": sid}
+        delivered.add(consumer)
     ev.deliveries = deliveries
     if tried:
         ev.attempts += 1
@@ -152,6 +153,30 @@ def _deliver_one(db: Session, event_id: int, redis_conn, enabled: frozenset[str]
     return "; ".join(errors) or None
 
 
+def _schedule_consumers(consumers: set[str]) -> None:
+    """Giai đoạn 11: luồng nhận có xử lý trong mã nguồn (app/shared/events/consumer.py) → xếp tác vụ đọc stream."""
+    from app.shared.events import consumer as consumer_module
+
+    settings = get_settings()
+    queue = Queue(EVENTS_QUEUE, connection=jobs.redis_connection(settings.job_queue_url))
+    retry = Retry(max=settings.job_max_retries, interval=list(settings.job_retry_intervals))
+    for name in sorted(consumers):
+        if not consumer_module.has_handlers(name):
+            continue
+        try:
+            queue.enqueue(
+                consumer_module.consume,
+                name,
+                retry=retry if settings.job_max_retries > 0 else None,
+                job_timeout=settings.job_timeout_sec,
+                failure_ttl=settings.job_failure_ttl_days * 86400,
+                result_ttl=3600,
+                meta={"max_retries": settings.job_max_retries},
+            )
+        except RedisError as exc:
+            logger.error("Không xếp được tác vụ nhận sự kiện của luồng %s (%s)", name, type(exc).__name__)
+
+
 def dispatch_events(event_ids: list[int]) -> None:
     """Tác vụ rq: gửi các sự kiện outbox cho Luồng 2, 4. Chạy lặp an toàn (sự kiện đã `sent` bỏ qua)."""
     settings = get_settings()
@@ -161,11 +186,13 @@ def dispatch_events(event_ids: list[int]) -> None:
     redis_conn = jobs.redis_connection(settings.job_queue_url)
     enabled = frozenset(settings.enabled_flows)
     failed: dict[int, str] = {}
+    delivered: set[str] = set()
     for event_id in event_ids:
         with SessionLocal() as db:
-            error = _deliver_one(db, event_id, redis_conn, enabled)
+            error = _deliver_one(db, event_id, redis_conn, enabled, delivered)
         if error:
             failed[event_id] = error
+    _schedule_consumers(delivered)
     if not failed:
         return
     attempt_no, last = jobs.attempt()

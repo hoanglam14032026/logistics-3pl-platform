@@ -147,6 +147,11 @@ def test_create_shipment_draft_with_number_audit_and_ev111(client, world):
         "planned_tasks": [],
         "scenario_assignment_id": None,
         "learner_id": None,
+        # Giai đoạn 11 (thêm trường, giữ schema_version 1): Luồng 2 chọn quy trình mẫu
+        "direction": "import",
+        "transport_mode": "sea_fcl",
+        "required_delivery_at": s["required_delivery_at"],
+        "service_codes": ["CUSTOMS_CLEARANCE"],
     }
 
 

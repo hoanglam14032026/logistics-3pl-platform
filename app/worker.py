@@ -15,6 +15,7 @@ import sys
 
 from rq import Worker
 
+from app import handlers as _event_handlers  # noqa: F401  (xử lý sự kiện của các luồng – Giai đoạn 11)
 from app.core.config import get_settings
 from app.core.jobs import QUEUE_NAME, redis_connection
 from app.shared.events import outbox

@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Index, Integer, String, Uuid, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, Index, Integer, String, UniqueConstraint, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -62,3 +62,36 @@ class SysEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
     )
+
+
+class ConsumptionStatus(StrEnum):
+    PROCESSED = "processed"  # đã xử lý xong – không xử lý lại (N5)
+    SKIPPED = "skipped"  # luồng nhận không có xử lý cho mã sự kiện này
+    FAILED = "failed"  # lỗi, còn lượt thử lại
+    DEAD = "dead"  # hết lượt thử lại – ghi log + nhật ký `event.consume_failed`; xử lý lại: CLI replay --dead
+
+
+class SysEventConsumption(Base):
+    """Vết xử lý của luồng nhận (01 §4 – Giai đoạn 11): mỗi (luồng nhận, `event_id`) một dòng, ghi **cùng giao dịch**
+    với thay đổi của luồng nhận – sự kiện đã `processed` thì không xử lý lại (idempotent theo `event_id`, N5)."""
+
+    __tablename__ = "sys_event_consumptions"
+    __table_args__ = (
+        UniqueConstraint("consumer", "event_id", name="uq_sys_event_consumptions_consumer_event"),
+        CheckConstraint(f"status IN ({_in(ConsumptionStatus)})", name="status_valid"),
+        CheckConstraint("attempts >= 0", name="attempts_non_negative"),
+        Index("ix_sys_event_consumptions_status", "consumer", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    consumer: Mapped[str] = mapped_column(String(32), nullable=False)  # ops | control | assessment …
+    event_id: Mapped[Any] = mapped_column(Uuid, nullable=False)
+    event_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    last_error: Mapped[str | None] = mapped_column(String(1000))
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

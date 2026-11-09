@@ -36,6 +36,7 @@ from app.flows.operations.models import (
     TERMINAL_SHIPMENT_STATUSES,
     ContractMode,
     ContractStatus,
+    OpsContractScope,
     OpsDeliveryRecord,
     OpsServiceContract,
     OpsShipment,
@@ -230,6 +231,13 @@ def _history(db: Session, shipment: OpsShipment, from_status: str | None, actor_
     )
 
 
+def _service_codes(db: Session, contract) -> list[str]:
+    stmt = select(OpsContractScope.service_code).where(
+        OpsContractScope.contract_id == contract.id, OpsContractScope.contract_version == contract.contract_version
+    )
+    return sorted(db.scalars(stmt))
+
+
 def create_shipment(db: Session, data: ShipmentCreate, actor: SysUser) -> OpsShipment:
     if Role.OPS_STAFF.value not in actor.role_codes:
         raise forbidden()
@@ -262,6 +270,10 @@ def create_shipment(db: Session, data: ShipmentCreate, actor: SysUser) -> OpsShi
             shipment_no=shipment.shipment_no,
             contract_id=contract.id,
             customer_id=contract.customer_id,
+            direction=shipment.direction,
+            transport_mode=shipment.transport_mode,
+            required_delivery_at=shipment.required_delivery_at,
+            service_codes=_service_codes(db, contract),
         ),
         ENTITY,
         shipment.id,

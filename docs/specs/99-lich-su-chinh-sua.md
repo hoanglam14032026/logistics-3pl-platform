@@ -332,3 +332,17 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | Migration `0011`: 3 bảng, 3 cột `sys_doc_jobs`, `status` → 32 ký tự, CHECK trạng thái + duyệt 2 người, trigger (outbox không sửa nội dung/xóa; hóa đơn không xóa; dòng hàng chỉ ghi thêm); chuyển sự kiện cũ từ nhật ký sang outbox | `07` §6 điểm 3 |
 | – | 37 test mới (36 tích hợp, 1 đơn vị – ngưỡng duyệt 2 người; 9 outbox trên Redis thật – cùng giao dịch, rollback, chỉ id trong hàng đợi, gửi Luồng 2/4, gửi lặp, luồng tắt, thử lại, hết lượt + gửi lại, Redis lỗi, trigger; 14 hóa đơn; 12 duyệt 2 người + hóa đơn từ job + sự kiện `doc.*`; 2 migration – chuyển sự kiện cũ, tên CHECK); 3 test cũ cập nhật (hợp đồng cần 2 người, schema hóa đơn có đích, head `0011`) | `07` §5 |
 
+### 10.26. Mã nguồn – Giai đoạn 11: Luồng 2 – lập kế hoạch, phân công tự động (09/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Outbox gửi stream, chưa có người nhận | Bộ nhận dùng chung `app/shared/events/consumer.py` + `sys_event_consumptions` (UNIQUE luồng + `event_id`, ghi cùng giao dịch – không xử lý trùng); bộ phát xếp tác vụ `consume(<luồng>)` sau khi gửi; lỗi thử lại như Giai đoạn 7, hết lượt `dead` + `event.consume_failed`; CLI `consume`, `replay [--dead]`; `app/handlers.py` gom đăng ký của các luồng | Yêu cầu Giai đoạn 11 (mục 3); `01` N5 |
+| Luồng 2 chưa có | `app/flows/control/`: EV-101 → `ctl_contract_plans` (+ thành viên, KPI từ SLA, account_manager); EV-111 → `ctl_shipment_plans` + `ctl_shipment_tasks` từ quy trình mẫu; EV-112 đóng/hủy → đóng bước | Yêu cầu Giai đoạn 11 (mục 1); `03` CTL-F01, CTL-F03 |
+| Manager gán tay `:assign` (Giai đoạn 8) | Phân công tự động theo vai trò, năng lực (`ctl_staff_profiles`), tải công việc; `ctl_assignments` (lịch sử, chỉ ghi thêm), nhật ký `assignment.change`, EV-202 → Luồng 1 đặt `assignee_id`; manager điều chuyển qua `POST /api/v2/control/assignments`; `:assign` deprecated | Yêu cầu Giai đoạn 11 (mục 2); `03` §3.3, BR-201, BR-204 |
+| – | API `/api/v2/control/…` (kế hoạch, kế hoạch lô, bước của tôi, phân công, khối lượng việc, hồ sơ năng lực); `/api/v2/md/process-templates` | Yêu cầu Giai đoạn 11 (mục 4) |
+| Quy trình mẫu chưa có | `md_process_templates`, `md_process_steps` (`app/shared/masterdata`, thêm `required_skill`), seed `QT-NK-SEA-FCL` v1, `QT-VC-NOIDIA` v1 | Cần để sinh bước khi nhận EV-111 |
+| EV-111 `data` | Thêm `direction`, `transport_mode`, `required_delivery_at`, `service_codes` (giữ `schema_version` 1) | Luồng 2 chọn quy trình mẫu không cần đọc bảng Luồng 1 (N2) |
+| – | Migration `0012`: 10 bảng, seed 2 quy trình (13 bước), trigger (không xóa vết xử lý / lịch sử phân công; lịch sử chỉ được bỏ `is_current`) | `07` §6 điểm 3 |
+| `tests/conftest.py` xóa sạch mọi bảng | Nạp lại dữ liệu seed (quy trình mẫu) sau mỗi lần xóa | Quy trình mẫu là dữ liệu migration |
+| – | 18 test mới (17 Luồng 2 trên PostgreSQL + Redis thật – chuỗi outbox → Luồng 2 → EV-202 → Luồng 1, năng lực, tải/sức chứa, không có người, BR-204, BR-201, quy trình nội địa / không có quy trình, không xử lý trùng, lỗi → thử lại → dead, replay không Redis, hủy lô giảm tải, điều chuyển tay, phân quyền, hồ sơ năng lực, tắt Luồng 2, trigger; 1 migration); 3 test cũ cập nhật (EV-111 thêm trường, head `0012`, tên CHECK) | `07` §5 |
+

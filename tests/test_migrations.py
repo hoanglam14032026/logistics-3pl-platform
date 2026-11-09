@@ -43,6 +43,18 @@ OPS_TABLES = {
 }
 DOCAI_TABLES = {"ai_models", "sys_doc_jobs", "sys_doc_extractions"}
 G10_TABLES = {"sys_events", "ops_commercial_invoices", "ops_commercial_invoice_items"}
+G11_TABLES = {
+    "sys_event_consumptions",
+    "md_process_templates",
+    "md_process_steps",
+    "ctl_contract_plans",
+    "ctl_plan_members",
+    "ctl_plan_kpi_targets",
+    "ctl_shipment_plans",
+    "ctl_shipment_tasks",
+    "ctl_assignments",
+    "ctl_staff_profiles",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -68,14 +80,21 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0011"
+    assert head_revision() == "0012"
 
 
 def test_upgrade_from_empty_creates_all_tables():
     reset_database()
     assert upgrade_to_head(engine) == head_revision()
     expected = (
-        BASELINE_TABLES | IDENTITY_TABLES | MASTERDATA_TABLES | AUDIT_TABLES | OPS_TABLES | DOCAI_TABLES | G10_TABLES
+        BASELINE_TABLES
+        | IDENTITY_TABLES
+        | MASTERDATA_TABLES
+        | AUDIT_TABLES
+        | OPS_TABLES
+        | DOCAI_TABLES
+        | G10_TABLES
+        | G11_TABLES
     )
     assert _tables() == expected | {"alembic_version"}
 
@@ -211,7 +230,7 @@ def test_0011_moves_old_events_to_outbox_and_downgrade_reverts_status():
             ),
             {"a": json.dumps(envelope)},
         )
-    _alembic(command.upgrade, "0011")
+    _alembic(command.upgrade, "head")
     with engine.connect() as conn:
         rows = conn.execute(
             text("SELECT event_id::text, event_code, entity_id, status, consumers, payload FROM sys_events")
@@ -227,9 +246,33 @@ def test_check_constraint_names_match_models():
 
     with engine.connect() as conn:
         inspector = inspect(conn)
-        for table in ("sys_doc_jobs", "sys_events", "ops_commercial_invoices", "ops_commercial_invoice_items"):
+        for table in (
+            "sys_doc_jobs",
+            "sys_events",
+            "ops_commercial_invoices",
+            "ops_commercial_invoice_items",
+            *sorted(G11_TABLES),
+        ):
             in_db = {c["name"] for c in inspector.get_check_constraints(table)}
             in_model = {
                 c.name for c in Base.metadata.tables[table].constraints if c.__class__.__name__ == "CheckConstraint"
             }
             assert in_db == in_model, table
+
+
+def test_0012_seeds_process_templates_and_downgrades_cleanly():
+    reset_database()
+    upgrade_to_head(engine)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT t.process_code, t.status, count(s.id), count(s.id) FILTER (WHERE s.is_checkpoint) "
+                "FROM md_process_templates t JOIN md_process_steps s ON s.template_id = t.id "
+                "GROUP BY t.process_code, t.status ORDER BY 1"
+            )
+        ).all()
+    assert rows == [("QT-NK-SEA-FCL", "approved", 10, 4), ("QT-VC-NOIDIA", "approved", 3, 1)]
+    _alembic(command.downgrade, "0011")
+    assert not (G11_TABLES & _tables())
+    _alembic(command.upgrade, "head")
+    assert G11_TABLES <= _tables()

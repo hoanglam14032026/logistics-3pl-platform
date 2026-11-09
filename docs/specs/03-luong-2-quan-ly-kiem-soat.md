@@ -208,6 +208,16 @@ Giám sát, điều phối hợp đồng `production` do `account_manager` (ngư
 
 Điểm kiểm soát được tạo khi nhận EV-132 của bước có `is_checkpoint = true` (thông tin cờ có sẵn trong `planned_tasks` của EV-111).
 
+## 7a. Đã làm (Giai đoạn 11, 09/11/2026)
+
+- **Nhận sự kiện**: bộ nhận dùng chung `app/shared/events/consumer.py` – đọc Redis Stream `l3pl:events:control` (consumer group `control`, tác vụ rq xếp sau khi bộ phát outbox gửi), mỗi sự kiện xử lý trong một giao dịch cùng dòng `sys_event_consumptions` (UNIQUE `consumer` + `event_id`) → không xử lý trùng (N5); lỗi → thử lại `JOB_MAX_RETRIES` lần, hết lượt `dead` + `event.consume_failed`; `python -m app.shared.events.cli replay control [--dead]` xử lý thẳng từ `sys_events` (không cần Redis).
+- **EV-101** → `ctl_contract_plans` `draft` (bản chụp hợp đồng, `service_scopes`), `ctl_plan_kpi_targets` từ SLA (`source = contract_sla`), `account_manager_id` = `manager` ít kế hoạch đang mở nhất (thành viên `account_manager`). Gửi duyệt / duyệt kế hoạch (EV-201), phiên bản: chưa làm.
+- **EV-111** → `ctl_shipment_plans` + `ctl_shipment_tasks` từ quy trình mẫu `approved` (`md_process_templates` – cùng `direction`, có `transport_mode`, chung ≥ 1 dịch vụ với hợp đồng; nhiều quy trình → chung nhiều dịch vụ nhất). Thời gian kế hoạch: giờ chuẩn cộng dồn theo `seq` từ lúc tạo lô. Không có quy trình khớp → kế hoạch lô không có bước, vẫn phân công lô.
+- **Phân công tự động (EV-202)** – `app/flows/control/assign.py`: vai trò (`ops_staff` đang hoạt động, hồ sơ `is_available`), phạm vi BR-204 (thành viên kế hoạch do manager thêm, nếu có), năng lực (`ctl_staff_profiles.skills` so với `required_skill` các bước), tải (giờ chuẩn các bước đang mở / `max_load_hours`, mặc định 40). Thứ tự: thiếu ít năng lực nhất → không vượt sức chứa → tỉ lệ tải sau khi nhận thấp nhất → mức năng lực cao → ít bước mở → id. Lịch sử `ctl_assignments` (chỉ ghi thêm, `is_current`, `score` giải thích lựa chọn), nhật ký `assignment.change` / `assignment.unassigned`, EV-202 (luồng nhận: 1) cùng giao dịch. Bước điểm kiểm soát: `controller_id` = `account_manager`, trùng người thực hiện → manager khác (BR-201, CHECK CSDL). Luồng 1 nhận EV-202 → `ops_shipments.assignee_id` (nhật ký `shipment.assign`, `source = EV-202`); `:assign` của Luồng 1 deprecated.
+- **EV-112** sang `closed`/`cancelled` → đóng các bước (giảm tải).
+- **API** `/api/v2/control`: `contract-plans` (+ `/{id}`), `shipment-plans` (+ `/{shipment_id}`: bước, lịch sử phân công), `my-tasks`, `assignments` (GET; POST – manager điều chuyển có lý do), `assignments:auto`, `workload`, `staff-profiles` (GET, PUT `/{user_id}`). `manager` toàn quyền; `business_manager`, `admin` đọc; `ops_staff` kế hoạch / lô / bước của mình.
+- Chưa làm: duyệt kế hoạch (BR-208 – chưa chặn phân công khi kế hoạch còn nháp), quản lý thành viên/mốc/rủi ro qua API, phân công theo từng bước (mọi bước `ops_staff` của lô giao cùng một người – Luồng 1 mới có người phụ trách cấp lô), EV-131/132/133.
+
 ## 8. Điểm CẦN XÁC NHẬN
 
 1. Tham số các quy tắc giám sát M-01…M-10 và thời hạn leo thang.

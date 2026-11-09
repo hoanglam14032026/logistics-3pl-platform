@@ -14,6 +14,7 @@ from app.core import numbering as _numbering_models  # noqa: F401
 from app.core import rate_limit as _rate_limit_models  # noqa: F401
 from app.core.config import get_settings
 from app.core.db import Base
+from app.flows.control import models as _control_models  # noqa: F401
 from app.flows.operations import models as _ops_models  # noqa: F401
 from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào LegacyBase.metadata)
 from app.legacy_v1.database import Base as LegacyBase

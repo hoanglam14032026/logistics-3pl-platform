@@ -332,6 +332,8 @@ Mỗi quy trình mẫu: `process_code`, `version`, `name`, `service_codes[]`, `d
 
 \* Thời gian chuẩn là **giá trị minh họa – CẦN XÁC NHẬN** theo dữ liệu doanh nghiệp/hợp đồng. Danh mục quy trình mẫu cần xây dựng cho v2.0 (**CẦN XÁC NHẬN** danh sách ưu tiên): `QT-NK-SEA-FCL`, `QT-NK-SEA-LCL`, `QT-NK-AIR`, `QT-XK-SEA-FCL`, `QT-XK-AIR`, `QT-KHO-NHAP`, `QT-KHO-XUAT`, `QT-VC-NOIDIA`.
 
+**Đã làm (Giai đoạn 11)**: `md_process_templates`, `md_process_steps` ở `app/shared/masterdata/` (thêm `required_skill` – năng lực cần để phân công tự động), seed `QT-NK-SEA-FCL` v1 (bảng trên; NK-06 lấy 8 giờ, NK-08 24 giờ, NK-09 8 giờ – minh họa) và `QT-VC-NOIDIA` v1 (VC-01…03); API đọc `/api/v2/md/process-templates`. Các bước của lô do Luồng 2 sinh (`ctl_shipment_tasks`) khi nhận EV-111; `ops_tasks` của Luồng 1 (thực hiện, chứng từ ra/vào, EV-131/132/133): chưa làm. Thêm/sửa/duyệt quy trình mẫu qua API: chưa làm.
+
 ## 5. Kiểm tra chéo bộ chứng từ
 
 ### 5.1. Ma trận chứng từ bắt buộc (`md_required_documents`) – ví dụ
