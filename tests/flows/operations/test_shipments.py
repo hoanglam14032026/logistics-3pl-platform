@@ -13,7 +13,7 @@ from app.core.db import SessionLocal
 from app.core.timeutil import VN_TZ, today_vn
 from app.flows.operations import service as ops_service
 from app.shared.audit.models import SysAuditLog
-from tests.conftest import attach
+from tests.conftest import attach, location_ids
 
 URL = "/api/v2/ops/shipments"
 ROLES = ("ops_staff", "manager", "business_manager", "instructor", "admin", "learner", "content_editor")
@@ -75,8 +75,7 @@ def _payload(world, contract="contract_a", **overrides) -> dict:
         "incoterm_place": "Hải Phòng",
         "shipper_id": world["seller"].id,
         "consignee_id": party.id,
-        "origin_location": "CNSHA – Thượng Hải",
-        "destination_location": "VNHPH – Hải Phòng",
+        **dict(zip(("origin_location_id", "destination_location_id"), location_ids(), strict=True)),
         "cargo_summary": {
             "packages": 120,
             "gross_weight_kg": 18500,
@@ -99,17 +98,19 @@ def pass_document_check(client, headers, shipment_id) -> dict:
     """BR-103 (Giai đoạn 16): tải một chứng từ + ghi kết quả kiểm tra đạt – để chuyển docs_verified được."""
     from tests.conftest import pdf_bytes
 
-    r = client.post(
-        f"/api/v2/ops/shipments/{shipment_id}/documents",
-        files={"file": ("bl.pdf", pdf_bytes("B/L"), "application/pdf")},
-        data={"doc_type": "bill_of_lading"},
-        headers=headers,
-    )
-    assert r.status_code == 201, r.text
+    types = ("bill_of_lading", "commercial_invoice", "packing_list")  # bắt buộc với lô biển nhập khẩu (Giai đoạn 17)
+    for doc_type in types:
+        r = client.post(
+            f"/api/v2/ops/shipments/{shipment_id}/documents",
+            files={"file": (f"{doc_type}.pdf", pdf_bytes(doc_type), "application/pdf")},
+            data={"doc_type": doc_type},
+            headers=headers,
+        )
+        assert r.status_code == 201, r.text
     check = r.json()["check"]
     done = client.post(
         f"/api/v2/ops/document-checks/{check['id']}:complete",
-        json={"items": [{"doc_type": "bill_of_lading", "outcome": "ok"}]},
+        json={"items": [{"doc_type": t, "outcome": "ok"} for t in types]},
         headers=headers,
     )
     assert done.status_code == 200, done.text
@@ -190,7 +191,8 @@ def test_create_shipment_draft_with_number_audit_and_ev111(client, world):
         ({"direction": "sideways"}, "body.direction"),
         ({"shipper_id": 999999}, "body.shipper_id"),
         ({"contract_id": 999999}, "body.contract_id"),
-        ({"origin_location": "  "}, "body.origin_location"),
+        ({"origin_location_id": 999999}, "body.origin_location_id"),  # Giai đoạn 17: địa điểm phải có
+        ({"origin_location": "Thượng Hải"}, "body.origin_location"),  # không còn văn bản tự do
         ({"unknown": 1}, "body.unknown"),
     ],
 )

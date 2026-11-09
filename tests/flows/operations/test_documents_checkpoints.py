@@ -187,7 +187,7 @@ def test_checkpoints_create_and_evaluate(client, world, make_user, auth_headers)
     admin = make_user("u.loc", roles=["admin"])
     ah = auth_headers(admin.username)
     loc = client.post(
-        "/api/v2/md/locations", json={"code": "VNHPH", "name": "Cảng Hải Phòng", "location_type": "seaport"}, headers=ah
+        "/api/v2/md/locations", json={"code": "VNDAD", "name": "Cảng Đà Nẵng", "location_type": "seaport"}, headers=ah
     ).json()
     old = client.post(
         "/api/v2/md/locations", json={"code": "KHO-OLD", "name": "Kho cũ", "location_type": "warehouse"}, headers=ah
@@ -282,7 +282,14 @@ def test_events_reach_assessment_kpis(client, world, redis_url, make_user, auth_
         client, h, c1["id"], [{"doc_type": "bill_of_lading", "outcome": "invalid", "reason": "Sai tên người nhận"}]
     )
     c2 = _upload(client, h, sid).json()["check"]
-    _complete(client, h, c2["id"], [{"doc_type": "bill_of_lading", "outcome": "ok"}])
+    for t in ("commercial_invoice", "packing_list"):  # bắt buộc (quy tắc Giai đoạn 17)
+        _upload(client, h, sid, t)
+    _complete(
+        client,
+        h,
+        c2["id"],
+        [{"doc_type": t, "outcome": "ok"} for t in ("bill_of_lading", "commercial_invoice", "packing_list")],
+    )
     assert client.post(f"{OPS}/shipments/{sid}:verify-documents", headers=h).status_code == 200
     cps = {c["checkpoint_type"]: c for c in client.post(f"{OPS}/shipments/{sid}/checkpoints", headers=h).json()}
     client.post(
@@ -311,7 +318,7 @@ def test_events_reach_assessment_kpis(client, world, redis_url, make_user, auth_
         facts = db.scalars(select(AsmFactCheckpoint).order_by(AsmFactCheckpoint.checkpoint_id)).all()
         customs = db.scalar(select(AsmFactCustoms))
     assert [(c.run_no, c.blocking_count, c.checked_by) for c in checks] == [
-        (1, 1, world["users"]["ops_staff"].id),
+        (1, 3, world["users"]["ops_staff"].id),  # B/L sai + thiếu hóa đơn, P/L (tự động)
         (2, 0, world["users"]["ops_staff"].id),
     ]
     assert ship.first_doc_received_at is not None and ship.docs_verified_at is not None

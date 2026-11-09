@@ -58,6 +58,7 @@ G11_TABLES = {
 G12_TABLES = {"ctl_task_updates", "ctl_alerts"}
 G13_TABLES = {"ops_tasks", "ctl_alert_notifications"}
 G14_TABLES = {"asm_fact_contracts", "asm_fact_shipments", "asm_fact_tasks", "asm_fact_task_blocks", "asm_fact_alerts"}
+G17_TABLES = {"ops_document_requirements"}
 G16_TABLES = {
     "md_locations",
     "ops_documents",
@@ -103,7 +104,7 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0017"
+    assert head_revision() == "0018"
 
 
 def test_upgrade_from_empty_creates_all_tables():
@@ -123,6 +124,7 @@ def test_upgrade_from_empty_creates_all_tables():
         | G14_TABLES
         | G15_TABLES
         | G16_TABLES
+        | G17_TABLES
     )
     assert _tables() == expected | {"alembic_version"}
 
@@ -279,7 +281,7 @@ def test_check_constraint_names_match_models():
             "sys_events",
             "ops_commercial_invoices",
             "ops_commercial_invoice_items",
-            *sorted(G11_TABLES | G12_TABLES | G13_TABLES | G14_TABLES | G15_TABLES | G16_TABLES),
+            *sorted(G11_TABLES | G12_TABLES | G13_TABLES | G14_TABLES | G15_TABLES | G16_TABLES | G17_TABLES),
         ):
             in_db = {c["name"] for c in inspector.get_check_constraints(table)}
             in_model = {
@@ -301,7 +303,7 @@ def test_0012_seeds_process_templates_and_downgrades_cleanly():
         ).all()
     assert rows == [("QT-NK-SEA-FCL", "approved", 10, 4), ("QT-VC-NOIDIA", "approved", 3, 1)]
     _alembic(command.downgrade, "0011")
-    assert not ((G11_TABLES | G12_TABLES | G13_TABLES | G14_TABLES | G15_TABLES | G16_TABLES) & _tables())
+    assert not ((G11_TABLES | G12_TABLES | G13_TABLES | G14_TABLES | G15_TABLES | G16_TABLES | G17_TABLES) & _tables())
     _alembic(command.upgrade, "head")
     assert G11_TABLES <= _tables()
 
@@ -335,3 +337,15 @@ def test_0017_locations_documents_checkpoints_round_trip():
     assert not (G16_TABLES & _tables()) and G15_TABLES <= _tables()
     _alembic(command.upgrade, "head")
     assert G16_TABLES <= _tables()
+
+
+def test_0018_requirements_seed_and_round_trip():
+    reset_database()
+    upgrade_to_head(engine)
+    with engine.connect() as conn:
+        n = conn.execute(text("SELECT count(*) FROM ops_document_requirements WHERE is_active")).scalar()
+    assert n == 8
+    _alembic(command.downgrade, "0017")
+    assert not (G17_TABLES & _tables()) and G16_TABLES <= _tables()
+    _alembic(command.upgrade, "head")
+    assert G17_TABLES <= _tables()

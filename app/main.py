@@ -27,8 +27,10 @@ from app.flows.operations import service as ops_service
 from app.flows.operations.checkpoint_router import router as ops_checkpoints_router
 from app.flows.operations.document_router import router as ops_documents_router
 from app.flows.operations.invoice_router import router as ops_invoices_router
+from app.flows.operations.portal.documents_router import router as portal_documents_router
 from app.flows.operations.portal.router import router as portal_contracts_router
 from app.flows.operations.portal.shipments_router import router as portal_shipments_router
+from app.flows.operations.requirement_router import router as ops_requirements_router
 from app.flows.operations.router import router as ops_contracts_router
 from app.flows.operations.shipment_router import router as ops_shipments_router
 from app.flows.operations.task_router import router as ops_tasks_router
@@ -154,9 +156,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(ops_tasks_router)  # Giai đoạn 13
         app.include_router(ops_documents_router)  # Giai đoạn 16: chứng từ + BR-103
         app.include_router(ops_checkpoints_router)  # Giai đoạn 16: điểm kiểm soát
+        app.include_router(ops_requirements_router)  # Giai đoạn 17: quy tắc chứng từ bắt buộc
         app.include_router(ops_invoices_router)  # Giai đoạn 10
         app.include_router(portal_contracts_router)
         app.include_router(portal_shipments_router)
+        app.include_router(portal_documents_router)  # Giai đoạn 17: khách hàng gửi chứng từ
     if "control" in settings.enabled_flows:  # Luồng 2 (Giai đoạn 11)
         app.include_router(control_router)
     if "assessment" in settings.enabled_flows:  # Luồng 4 – KPI (Giai đoạn 14)

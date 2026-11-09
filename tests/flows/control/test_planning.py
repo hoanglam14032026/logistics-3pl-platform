@@ -21,6 +21,7 @@ from app.flows.operations.models import OpsShipment
 from app.shared.audit.models import SysAuditLog
 from app.shared.events import consumer, outbox
 from app.shared.events.models import SysEvent, SysEventConsumption
+from tests.conftest import location_ids
 
 SHIPMENTS = "/api/v2/ops/shipments"
 CTL = "/api/v2/control"
@@ -97,8 +98,7 @@ def shipment(client, world, contract, **overrides) -> dict:
         "incoterm": "CIF",
         "shipper_id": world["seller"].id,
         "consignee_id": world["customer"].id,
-        "origin_location": "Thượng Hải",
-        "destination_location": "Hải Phòng",
+        **dict(zip(("origin_location_id", "destination_location_id"), location_ids(), strict=True)),
         "required_delivery_at": "2026-12-31T00:00:00+07:00",
         **overrides,
     }

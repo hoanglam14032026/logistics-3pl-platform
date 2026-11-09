@@ -8,6 +8,10 @@ Chứng từ lô + kiểm tra chứng từ BR-103 (Giai đoạn 16; 02 §3.3, BR
   do); loại chưa tải lên có thể ghi `missing` (thiếu – lý do). Không còn `missing` / `invalid` → `passed`, ngược lại
   `failed` (`blocking_count` = số dòng không đạt). Chụp phiên bản chứng từ đã kiểm (`document_versions`). Phát EV-122
   (`discrepancies` nguồn `manual`), nhật ký `document_check.complete`.
+- Giai đoạn 17: khách hàng gửi chứng từ qua cổng (`portal_upload`, `channel = portal`); chứng từ mới khi lô đang
+  `docs_verified` → lô quay về `docs_collecting` (lịch sử + nhật ký `shipment.reopen_documents` + EV-112) và có lần
+  kiểm tra mới đang chờ. Quy tắc tự động: loại chứng từ bắt buộc theo `ops_document_requirements` (CSDL) chưa có →
+  dòng `missing` `source = auto` khi ghi kết quả (nhân viên không cần gõ tay).
 - BR-103: lô chỉ chuyển `docs_verified` khi lần kiểm tra mới nhất đã xong, `passed` và không có lần đang chờ
   (`ensure_documents_verified`).
 """
@@ -15,7 +19,7 @@ Chứng từ lô + kiểm tra chứng từ BR-103 (Giai đoạn 16; 02 §3.3, BR
 from typing import Any
 
 from fastapi import UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError, ErrorCode
@@ -26,11 +30,13 @@ from app.flows.operations.models import (
     OpsDocument,
     OpsDocumentCheck,
     OpsDocumentCheckItem,
+    OpsDocumentRequirement,
     OpsShipment,
+    ShipmentStatus,
 )
 from app.shared.audit import service as audit
 from app.shared.events import publisher
-from app.shared.events.contracts import DocumentCheckCompleted, DocumentReceived
+from app.shared.events.contracts import DocumentCheckCompleted, DocumentReceived, ShipmentStatusChanged
 from app.shared.files import service as files
 from app.shared.files.models import SysFile
 from app.shared.identity.models import SysUser
@@ -85,7 +91,56 @@ def pending_check(db: Session, shipment_id: int) -> OpsDocumentCheck | None:
 def upload(
     db: Session, shipment_id: int, doc_type: str, upload_file: UploadFile, note: str | None, actor: SysUser
 ) -> tuple[OpsDocument, OpsDocumentCheck]:
+    """Nhân viên (`ops_staff` phụ trách lô) tải chứng từ."""
     shipment = _writable_shipment(db, shipment_id, actor)
+    return _store(db, shipment, doc_type, upload_file, note, actor, "staff")
+
+
+def portal_upload(
+    db: Session, party_id: int, shipment_id: int, doc_type: str, upload_file: UploadFile, note: str | None, actor
+) -> tuple[OpsDocument, OpsDocumentCheck]:
+    """Giai đoạn 17 – khách hàng gửi chứng từ qua cổng: chỉ lô thấy được trên cổng (BR-111 – khác → 404), chưa
+    đóng / hủy."""
+    from app.flows.operations import shipment_service
+
+    shipment_service.get_portal_shipment(db, party_id, shipment_id)
+    shipment = db.scalar(select(OpsShipment).where(OpsShipment.id == shipment_id).with_for_update())
+    if shipment.status in TERMINAL_SHIPMENT_STATUSES:
+        raise _conflict(f"Lô hàng đã {shipment.status}; không gửi thêm chứng từ được")
+    return _store(db, shipment, doc_type, upload_file, note, actor, "portal")
+
+
+def _reopen_documents(db: Session, shipment: OpsShipment, doc: OpsDocument, actor_id: int) -> None:
+    """Giai đoạn 17: chứng từ mới sau `docs_verified` → lô quay về `docs_collecting` (kiểm tra lại – BR-103)."""
+    from app.flows.operations import shipment_service
+
+    before = shipment.status
+    shipment.status = ShipmentStatus.DOCS_COLLECTING.value
+    shipment.updated_by = actor_id
+    note = f"Có chứng từ mới ({doc.doc_type} v{doc.version_no}) – kiểm tra lại (BR-103)"
+    shipment_service._history(db, shipment, before, actor_id, note)
+    audit.record(
+        db,
+        "shipment.reopen_documents",
+        "shipment",
+        shipment.id,
+        actor_id,
+        {"status": before},
+        {"status": shipment.status, "document_id": doc.id, "doc_type": doc.doc_type, "channel": doc.channel},
+    )
+    publisher.publish(
+        db,
+        ShipmentStatusChanged(shipment_id=shipment.id, from_=before, to=shipment.status),
+        "shipment",
+        shipment.id,
+        actor_id,
+        shipment.mode,
+    )
+
+
+def _store(
+    db: Session, shipment: OpsShipment, doc_type: str, upload_file: UploadFile, note: str | None, actor, channel: str
+) -> tuple[OpsDocument, OpsDocumentCheck]:
     previous = current_documents(db, shipment.id).get(doc_type)
     version_no = (
         db.scalar(
@@ -105,11 +160,15 @@ def upload(
         version_no=version_no,
         file_id=stored.id,
         note=note,
+        channel=channel,
         uploaded_by=actor.id,
     )
     db.add(doc)
     db.flush()
     stored.owner_id = doc.id
+    reopened = shipment.status == ShipmentStatus.DOCS_VERIFIED.value
+    if reopened:
+        _reopen_documents(db, shipment, doc, actor.id)
     check = pending_check(db, shipment.id)
     created = check is None
     if created:
@@ -136,6 +195,8 @@ def upload(
             "sha256": stored.sha256,
             "check_id": check.id,
             "check_created": created,
+            "channel": channel,
+            "shipment_reopened": reopened,
         },
     )
     publisher.publish(
@@ -196,9 +257,21 @@ def complete_check(
     uncovered = sorted(set(current) - set(by_type))
     if uncovered:
         raise _invalid("body.items", f"Chưa ghi kết quả cho chứng từ: {', '.join(uncovered)}")
-    if not by_type:
+    auto = {a["doc_type"]: a for a in auto_missing(db, shipment, current) if a["doc_type"] not in by_type}
+    if not by_type and not auto:
         raise _invalid("body.items", "Cần ít nhất một kết quả")
-    rows = []
+    rows = [
+        OpsDocumentCheckItem(
+            check_id=check.id,
+            doc_type=t,
+            document_id=None,
+            outcome=DocCheckOutcome.MISSING.value,
+            reason=a["reason"],
+            source="auto",
+            rule_id=a["rule_id"],
+        )
+        for t, a in sorted(auto.items())
+    ]
     for doc_type, item in sorted(by_type.items()):
         outcome = item["outcome"]
         doc = current.get(doc_type)
@@ -236,7 +309,9 @@ def complete_check(
             "run_no": check.run_no,
             "result": check.result,
             "blocking_count": check.blocking_count,
-            "items": [{"doc_type": r.doc_type, "outcome": r.outcome, "reason": r.reason} for r in rows],
+            "items": [
+                {"doc_type": r.doc_type, "outcome": r.outcome, "reason": r.reason, "source": r.source} for r in rows
+            ],
             "note": note,
         },
     )
@@ -250,8 +325,8 @@ def complete_check(
             warning_count=0,
             discrepancies=[
                 {
-                    "source": "manual",
-                    "rule_code": f"DOC_{r.outcome.upper()}",
+                    "source": r.source,
+                    "rule_code": "DOC_REQUIRED_MISSING" if r.source == "auto" else f"DOC_{r.outcome.upper()}",
                     "doc_types": [r.doc_type],
                     "line_no": None,
                     "field": None,
@@ -298,3 +373,41 @@ def _can_read_file(db: Session, user, file: SysFile) -> bool:
 
 def register_file_access() -> None:
     files.ACCESS_CHECKERS[ENTITY] = _can_read_file
+
+
+# --- Quy tắc tự động cơ bản (Giai đoạn 17) ------------------------------------------------------------------------
+
+
+def required_rules(db: Session, shipment: OpsShipment) -> dict[str, OpsDocumentRequirement]:
+    """Loại chứng từ bắt buộc của lô theo quy tắc đang bật (`transport_mode` / `direction` NULL = mọi giá trị)."""
+    r = OpsDocumentRequirement
+    rows = db.scalars(
+        select(r)
+        .where(
+            r.is_active.is_(True),
+            or_(r.transport_mode.is_(None), r.transport_mode == shipment.transport_mode),
+            or_(r.direction.is_(None), r.direction == shipment.direction),
+        )
+        .order_by(r.doc_type, r.id)
+    )
+    out: dict[str, OpsDocumentRequirement] = {}
+    for rule in rows:
+        out.setdefault(rule.doc_type, rule)
+    return out
+
+
+def _rule_label(rule: OpsDocumentRequirement) -> str:
+    scope = " / ".join(x for x in (rule.transport_mode, rule.direction) if x) or "mọi lô"
+    return f"Thiếu chứng từ bắt buộc '{rule.doc_type}' (quy tắc #{rule.id} – {scope})"
+
+
+def auto_missing(
+    db: Session, shipment: OpsShipment, current: dict[str, OpsDocument] | None = None
+) -> list[dict[str, Any]]:
+    """Chứng từ bắt buộc chưa có bản hiện hành → `missing` tự động (không cần nhân viên ghi tay)."""
+    current = current if current is not None else current_documents(db, shipment.id)
+    return [
+        {"doc_type": t, "rule_id": rule.id, "reason": _rule_label(rule)}
+        for t, rule in sorted(required_rules(db, shipment).items())
+        if t not in current
+    ]

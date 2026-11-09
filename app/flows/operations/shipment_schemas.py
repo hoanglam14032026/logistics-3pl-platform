@@ -32,8 +32,8 @@ class _ShipmentFields(BaseModel):
     shipper_id: int = Field(gt=0, description="md_parties – người gửi hàng")
     consignee_id: int = Field(gt=0, description="md_parties – người nhận hàng")
     notify_party_id: int | None = Field(None, gt=0)
-    origin_location: Place = Field(description="Cảng/sân bay/ICD/kho đi (tới khi có md_locations)")
-    destination_location: Place
+    origin_location_id: int = Field(gt=0, description="Điểm đi – md_locations đang hoạt động (Giai đoạn 17)")
+    destination_location_id: int = Field(gt=0, description="Điểm đến – md_locations đang hoạt động")
     cargo_summary: dict[str, Any] | None = Field(
         None, description="Số kiện, trọng lượng cả bì (kg), thể tích (m³), container (số, loại, seal)"
     )
@@ -59,6 +59,8 @@ class ShipmentCreate(_ShipmentFields):
     @model_validator(mode="after")
     def _rules(self):
         _check_rules(self.direction, self.incoterm, self.etd, self.eta, self.required_delivery_at)
+        if self.origin_location_id == self.destination_location_id:
+            raise ValueError("Điểm đi và điểm đến phải khác nhau")
         return self
 
 
@@ -75,8 +77,8 @@ class ShipmentUpdate(BaseModel):
     shipper_id: int | None = Field(None, gt=0)
     consignee_id: int | None = Field(None, gt=0)
     notify_party_id: int | None = Field(None, gt=0)
-    origin_location: Place | None = None
-    destination_location: Place | None = None
+    origin_location_id: int | None = Field(None, gt=0)
+    destination_location_id: int | None = Field(None, gt=0)
     cargo_summary: dict[str, Any] | None = None
     etd: datetime | None = None
     eta: datetime | None = None
@@ -86,8 +88,8 @@ class ShipmentUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _not_null(self):
-        required = ("direction", "transport_mode", "shipper_id", "consignee_id", "origin_location")
-        for name in (*required, "destination_location", "required_delivery_at", "claims_preferential_tariff"):
+        required = ("direction", "transport_mode", "shipper_id", "consignee_id", "origin_location_id")
+        for name in (*required, "destination_location_id", "required_delivery_at", "claims_preferential_tariff"):
             if name in self.model_fields_set and getattr(self, name) is None:
                 raise ValueError(f"{name} không được null")
         if "priority" in self.model_fields_set and self.priority is None:
@@ -169,6 +171,8 @@ class ShipmentOut(BaseModel):
     notify_party_name: str | None
     origin_location: str
     destination_location: str
+    origin_location_id: int | None  # Giai đoạn 17 – lô cũ có thể null
+    destination_location_id: int | None
     cargo_summary: dict[str, Any] | None
     etd: UtcDatetime | None
     eta: UtcDatetime | None

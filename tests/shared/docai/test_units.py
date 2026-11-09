@@ -206,8 +206,9 @@ def test_date_and_number_grounding():
 
 def test_form_payload_only_mapped_fields():
     shipment = registry.get_schema("shipment")
-    values = {"direction": "import", "shipper_name": "A", "etd": None, "origin_location": "CNSHA"}
-    assert extract.form_payload(shipment, values) == {"direction": "import", "origin_location": "CNSHA"}
+    values = {"direction": "import", "shipper_name": "A", "etd": None, "origin_location": "CNSHA", "incoterm": "CIF"}
+    # Giai đoạn 17: nơi đi / đến chỉ hiển thị cho người duyệt – form lô hàng dùng id md_locations
+    assert extract.form_payload(shipment, values) == {"direction": "import", "incoterm": "CIF"}
 
 
 # --- Chuyển đổi trước OCR ----------------------------------------------------------------------------------------

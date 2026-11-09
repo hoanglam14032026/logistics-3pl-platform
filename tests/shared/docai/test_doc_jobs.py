@@ -16,6 +16,7 @@ from app.core.db import SessionLocal
 from app.shared.docai.models import SysDocExtraction, SysDocJob
 from app.shared.files.models import SysFile
 from app.shared.masterdata.models import MdParty
+from tests.conftest import location_ids
 from tests.shared.docai.conftest import JOBS, PARTY_ANSWER, PARTY_TEXT, answer, logs, upload
 
 
@@ -488,6 +489,7 @@ def test_contract_and_shipment_link(client, users, model, fake_ollama, make_part
         "shipper_id": seller.id,
         "consignee_id": customer.id,
         "required_delivery_at": "2026-12-31T00:00:00+07:00",
+        **dict(zip(("origin_location_id", "destination_location_id"), location_ids(), strict=True)),
     }
     r = client.post(f"/api/v2/ops/shipments?source_doc_job_id={sj['id']}", json=body, headers=users["h"]["ops"])
     assert r.status_code == 201, r.text

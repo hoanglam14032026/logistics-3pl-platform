@@ -19,6 +19,7 @@ from app.core.db import SessionLocal
 from app.shared.audit.models import SysAuditLog
 from app.shared.events import outbox
 from app.shared.events.models import SysEvent
+from tests.conftest import location_ids
 
 
 @pytest.fixture()
@@ -222,8 +223,7 @@ def test_shipment_and_doc_events_go_to_outbox(client, make_party, make_contract,
         "incoterm": "CIF",
         "shipper_id": seller.id,
         "consignee_id": party.id,
-        "origin_location": "Thượng Hải",
-        "destination_location": "Hải Phòng",
+        **dict(zip(("origin_location_id", "destination_location_id"), location_ids(), strict=True)),
         "required_delivery_at": "2026-12-31T00:00:00+07:00",
     }
     sid = client.post("/api/v2/ops/shipments", json=body, headers=h).json()["id"]

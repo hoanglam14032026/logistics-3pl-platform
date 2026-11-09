@@ -44,7 +44,7 @@ os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
 get_settings.cache_clear()  # Settings dùng chung đọc lại với DATABASE_URL = CSDL test
 
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import text  # noqa: E402
+from sqlalchemy import select, text  # noqa: E402
 
 from app.core.db import Base, SessionLocal, engine  # noqa: E402
 from app.core.migrations import upgrade_to_head  # noqa: E402
@@ -59,7 +59,12 @@ DEFAULT_PASSWORD = "MatKhau@2026"
 
 
 # Dữ liệu khởi tạo do migration seed (Giai đoạn 11: quy trình mẫu) – nạp lại sau mỗi lần xóa dữ liệu giữa các test.
-SEED_TABLES = ("md_process_templates", "md_process_steps", "asm_kpi_definitions")  # + Giai đoạn 15: danh mục KPI
+SEED_TABLES = (
+    "md_process_templates",
+    "md_process_steps",
+    "asm_kpi_definitions",  # Giai đoạn 15: danh mục KPI
+    "ops_document_requirements",  # Giai đoạn 17: quy tắc chứng từ bắt buộc
+)
 _SEED: dict[str, list[dict]] = {}
 
 
@@ -297,3 +302,21 @@ def auth_headers(login):
 @pytest.fixture()
 def upload_dir() -> Path:
     return Path(os.environ["UPLOAD_DIR"])
+
+
+def location_ids(*codes: str) -> list[int]:
+    """Giai đoạn 17: id địa điểm `md_locations` theo mã (tạo nếu chưa có) – điểm đi / đến của lô hàng trong test."""
+    from app.shared.masterdata.models import MdLocation
+
+    names = {"CNSHA": ("Cảng Thượng Hải", "seaport", "CN"), "VNHPH": ("Cảng Hải Phòng", "seaport", "VN")}
+    out = []
+    with SessionLocal() as db:
+        for code in codes or ("CNSHA", "VNHPH"):
+            loc = db.scalar(select(MdLocation).where(MdLocation.code == code))
+            if loc is None:
+                name, kind, country = names.get(code, (code, "warehouse", "VN"))
+                loc = MdLocation(code=code, name=name, location_type=kind, country_code=country)
+                db.add(loc)
+                db.commit()
+            out.append(loc.id)
+    return out

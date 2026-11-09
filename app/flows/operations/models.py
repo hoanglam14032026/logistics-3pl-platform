@@ -333,8 +333,15 @@ class OpsShipment(AuditColumnsMixin, Base):
     consignee_name: Mapped[str] = mapped_column(String(300), nullable=False)
     notify_party_id: Mapped[int | None] = _party_fk(nullable=True)
     notify_party_name: Mapped[str | None] = mapped_column(String(300))
-    origin_location: Mapped[str] = mapped_column(String(200), nullable=False)
+    origin_location: Mapped[str] = mapped_column(String(200), nullable=False)  # Giai đoạn 17: bản chụp "mã – tên"
     destination_location: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Giai đoạn 17: điểm đi / đến theo `md_locations` – bắt buộc với lô tạo mới (trigger khi INSERT); lô cũ có thể NULL
+    origin_location_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("md_locations.id", ondelete="RESTRICT")
+    )
+    destination_location_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("md_locations.id", ondelete="RESTRICT")
+    )
     cargo_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     etd: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     eta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -528,6 +535,7 @@ class OpsDocument(Base):
     __table_args__ = (
         CheckConstraint(f"doc_type IN ({_in(DocType)})", name="doc_type_valid"),
         CheckConstraint("status IN ('current', 'superseded')", name="status_valid"),
+        CheckConstraint("channel IN ('staff', 'portal')", name="channel_valid"),
         CheckConstraint("version_no >= 1", name="version_positive"),
         UniqueConstraint("shipment_id", "doc_type", "version_no", name="uq_ops_documents_version"),
         Index(
@@ -547,6 +555,7 @@ class OpsDocument(Base):
     version_no: Mapped[int] = mapped_column(Integer, nullable=False)
     file_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("sys_files.id", ondelete="RESTRICT"), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="current", server_default="current")
+    channel: Mapped[str] = mapped_column(String(8), nullable=False, default="staff", server_default="staff")  # G17
     note: Mapped[str | None] = mapped_column(String(500))
     uploaded_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(
@@ -606,6 +615,8 @@ class OpsDocumentCheckItem(Base):
         CheckConstraint(f"outcome IN ({_in(DocCheckOutcome)})", name="outcome_valid"),
         CheckConstraint("outcome = 'ok' OR reason IS NOT NULL", name="reason_required"),
         CheckConstraint("(outcome = 'missing') = (document_id IS NULL)", name="document_matches_outcome"),
+        CheckConstraint("source IN ('manual', 'auto')", name="source_valid"),
+        CheckConstraint("source = 'manual' OR (rule_id IS NOT NULL AND outcome = 'missing')", name="auto_from_rule"),
         UniqueConstraint("check_id", "doc_type", name="uq_ops_document_check_items_type"),
     )
 
@@ -617,6 +628,39 @@ class OpsDocumentCheckItem(Base):
     document_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ops_documents.id", ondelete="RESTRICT"))
     outcome: Mapped[str] = mapped_column(String(16), nullable=False)
     reason: Mapped[str | None] = mapped_column(String(500))
+    # Giai đoạn 17: `auto` – thiếu chứng từ bắt buộc theo quy tắc `ops_document_requirements` (không do người gõ)
+    source: Mapped[str] = mapped_column(String(8), nullable=False, default="manual", server_default="manual")
+    rule_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ops_document_requirements.id", ondelete="RESTRICT")
+    )
+
+
+class OpsDocumentRequirement(AuditColumnsMixin, Base):
+    """Quy tắc kiểm tra tự động cơ bản (Giai đoạn 17): loại chứng từ bắt buộc theo loại hình vận chuyển / hướng.
+    `transport_mode` / `direction` NULL = mọi giá trị. Lưu trong CSDL (seed ở migration 0018), `admin` / `manager` thêm,
+    bật / tắt qua API – không đặt cứng trong mã."""
+
+    __tablename__ = "ops_document_requirements"
+    __table_args__ = (
+        CheckConstraint(f"doc_type IN ({_in(DocType)})", name="doc_type_valid"),
+        CheckConstraint(
+            f"transport_mode IS NULL OR transport_mode IN ({_in(TransportMode)})", name="transport_mode_valid"
+        ),
+        CheckConstraint(f"direction IS NULL OR direction IN ({_in(Direction)})", name="direction_valid"),
+        UniqueConstraint(
+            "transport_mode",
+            "direction",
+            "doc_type",
+            name="uq_ops_document_requirements_rule",
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
+
+    transport_mode: Mapped[str | None] = mapped_column(String(16))
+    direction: Mapped[str | None] = mapped_column(String(16))
+    doc_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    note: Mapped[str | None] = mapped_column(String(500))
 
 
 class CheckpointType(StrEnum):

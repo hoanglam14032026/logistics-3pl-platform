@@ -401,3 +401,14 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | Migration `0017`; trigger chỉ thêm / không xóa | `07` §6 điểm 3 |
 | – | 16 test mới (địa điểm: quyền, kiểm tra dữ liệu, khách hàng chỉ thấy của mình, sửa / lưu trữ; chứng từ: phiên bản, quyền, loại file; kiểm tra + BR-103; điểm kiểm soát; chuỗi thật tới KPI-01/02/05/06); test lô hàng cũ thêm bước kiểm tra chứng từ trước `:verify-documents`; `test_migrations` head `0017` | `07` §5 |
 
+### 10.32. Mã nguồn – Giai đoạn 17: cổng gửi chứng từ, lô quay về docs_collecting, địa điểm lô, quy tắc chứng từ bắt buộc (09/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Chỉ nhân viên tải chứng từ | `POST /api/v2/portal/shipments/{id}/documents` – khách hàng gửi cho lô của mình (BR-111), sniff nội dung, EV-121, `channel = portal` | Yêu cầu Giai đoạn 17 (mục 1) |
+| Chứng từ mới sau `docs_verified` không đổi trạng thái | Lô quay về `docs_collecting`, lần kiểm tra mới đang chờ, nhật ký `shipment.reopen_documents`, EV-112 | Yêu cầu Giai đoạn 17 (mục 2); BR-103 |
+| Điểm đi / đến là văn bản tự do | `origin_location_id`, `destination_location_id` → `md_locations` đang hoạt động, bắt buộc với lô mới (schema + trigger INSERT); văn bản = bản chụp; lô cũ giữ nguyên; AI trích xuất không còn điền sẵn nơi đi / đến | Yêu cầu Giai đoạn 17 (mục 3) |
+| Nhân viên tự ghi mọi dòng "thiếu" | `ops_document_requirements` (CSDL, seed 8 quy tắc) → dòng `missing` `source = auto`; API quản lý quy tắc | Yêu cầu Giai đoạn 17 (mục 4) |
+| – | Migration `0018` | `07` §6 điểm 3 |
+| – | 6 test mới + cập nhật test cũ (payload lô dùng id địa điểm; kiểm tra chứng từ đủ 3 loại bắt buộc của lô biển nhập khẩu); `test_migrations` head `0018` | `07` §5 |
+

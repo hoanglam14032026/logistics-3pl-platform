@@ -49,7 +49,7 @@ from app.shared.audit import service as audit
 from app.shared.events import publisher
 from app.shared.events.contracts import ShipmentCreated, ShipmentDelivered, ShipmentStatusChanged
 from app.shared.identity.models import SysUser
-from app.shared.masterdata.models import MdParty, PartyStatus
+from app.shared.masterdata.models import MdLocation, MdParty, PartyStatus
 
 ENTITY = "shipment"
 SHIPMENT_AUDIT_FIELDS = (
@@ -65,6 +65,8 @@ SHIPMENT_AUDIT_FIELDS = (
     "notify_party_id",
     "origin_location",
     "destination_location",
+    "origin_location_id",
+    "destination_location_id",
     "cargo_summary",
     "etd",
     "eta",
@@ -239,6 +241,17 @@ def _service_codes(db: Session, contract) -> list[str]:
     return sorted(db.scalars(stmt))
 
 
+_LOCATION_FIELDS = (("origin_location_id", "origin_location"), ("destination_location_id", "destination_location"))
+
+
+def _location_label(db: Session, location_id: int, field: str) -> str:
+    """Giai đoạn 17: địa điểm phải đang hoạt động (khóa FOR SHARE tới hết giao dịch) – trả bản chụp "mã – tên"."""
+    loc = db.scalar(select(MdLocation).where(MdLocation.id == location_id).with_for_update(read=True))
+    if loc is None or loc.status != PartyStatus.ACTIVE.value:
+        raise _field_error(field, "Địa điểm không tồn tại hoặc đã lưu trữ")
+    return f"{loc.code} – {loc.name}"[:200]
+
+
 def create_shipment(db: Session, data: ShipmentCreate, actor: SysUser) -> OpsShipment:
     if Role.OPS_STAFF.value not in actor.role_codes:
         raise forbidden()
@@ -247,6 +260,8 @@ def create_shipment(db: Session, data: ShipmentCreate, actor: SysUser) -> OpsShi
     fields = data.model_dump(mode="python", exclude={"contract_id"})
     shipment = OpsShipment(
         **fields,
+        origin_location=_location_label(db, data.origin_location_id, "origin_location_id"),
+        destination_location=_location_label(db, data.destination_location_id, "destination_location_id"),
         shipper_name=_party_name(db, data.shipper_id, "shipper_id"),
         consignee_name=_party_name(db, data.consignee_id, "consignee_id"),
         notify_party_name=_party_name(db, data.notify_party_id, "notify_party_id"),
@@ -311,6 +326,15 @@ def update_shipment(
     ):
         if field in changes:
             changes[name_field] = _party_name(db, changes[field], field)
+    for field, label in (
+        ("origin_location_id", "origin_location"),
+        ("destination_location_id", "destination_location"),
+    ):
+        if field in changes:
+            changes[label] = _location_label(db, changes[field], field)
+    origin = changes.get("origin_location_id", shipment.origin_location_id)
+    if origin is not None and origin == changes.get("destination_location_id", shipment.destination_location_id):
+        raise _field_error("destination_location_id", "Điểm đi và điểm đến phải khác nhau")
     for key, value in changes.items():
         setattr(shipment, key, value)
     shipment.updated_by = actor.id

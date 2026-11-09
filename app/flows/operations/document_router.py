@@ -19,7 +19,7 @@ from app.core.rbac import Role, require_roles
 from app.core.timeutil import UtcDatetime
 from app.flows.operations import document_service as service
 from app.flows.operations import shipment_service
-from app.flows.operations.models import DocCheckOutcome, DocType
+from app.flows.operations.models import DocCheckOutcome, DocType, OpsShipment
 from app.shared.identity.models import SysUser
 
 router = APIRouter(prefix="/api/v2/ops", tags=["Ops – Documents & checks (BR-103)"])
@@ -38,6 +38,7 @@ class DocumentOut(BaseModel):
     version_no: int
     file_id: int
     status: str
+    channel: str = Field(description="staff – nhân viên tải; portal – khách hàng gửi qua cổng")
     note: str | None
     uploaded_by: int
     uploaded_at: UtcDatetime
@@ -60,7 +61,9 @@ class CheckItemIn(BaseModel):
 class CheckCompleteIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    items: list[CheckItemIn] = Field(min_length=1, max_length=50)
+    items: list[CheckItemIn] = Field(
+        default_factory=list, max_length=50, description="Chứng từ bắt buộc còn thiếu được tự ghi 'missing'"
+    )
     note: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)] | None = None
 
     @model_validator(mode="after")
@@ -78,6 +81,8 @@ class CheckItemOut(BaseModel):
     document_id: int | None
     outcome: str
     reason: str | None
+    source: str = Field(description="manual – nhân viên ghi; auto – quy tắc chứng từ bắt buộc")
+    rule_id: int | None
 
 
 class CheckOut(BaseModel):
@@ -96,6 +101,9 @@ class CheckOut(BaseModel):
     checked_by: int | None
     checked_at: UtcDatetime | None
     items: list[CheckItemOut] = []
+    auto_missing: list[dict] = Field(
+        default_factory=list, description="Lần đang chờ: chứng từ bắt buộc còn thiếu – sẽ tự ghi 'missing'"
+    )
 
 
 class UploadOut(BaseModel):
@@ -104,8 +112,11 @@ class UploadOut(BaseModel):
 
 
 def _check_out(db: Session, check) -> CheckOut:
+    auto = []
+    if check.status == "pending":
+        auto = service.auto_missing(db, db.get(OpsShipment, check.shipment_id))
     return CheckOut.model_validate(check).model_copy(
-        update={"items": [CheckItemOut.model_validate(i) for i in service.items_of(db, check.id)]}
+        update={"items": [CheckItemOut.model_validate(i) for i in service.items_of(db, check.id)], "auto_missing": auto}
     )
 
 

@@ -6,6 +6,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.core.db import SessionLocal
 from app.shared.audit.models import SysAuditLog
+from tests.conftest import location_ids
 
 URL = "/api/v2/ops/commercial-invoices"
 
@@ -33,8 +34,7 @@ def world(client, make_party, make_contract, make_user, auth_headers):
         "incoterm": "CIF",
         "shipper_id": seller.id,
         "consignee_id": customer.id,
-        "origin_location": "Thượng Hải",
-        "destination_location": "Hải Phòng",
+        **dict(zip(("origin_location_id", "destination_location_id"), location_ids(), strict=True)),
         "required_delivery_at": "2026-12-31T00:00:00+07:00",
     }
     r = client.post("/api/v2/ops/shipments", json=shipment, headers=h["ops"])
