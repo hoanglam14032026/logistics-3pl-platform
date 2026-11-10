@@ -432,3 +432,15 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | Migration `0020` (4 bảng, CHECK 4 mắt / công thức số dư, trigger không xóa) | `07` §6 điểm 3 |
 | – | 5 test mới; viết lại test phiên bản / thanh lý / đóng theo quy trình mới; `test_migrations` head `0020` | `07` §5 |
 
+### 10.35. Mã nguồn – Giai đoạn 20: sổ thu – chi, tạm ứng nhân viên, bảng kê đối soát (11/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| – | Khoản mục thu – chi (seed T01–T05, C01–C08), phiếu thu / chi `draft → submitted → approved → recorded` / `void`, số dư quỹ, BC-TC-01 | `02` §3.10.1, §3.10.2, BR-112, BR-114 |
+| – | Tạm ứng `requested → approved → disbursed → settling → settled` / `rejected`, phiếu C08 / `offset` / T05 tự sinh, BR-115 (n = 2), EV-115, EV-116; M-10 ở Luồng 2 | `02` §3.10.3; `03` M-10 |
+| Bản nháp đề xuất: role ACCOUNTANT / OPERATOR, mã BR-111…114, tối đa 3 tạm ứng, OVERDUE 30 ngày chặn tạo mới, xuất PDF | Dùng role sẵn có, mã BR của `02`, n = 2, hạn 7 ngày + cảnh báo M-10 (không chặn), CSV + HTML in | `02` thắng bản nháp (quyết định 11/11/2026) |
+| `ops_contract_settlements` chỉ `final` theo hợp đồng | Thêm `periodic_statement` theo khách hàng + tháng (`contract_id` NULL), `settlement_type` VARCHAR(20); `:confirm` / `:dispute` cho `customer` và `manager` (ghi nhận thay); `disputed` → `:reissue` bản mới | Quyết định PO 11/11/2026; `02` §6.5 |
+| Hóa đơn thương mại tạo được ở mọi ngày | Kỳ có bảng kê `confirmed` / `closed` của khách hàng → không tạo / sửa hóa đơn, dòng hàng (service + trigger) | Guard duy nhất thêm vào logic Giai đoạn 0–19 |
+| – | Migration `0021` (3 bảng, mở rộng `ops_contract_settlements`, `ctl_alerts`; trigger BR-112, khóa bảng kê, khóa hóa đơn) | `07` §6 điểm 3 |
+| – | 9 test mới (`tests/flows/operations/test_cashbook_g20.py`); `test_migrations` head `0021` | `07` §5 |
+

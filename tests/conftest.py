@@ -64,6 +64,7 @@ SEED_TABLES = (
     "md_process_steps",
     "asm_kpi_definitions",  # Giai đoạn 15: danh mục KPI
     "ops_document_requirements",  # Giai đoạn 17: quy tắc chứng từ bắt buộc
+    "md_cashbook_categories",  # Giai đoạn 20: khoản mục thu – chi
 )
 _SEED: dict[str, list[dict]] = {}
 

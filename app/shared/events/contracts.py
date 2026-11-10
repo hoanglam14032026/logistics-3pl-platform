@@ -412,6 +412,33 @@ class ServiceRequestDecided(EventData):
     shipment_id: int | None = None
 
 
+class StaffAdvanceDisbursed(EventData):
+    """EV-115 `ops.staff_advance.disbursed` – Luồng 1 → 2 (Giai đoạn 20): Luồng 2 theo dõi hạn hoàn ứng (M-10)."""
+
+    code: ClassVar[str] = "EV-115"
+    name: ClassVar[str] = "ops.staff_advance.disbursed"
+    consumers: ClassVar[tuple[str, ...]] = ("control",)
+
+    advance_id: int
+    contract_id: int
+    shipment_id: int | None
+    staff_id: int
+    amount: Decimal
+    currency: str
+    due_date: date
+
+
+class StaffAdvanceSettled(EventData):
+    """EV-116 `ops.staff_advance.settled` – Luồng 1 → 2 (Giai đoạn 20): cảnh báo M-10 của khoản tạm ứng tự đóng."""
+
+    code: ClassVar[str] = "EV-116"
+    name: ClassVar[str] = "ops.staff_advance.settled"
+    consumers: ClassVar[tuple[str, ...]] = ("control",)
+
+    advance_id: int
+    settled_at: UtcDatetime
+
+
 class DocumentReceived(EventData):
     """EV-121 – 01 §5 chỉ gửi Luồng 2; Giai đoạn 15 thêm Luồng 4 (KPI-02 cần thời điểm nhận chứng từ đầu tiên)."""
 

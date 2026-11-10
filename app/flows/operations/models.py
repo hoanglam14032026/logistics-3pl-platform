@@ -838,6 +838,24 @@ class SettlementStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class SettlementType(StrEnum):
+    FINAL = "final"  # quyết toán thanh lý hợp đồng (Giai đoạn 19)
+    PERIODIC_STATEMENT = "periodic_statement"  # bảng kê đối soát định kỳ – SOA theo khách hàng + tháng (Giai đoạn 20)
+
+
+class StatementStatus(StrEnum):
+    """Trạng thái bảng kê đối soát `periodic_statement` (Giai đoạn 20)."""
+
+    DRAFT = "draft"
+    SENT = "sent"
+    CONFIRMED = "confirmed"  # khóa hóa đơn thương mại của kỳ
+    DISPUTED = "disputed"  # không khóa; phát hành lại = bản mới (previous_id), bản này giữ nguyên
+    CLOSED = "closed"
+
+
+LOCKING_STATEMENT_STATUSES = (StatementStatus.CONFIRMED.value, StatementStatus.CLOSED.value)
+
+
 class OpsContractSettlement(AuditColumnsMixin, Base):
     """Quyết toán hợp đồng `final` (02 §3.9, rút gọn – Giai đoạn 19): tổng hợp hóa đơn thương mại của hợp đồng (đồng
     tiền quyết toán; đồng tiền khác liệt kê riêng, không quy đổi) + bản chụp KPI / mục tiêu từ Luồng 4
@@ -847,22 +865,55 @@ class OpsContractSettlement(AuditColumnsMixin, Base):
 
     __tablename__ = "ops_contract_settlements"
     __table_args__ = (
-        CheckConstraint(f"status IN ({_in(SettlementStatus)})", name="status_valid"),
+        CheckConstraint(
+            f"(settlement_type = 'final' AND status IN ({_in(SettlementStatus)})) OR "
+            f"(settlement_type = 'periodic_statement' AND status IN ({_in(StatementStatus)}))",
+            name="status_valid",
+        ),
+        CheckConstraint(f"settlement_type IN ({_in(SettlementType)})", name="type_valid"),
+        # final: theo hợp đồng; periodic_statement (SOA): theo khách hàng + tháng, không gắn một hợp đồng
+        CheckConstraint(
+            "(settlement_type = 'final' AND contract_id IS NOT NULL AND customer_id IS NULL AND opening_balance = 0)"
+            " OR (settlement_type = 'periodic_statement' AND contract_id IS NULL AND customer_id IS NOT NULL)",
+            name="type_shape",
+        ),
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="currency_iso"),
         CheckConstraint(
-            "invoice_total >= 0 AND sla_deduction >= 0 AND compensation >= 0 AND paid_amount >= 0", name="amounts_valid"
+            "invoice_total >= 0 AND sla_deduction >= 0 AND compensation >= 0 "
+            "AND (paid_amount >= 0 OR settlement_type = 'periodic_statement')",
+            name="amounts_valid",
         ),
         CheckConstraint(
-            "balance_due = invoice_total - sla_deduction - compensation - paid_amount", name="balance_formula"
+            "balance_due = opening_balance + invoice_total - sla_deduction - compensation - paid_amount",
+            name="balance_formula",
         ),
         CheckConstraint("sla_deduction = 0 OR deduction_note IS NOT NULL", name="deduction_has_note"),
         CheckConstraint("approved_by IS NULL OR approved_by <> prepared_by", name="approver_not_preparer"),
+        CheckConstraint(
+            "status <> 'disputed' OR (dispute_reason IS NOT NULL AND responded_at IS NOT NULL)",
+            name="dispute_has_reason",
+        ),
+        CheckConstraint(
+            "status NOT IN ('confirmed', 'closed') OR settlement_type = 'final' OR responded_at IS NOT NULL",
+            name="confirmed_has_response",
+        ),
+        CheckConstraint("response_via IS NULL OR response_via IN ('customer', 'staff')", name="response_via_valid"),
         UniqueConstraint("contract_id", "settlement_type", name="uq_ops_contract_settlements_type"),
+        # Một bảng kê "đang sống" mỗi khách hàng + tháng; bản `disputed` đứng ngoài để phát hành lại bản mới
+        Index(
+            "uq_ops_contract_settlements_statement_period",
+            "customer_id",
+            "period_from",
+            unique=True,
+            postgresql_where=text("settlement_type = 'periodic_statement' AND status <> 'disputed'"),
+        ),
     )
 
-    settlement_no: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)  # QT-yyyy-nnnn
-    contract_id: Mapped[int] = _contract_fk()
-    settlement_type: Mapped[str] = mapped_column(String(16), nullable=False, default="final", server_default="final")
+    settlement_no: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)  # QT-yyyy-nnnn / BK-yyyy-nnnn
+    contract_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ops_service_contracts.id", ondelete="RESTRICT")
+    )
+    settlement_type: Mapped[str] = mapped_column(String(20), nullable=False, default="final", server_default="final")
     period_from: Mapped[date] = mapped_column(Date, nullable=False)
     period_to: Mapped[date] = mapped_column(Date, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
@@ -881,3 +932,207 @@ class OpsContractSettlement(AuditColumnsMixin, Base):
     approved_by: Mapped[int | None] = mapped_column(BigInteger)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decision_note: Mapped[str | None] = mapped_column(String(500))
+    # --- Giai đoạn 20: bảng kê đối soát `periodic_statement` (SOA) ---
+    customer_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("md_parties.id", ondelete="RESTRICT"))
+    opening_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=0, server_default="0")
+    statement_lines: Mapped[dict[str, Any] | None] = mapped_column(JSONB)  # bản chụp hóa đơn + phiếu của kỳ
+    previous_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ops_contract_settlements.id", ondelete="RESTRICT"), unique=True
+    )  # bản `disputed` được phát hành lại bằng bản này
+    sent_by: Mapped[int | None] = mapped_column(BigInteger)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    customer_confirmed_by: Mapped[int | None] = mapped_column(BigInteger)
+    customer_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    responded_by: Mapped[int | None] = mapped_column(BigInteger)  # người bấm xác nhận / khiếu nại
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    response_via: Mapped[str | None] = mapped_column(String(16))  # customer: tự bấm; staff: manager ghi nhận thay
+    response_note: Mapped[str | None] = mapped_column(String(1000))
+    dispute_reason: Mapped[str | None] = mapped_column(String(1000))
+    closed_by: Mapped[int | None] = mapped_column(BigInteger)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# --- Giai đoạn 20: sổ thu – chi theo hợp đồng (02 §3.10), tạm ứng nhân viên ---------------------------------------
+
+
+class CashDirection(StrEnum):
+    RECEIPT = "receipt"  # thu
+    PAYMENT = "payment"  # chi
+
+
+class ResultClass(StrEnum):
+    """Khoản mục tính vào kết quả hợp đồng thế nào (02 §3.10.1)."""
+
+    REVENUE = "revenue"  # T01 – doanh thu thực thu
+    OTHER_INCOME = "other_income"  # T04
+    DIRECT_COST = "direct_cost"  # C02–C06
+    NONE = "none"  # không tính: chi hộ / thu hồi chi hộ, tạm ứng, hoàn trả
+
+
+class MdCashbookCategory(Base):
+    """Khoản mục thu – chi (02 §3.10.1). Khoản mục gốc (T01–T05, C01–C08) do hệ thống seed; `manager` thêm khoản mục
+    con (kế thừa chiều, cách tính kết quả của khoản mục cha), không xóa khoản mục đã có phiếu."""
+
+    __tablename__ = "md_cashbook_categories"
+    __table_args__ = (
+        CheckConstraint(f"direction IN ({_in(CashDirection)})", name="direction_valid"),
+        CheckConstraint(f"result_class IN ({_in(ResultClass)})", name="result_class_valid"),
+        CheckConstraint("code ~ '^[TC][0-9]{2}(\\.[0-9]{1,2})?$'", name="code_format"),
+        CheckConstraint("(parent_code IS NULL) = is_system", name="system_is_root"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    direction: Mapped[str] = mapped_column(String(10), nullable=False)
+    result_class: Mapped[str] = mapped_column(String(16), nullable=False)
+    parent_code: Mapped[str | None] = mapped_column(
+        String(10), ForeignKey("md_cashbook_categories.code", ondelete="RESTRICT")
+    )
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(BigInteger)
+
+
+class VoucherStatus(StrEnum):
+    """02 §3.10.2."""
+
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    APPROVED = "approved"  # phiếu chi đã duyệt (BR-114) – phiếu thu ghi sổ thẳng từ `submitted`
+    RECORDED = "recorded"  # đã ghi sổ: không sửa, không xóa (BR-112)
+    VOID = "void"
+
+
+class PaymentMethod(StrEnum):
+    CASH = "cash"
+    BANK_TRANSFER = "bank_transfer"
+    OFFSET = "offset"  # bù trừ với tạm ứng – chỉ hệ thống sinh khi hoàn ứng
+
+
+class CounterpartyType(StrEnum):
+    CUSTOMER = "customer"
+    SUPPLIER = "supplier"
+    STAFF = "staff"
+
+
+class OpsCashVoucher(AuditColumnsMixin, Base):
+    """Phiếu thu / phiếu chi (02 §3.10.2). Mọi phiếu thuộc một hợp đồng. Số dư quỹ chỉ tính phiếu `recorded`.
+    Phiếu `recorded` chỉ được chuyển `void` (kèm lý do) – trigger CSDL chặn sửa / xóa (BR-112)."""
+
+    __tablename__ = "ops_cash_vouchers"
+    __table_args__ = (
+        CheckConstraint(f"voucher_type IN ({_in(CashDirection)})", name="type_valid"),
+        CheckConstraint(f"status IN ({_in(VoucherStatus)})", name="status_valid"),
+        CheckConstraint(f"payment_method IN ({_in(PaymentMethod)})", name="method_valid"),
+        CheckConstraint(f"counterparty_type IN ({_in(CounterpartyType)})", name="counterparty_type_valid"),
+        CheckConstraint("amount > 0 AND exchange_rate > 0", name="amounts_positive"),
+        CheckConstraint("currency ~ '^[A-Z]{3}$'", name="currency_iso"),
+        CheckConstraint("approved_by IS NULL OR approved_by <> prepared_by", name="approver_not_preparer"),
+        CheckConstraint(
+            "status NOT IN ('approved', 'recorded') OR voucher_type = 'receipt' OR approved_by IS NOT NULL",
+            name="payment_approved",  # BR-114
+        ),
+        CheckConstraint(
+            "status <> 'recorded' OR (recorded_by IS NOT NULL AND recorded_at IS NOT NULL)", name="recorded_has_actor"
+        ),
+        CheckConstraint("status <> 'void' OR void_reason IS NOT NULL", name="void_has_reason"),
+        CheckConstraint("payment_method <> 'offset' OR advance_id IS NOT NULL", name="offset_has_advance"),
+        Index("ix_ops_cash_vouchers_contract_date", "contract_id", "voucher_date"),
+        Index("ix_ops_cash_vouchers_advance", "advance_id"),
+        Index("ix_ops_cash_vouchers_status", "status"),
+    )
+
+    voucher_no: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)  # PT-/PC-yyyy-nnnnn
+    voucher_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    contract_id: Mapped[int] = _contract_fk()
+    shipment_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"))
+    category_code: Mapped[str] = mapped_column(
+        String(10), ForeignKey("md_cashbook_categories.code", ondelete="RESTRICT"), nullable=False
+    )
+    counterparty_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    counterparty_id: Mapped[int | None] = mapped_column(BigInteger)  # md_parties.id / sys_users.id theo loại
+    counterparty_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[str] = mapped_column(String(1000), nullable=False)
+    voucher_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    exchange_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False, default=1, server_default="1")
+    amount_base: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)  # quy đổi VND
+    payment_method: Mapped[str] = mapped_column(String(16), nullable=False)
+    supporting_file_ids: Mapped[list[int]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    external_invoice_no: Mapped[str | None] = mapped_column(String(100))
+    advance_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ops_staff_advances.id", ondelete="RESTRICT"))
+    settlement_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ops_contract_settlements.id", ondelete="RESTRICT")
+    )
+    replaces_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ops_cash_vouchers.id", ondelete="RESTRICT"), unique=True
+    )  # phiếu thay thế cho phiếu đã `void`
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft", server_default="draft")
+    prepared_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[int | None] = mapped_column(BigInteger)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    recorded_by: Mapped[int | None] = mapped_column(BigInteger)
+    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(String(500))
+    void_reason: Mapped[str | None] = mapped_column(String(500))
+    voided_by: Mapped[int | None] = mapped_column(BigInteger)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AdvanceStatus(StrEnum):
+    """02 §3.10.3."""
+
+    REQUESTED = "requested"
+    APPROVED = "approved"
+    DISBURSED = "disbursed"  # đã chi (phiếu chi C08)
+    SETTLING = "settling"  # đã khai hoàn ứng, chờ duyệt
+    SETTLED = "settled"
+    REJECTED = "rejected"
+
+
+OPEN_ADVANCE_STATUSES = (
+    AdvanceStatus.REQUESTED.value,
+    AdvanceStatus.APPROVED.value,
+    AdvanceStatus.DISBURSED.value,
+    AdvanceStatus.SETTLING.value,
+)
+
+
+class OpsStaffAdvance(AuditColumnsMixin, Base):
+    """Tạm ứng – hoàn ứng của nhân viên (02 §3.10.3). BR-115: tối đa `OPS_ADVANCE_MAX_OPEN` khoản chưa hoàn ứng."""
+
+    __tablename__ = "ops_staff_advances"
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_in(AdvanceStatus)})", name="status_valid"),
+        CheckConstraint("amount > 0", name="amount_positive"),
+        CheckConstraint("currency ~ '^[A-Z]{3}$'", name="currency_iso"),
+        CheckConstraint("approved_by IS NULL OR approved_by <> staff_id", name="approver_not_staff"),
+        CheckConstraint("settled_by IS NULL OR settled_by <> staff_id", name="settler_not_staff"),
+        CheckConstraint("status <> 'rejected' OR decision_note IS NOT NULL", name="reject_has_note"),
+        Index("ix_ops_staff_advances_staff_status", "staff_id", "status"),
+        Index("ix_ops_staff_advances_status_due", "status", "due_date"),
+    )
+
+    advance_no: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)  # TU-yyyy-nnnn
+    staff_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("sys_users.id", ondelete="RESTRICT"), nullable=False)
+    contract_id: Mapped[int] = _contract_fk()
+    shipment_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"))
+    purpose: Mapped[str] = mapped_column(String(1000), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="VND", server_default="VND")
+    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="requested", server_default="requested")
+    approved_by: Mapped[int | None] = mapped_column(BigInteger)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(String(500))
+    disbursed_by: Mapped[int | None] = mapped_column(BigInteger)
+    disbursed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    settlement_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    spent_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    settled_by: Mapped[int | None] = mapped_column(BigInteger)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

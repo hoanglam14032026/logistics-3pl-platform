@@ -301,6 +301,12 @@ Trạng thái: `requested` → `approved` → `disbursed` → `settling` → `se
 
 Xuất XLSX/PDF. **Không phân bổ** chi phí chung (quản lý, khấu hao phương tiện…) cho hợp đồng (đã chốt 08/11/2026): kết quả hợp đồng chỉ tính đến lãi gộp trên chi phí trực tiếp.
 
+**Đã làm (Giai đoạn 20, 11/11/2026)** – bản rút gọn:
+- **Khoản mục** `md_cashbook_categories`: seed T01–T04, C01–C08 và thêm **T05 "Thu hoàn ứng của nhân viên"** (phiếu thu tạm ứng thừa nộp lại – §3.10.3 chưa có mã; **CẦN XÁC NHẬN**). `manager` thêm khoản mục con (`C03.1`…, kế thừa chiều và cách tính kết quả), xóa khoản mục con chưa có phiếu; không thêm con cho C08, T05.
+- **Phiếu** `ops_cash_vouchers` (`PT-` / `PC-yyyy-nnnnn`, `TR-` với `training`): `ops_staff` / `manager` lập nháp (hợp đồng, khoản mục đúng chiều, số tiền > 0, ngày không ở tương lai; VND tỷ giá 1, `amount_base` quy đổi VND) → tải chứng từ gốc (PDF / ảnh; **bắt buộc ≥ 1** trước khi gửi) → người lập `:submit` → phiếu chi: `manager` / `business_manager` khác người lập `:approve` (BR-114, CHECK CSDL) → `:record`; phiếu thu `:record` thẳng từ `submitted` (người ghi khác người lập). `:reject` về nháp; `:void` kèm lý do (cả phiếu đã ghi sổ) + phiếu thay thế `replaces_id` – BR-112 (trigger chặn sửa / xóa phiếu `recorded`, phiếu `void` không đổi). Hợp đồng `closed`: chỉ phiếu có `settlement_id`. C08, T05, `offset` chỉ do tạm ứng sinh. Chưa có: ngưỡng duyệt cấp 2 theo chính sách phê duyệt (`03` §3.2), `charge_ids` (chưa có `ops_shipment_charges`), BR-113.
+- **Số dư quỹ** `GET /cashbook/balance` = tổng thu − tổng chi phiếu `recorded` (VND), theo `cash` / `bank_transfer`; phiếu `offset` không tính (không có dòng tiền). **BC-TC-01** `GET /cashbook/ledger` (số dư lũy kế theo dòng tiền). Chưa có BC-TC-02/03/04/06, xuất XLSX.
+- **Tạm ứng** `ops_staff_advances` (`TU-yyyy-nnnn`, VND): nhân viên đề nghị (hợp đồng `active` / `suspended` / `liquidating`, lô tùy chọn, hạn mặc định hôm nay + `OPS_ADVANCE_DUE_DAYS` = 7) – BR-115 tối đa `OPS_ADVANCE_MAX_OPEN` = 2 khoản chưa hoàn ứng → 409; `manager` / `business_manager` khác nhân viên duyệt / từ chối (thay phê duyệt `STAFF_ADVANCE` Luồng 2) → `:disburse` (phiếu chi C08 `recorded`, EV-115) → nhân viên `:submit-settlement` (khoản C01–C05 kèm file, phiếu `offset` chờ duyệt) → `:approve-settlement` (ghi sổ; thừa → phiếu thu T05, thiếu → phiếu chi C08 bổ sung; công nợ về 0; EV-116) hoặc `:return-settlement` (hủy phiếu `offset`, về `disbursed`). Quá hạn → M-10 (Luồng 2), **không chặn** đề nghị mới. Nhân viên chỉ thấy tạm ứng của mình; BC-TC-05 `GET /staff-advances?overdue=true`.
+
 ### 3.11. Ký tay – gửi file scan – xác nhận (hợp đồng, phụ lục, biên bản thanh lý)
 
 Áp dụng cho: hợp đồng khi kích hoạt, phụ lục (§3.7), biên bản thanh lý (§3.9). Hệ thống **không** dùng chữ ký số.
@@ -501,6 +507,8 @@ draft → docs_collecting → docs_verified → in_execution → delivered → c
 
 `draft` → `internal_review` (phê duyệt `SETTLEMENT`) → `approved` → `sent_to_customer` → `customer_confirmed` hoặc `customer_disputed`; `customer_disputed` → lập phiên bản mới (`draft`) và lặp lại; `customer_confirmed` → `minutes_issued` → `completed` (bản scan biên bản thanh lý `confirmed` – §3.11). Loại `periodic_statement` kết thúc ở `customer_confirmed` (không sinh biên bản thanh lý).
 
+**Đã làm (Giai đoạn 20, 11/11/2026)** – bảng kê đối soát `periodic_statement` (SOA) trong `ops_contract_settlements` theo **khách hàng + tháng** (`customer_id`, `contract_id` NULL; `BK-yyyy-nnnn`; một bản đang sống mỗi khách hàng + tháng): số dư đầu kỳ = số dư cuối kỳ bảng kê tháng trước (không `disputed`; không có → 0); tăng = hóa đơn thương mại trong tháng (hợp đồng `production` của khách hàng; đồng tiền khác liệt kê riêng); giảm = phiếu thu T01 + T03 − phiếu chi C07 đã ghi sổ; cuối kỳ = đầu kỳ + tăng − giảm (CHECK). Trạng thái rút gọn `draft` (`ops_staff` / `manager` lập cho tháng đã kết thúc, `:recompute`) → `sent` (`manager` / `business_manager` gửi, chốt số liệu – trigger) → `confirmed` / `disputed` → `closed` (`manager` / `business_manager`). `:confirm` / `:dispute` cùng một endpoint: `customer` cho bảng kê của chính mình (khác → 404), `manager` ghi nhận thay khi khách báo ngoài hệ thống (bắt buộc `note`, `response_via = staff`). `confirmed` / `closed` **khóa hóa đơn thương mại** có ngày trong kỳ (service + trigger CSDL – guard duy nhất thêm vào Giai đoạn 10); `disputed` không khóa, bản cũ không sửa được – `:reissue` tạo bản mới (`previous_id`). Xuất CSV + trang HTML để in (không PDF). Chưa có: duyệt nội bộ `SETTLEMENT`, khiếu nại từng dòng, giao diện cổng (PRT-07).
+
 ## 7. Yêu cầu chức năng
 
 | Mã | Yêu cầu | Ưu tiên |
@@ -587,6 +595,23 @@ Cấu hình ma trận và quy tắc (§5.3) – thuộc danh mục dùng chung:
 | GET/POST | `/api/v2/md/rule-sets/{id}/rules` · PATCH/DELETE `/rules/{rule_id}` | Quy tắc |
 | GET | `/api/v2/md/rule-sets/{id}/diff?against={other_id}` | So sánh hai phiên bản |
 | POST | `/api/v2/md/rule-sets/import` · GET `/rule-sets/{id}/export` | Nhập/xuất bộ quy tắc dạng XLSX hoặc JSON (sao chép giữa môi trường, giữa các khóa học) |
+
+## 8a. Sổ thu – chi, tạm ứng, bảng kê đối soát (Giai đoạn 20)
+
+| Phương thức | Đường dẫn | Mô tả |
+|---|---|---|
+| GET/POST, DELETE | `/api/v2/ops/cashbook-categories`, `/{code}` | Khoản mục; thêm / xóa khoản mục con (`manager`) |
+| GET/POST | `/api/v2/ops/cash-vouchers` | Danh sách (`contract_id`, `status`, `voucher_type`, `category_code`, `advance_id`, `date_from`, `date_to`) / lập nháp |
+| GET | `/api/v2/ops/cash-vouchers/{id}` | Chi tiết |
+| POST | `/api/v2/ops/cash-vouchers/{id}/files` | Tải chứng từ gốc (nháp) |
+| POST | `/api/v2/ops/cash-vouchers/{id}:submit` · `:approve` · `:record` · `:reject` · `:void` | Chuyển trạng thái |
+| GET | `/api/v2/ops/cashbook/balance`, `/api/v2/ops/cashbook/ledger` | Số dư quỹ; BC-TC-01 |
+| GET/POST | `/api/v2/ops/staff-advances`, `/{id}` | Tạm ứng (BC-TC-05 `?overdue=true`) |
+| POST | `/api/v2/ops/staff-advances/{id}/files` · `:approve` · `:reject` · `:disburse` · `:submit-settlement` · `:return-settlement` · `:approve-settlement` | |
+| GET/POST | `/api/v2/ops/periodic-statements`, `/{id}` | Bảng kê đối soát (lọc `customer_id`, `status`, `month`) |
+| POST | `/api/v2/ops/periodic-statements/{id}:recompute` · `:send` · `:confirm` · `:dispute` · `:close` · `:reissue` | `:confirm` / `:dispute`: `customer` hoặc `manager` |
+| GET | `/api/v2/ops/periodic-statements/{id}/export.csv`, `/print` | CSV, trang in HTML |
+| GET | `/api/v2/portal/statements`, `/{id}`, `/{id}/export.csv`, `/{id}/print` | Cổng khách hàng (không có bản nháp) |
 
 ## 8b. Điểm kiểm soát của lô (Giai đoạn 16)
 

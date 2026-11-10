@@ -3,7 +3,7 @@
 Mỗi xử lý chạy trong giao dịch của bộ nhận cùng dòng `sys_event_consumptions` (consumer `control`) – không xử lý trùng.
 """
 
-from app.flows.control import kpi_alerts, service, tracking
+from app.flows.control import advance_alerts, kpi_alerts, service, tracking
 from app.shared.events import consumer
 
 CONSUMER = "control"
@@ -15,3 +15,4 @@ consumer.handler(CONSUMER, "EV-112")(service.on_shipment_status_changed)
 for _code in ("EV-131", "EV-132", "EV-133", "ops.task.unblocked"):
     consumer.handler(CONSUMER, _code)(tracking.apply_from_ops)
 consumer.handler(CONSUMER, "EV-403")(kpi_alerts.on_kpi_alert)  # Giai đoạn 15: cảnh báo KPI của Luồng 4
+consumer.handler(CONSUMER, "EV-116")(advance_alerts.on_advance_settled)  # Giai đoạn 20: M-10 tự đóng khi hoàn ứng

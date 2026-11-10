@@ -26,8 +26,12 @@ from app.flows.assessment.router import router as assessment_router
 from app.flows.control.router import router as control_router
 from app.flows.learning.router import portal_router as learning_portal_router
 from app.flows.learning.router import router as learning_router
+from app.flows.operations import advance_service as ops_advance_service
+from app.flows.operations import cashbook_service as ops_cashbook_service
 from app.flows.operations import document_service as ops_document_service
 from app.flows.operations import service as ops_service
+from app.flows.operations.advance_router import router as ops_advances_router
+from app.flows.operations.cashbook_router import router as ops_cashbook_router
 from app.flows.operations.checkpoint_router import router as ops_checkpoints_router
 from app.flows.operations.contract_lifecycle_router import router as ops_contract_lifecycle_router
 from app.flows.operations.document_router import router as ops_documents_router
@@ -35,9 +39,11 @@ from app.flows.operations.invoice_router import router as ops_invoices_router
 from app.flows.operations.portal.documents_router import router as portal_documents_router
 from app.flows.operations.portal.router import router as portal_contracts_router
 from app.flows.operations.portal.shipments_router import router as portal_shipments_router
+from app.flows.operations.portal.statements_router import router as portal_statements_router
 from app.flows.operations.requirement_router import router as ops_requirements_router
 from app.flows.operations.router import router as ops_contracts_router
 from app.flows.operations.shipment_router import router as ops_shipments_router
+from app.flows.operations.statement_router import router as ops_statements_router
 from app.flows.operations.task_router import router as ops_tasks_router
 from app.legacy_v1 import models as _legacy_models  # noqa: F401  (đăng ký model v1 vào Base.metadata)
 from app.legacy_v1.api import business_guide
@@ -152,6 +158,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(doc_jobs_router)
     docai_service.register_file_access()
     ops_document_service.register_file_access()  # Giai đoạn 16: file chứng từ lô
+    ops_cashbook_service.register_file_access()  # Giai đoạn 20: chứng từ phiếu thu / chi
+    ops_advance_service.register_file_access()  # Giai đoạn 20: chứng từ tạm ứng – hoàn ứng
     # Điều kiện của Luồng 1 với danh mục khách hàng, tài khoản cổng: luôn đăng ký (kể cả khi tắt Luồng 1 – khi đó
     # không có hợp đồng nào nên manager không tạo được tài khoản customer; dữ liệu vẫn nhất quán).
     ops_service.register_guards()
@@ -164,9 +172,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(ops_checkpoints_router)  # Giai đoạn 16: điểm kiểm soát
         app.include_router(ops_requirements_router)  # Giai đoạn 17: quy tắc chứng từ bắt buộc
         app.include_router(ops_invoices_router)  # Giai đoạn 10
+        app.include_router(ops_cashbook_router)  # Giai đoạn 20: sổ thu – chi
+        app.include_router(ops_advances_router)  # Giai đoạn 20: tạm ứng nhân viên
+        app.include_router(ops_statements_router)  # Giai đoạn 20: bảng kê đối soát (SOA)
         app.include_router(portal_contracts_router)
         app.include_router(portal_shipments_router)
         app.include_router(portal_documents_router)  # Giai đoạn 17: khách hàng gửi chứng từ
+        app.include_router(portal_statements_router)  # Giai đoạn 20: bảng kê đối soát
     if "control" in settings.enabled_flows:  # Luồng 2 (Giai đoạn 11)
         app.include_router(control_router)
     if "assessment" in settings.enabled_flows:  # Luồng 4 – KPI (Giai đoạn 14)

@@ -40,6 +40,8 @@ _DEFAULT_PURPOSES = {
     ),
     # Chứng từ của lô hàng (Giai đoạn 16 – ops_documents)
     "shipment_document": Purpose(frozenset({sniff.PDF, sniff.JPEG, sniff.PNG, sniff.DOCX, sniff.XLSX}), 20 * MB),
+    # Chứng từ gốc của phiếu thu / chi, tạm ứng – hoàn ứng (Giai đoạn 20 – 02 §3.10): hóa đơn, biên lai, ủy nhiệm chi…
+    "cash_document": Purpose(frozenset({sniff.PDF, sniff.JPEG, sniff.PNG}), 20 * MB),
 }
 _EXT_TO_MIME = {ext: mime for mime, ext in sniff.EXTENSIONS.items()}
 
