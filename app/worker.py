@@ -19,7 +19,7 @@ from app import handlers as _event_handlers  # noqa: F401  (xử lý sự kiện
 from app.core.config import get_settings
 from app.core.jobs import QUEUE_NAME, redis_connection
 from app.flows.assessment import calc as kpi_calc
-from app.flows.control import tracking
+from app.flows.control import advance_alerts, tracking
 from app.shared.events import outbox
 
 
@@ -32,6 +32,7 @@ def main() -> int:
     # Giai đoạn 10: thêm hàng `events` (gửi outbox sự kiện cho Luồng 2, 4); xếp lại sự kiện còn chờ trong outbox.
     outbox.schedule_pending()
     tracking.schedule_scan()  # Giai đoạn 12: quét chậm trễ định kỳ (Luồng 2)
+    advance_alerts.schedule_scan()  # Giai đoạn 20: M-10 – tạm ứng quá hạn hoàn ứng (Luồng 2)
     if "assessment" in settings.enabled_flows:
         kpi_calc.schedule_daily()  # Giai đoạn 15: tính KPI hằng ngày (Luồng 4, BR-407)
     worker = Worker([QUEUE_NAME, outbox.EVENTS_QUEUE], connection=redis_connection(settings.job_queue_url))

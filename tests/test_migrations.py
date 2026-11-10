@@ -65,6 +65,7 @@ G19_TABLES = {
     "ops_contract_settlements",
     "asm_fact_settlements",
 }
+G20_TABLES = {"md_cashbook_categories", "ops_cash_vouchers", "ops_staff_advances"}
 G18_TABLES = {
     "lrn_training_contracts",
     "lrn_contract_learners",
@@ -121,7 +122,7 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0020"
+    assert head_revision() == "0021"
 
 
 def test_upgrade_from_empty_creates_all_tables():
@@ -144,6 +145,7 @@ def test_upgrade_from_empty_creates_all_tables():
         | G17_TABLES
         | G18_TABLES
         | G19_TABLES
+        | G20_TABLES
     )
     assert _tables() == expected | {"alembic_version"}
 
@@ -310,6 +312,7 @@ def test_check_constraint_names_match_models():
                 | G17_TABLES
                 | G18_TABLES
                 | G19_TABLES
+                | G20_TABLES
             ),
         ):
             in_db = {c["name"] for c in inspector.get_check_constraints(table)}
@@ -343,6 +346,7 @@ def test_0012_seeds_process_templates_and_downgrades_cleanly():
             | G17_TABLES
             | G18_TABLES
             | G19_TABLES
+            | G20_TABLES
         )
         & _tables()
     )

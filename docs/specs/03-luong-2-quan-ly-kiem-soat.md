@@ -138,7 +138,7 @@ Bảng chiếu (chỉ Luồng 2 ghi, dựng từ sự kiện): `ctl_shipment_pro
 | M-07 | Nhận EV-403 (KPI dưới ngưỡng) | theo KPI | |
 | M-08 | Yêu cầu dịch vụ của khách hàng chưa được quyết định khi tới `response_due_at` (EV-113, EV-114) | warning → critical sau 2 giờ | |
 | M-09 | Hợp đồng `liquidating` quá n ngày chưa hoàn tất thanh lý (EV-104, EV-102) | warning | n = 30 |
-| M-10 | Tạm ứng nhân viên quá hạn hoàn ứng (EV-115, EV-116) | warning | Theo `due_date` |
+| M-10 | Tạm ứng nhân viên quá hạn hoàn ứng (EV-115, EV-116) | warning | Theo `due_date`. **Đã làm (Giai đoạn 20)**: cảnh báo `staff_advance_overdue` (không gắn lô) cho mọi `manager`; quét định kỳ (tác vụ rq `advance_alerts.scheduled_scan`, chu kỳ `CONTROL_SCAN_INTERVAL_SEC`) đọc tạm ứng quá hạn qua `operations.public.overdue_staff_advances` (N4); EV-116 → tự đóng; không lặp; leo thang BR-205 |
 
 Giám sát, điều phối hợp đồng `production` do `account_manager` (người quản lý) thực hiện; hợp đồng `training` do người hướng dẫn (`coordinator`) thực hiện, cùng quy tắc giám sát và cùng tham số. Cảnh báo chưa được xác nhận sau thời hạn được **leo thang**: `production` → `business_manager`; `training` → người hướng dẫn với vai `business_manager_proxy` (BR-205).
 

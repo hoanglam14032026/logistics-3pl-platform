@@ -71,6 +71,7 @@ class AlertType(StrEnum):
     SHIPMENT_LATE_RISK = "shipment_late_risk"  # dự kiến xong sau hạn giao yêu cầu (SLA)
     TASK_SYNC_CONFLICT = "task_sync_conflict"  # Giai đoạn 13: thay đổi bước ở Luồng 1 xung đột với Luồng 2
     KPI_BELOW_TARGET = "kpi_below_target"  # Giai đoạn 15: EV-403 – KPI kém hơn mục tiêu (không gắn lô)
+    STAFF_ADVANCE_OVERDUE = "staff_advance_overdue"  # Giai đoạn 20: M-10 – tạm ứng quá hạn hoàn ứng (không gắn lô)
 
 
 class AlertSeverity(StrEnum):
@@ -320,7 +321,10 @@ class CtlAlert(Base):
         CheckConstraint(f"severity IN ({_in(AlertSeverity)})", name="severity_valid"),
         CheckConstraint(f"status IN ({_in(AlertStatus)})", name="status_valid"),
         CheckConstraint("(status = 'resolved') = (resolved_at IS NOT NULL)", name="resolved_has_time"),
-        CheckConstraint("shipment_id IS NOT NULL OR alert_type = 'kpi_below_target'", name="shipment_required"),
+        CheckConstraint(
+            "shipment_id IS NOT NULL OR alert_type IN ('kpi_below_target', 'staff_advance_overdue')",
+            name="shipment_required",
+        ),
         Index(
             "uq_ctl_alerts_dedup_unresolved", "dedup_key", unique=True, postgresql_where=text("status <> 'resolved'")
         ),

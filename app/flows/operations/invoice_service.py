@@ -95,6 +95,17 @@ def _resolve_contract(db: Session, data: InvoiceCreate, actor: SysUser) -> tuple
 
 def create_invoice(db: Session, data: InvoiceCreate, actor: SysUser) -> OpsCommercialInvoice:
     contract_id, shipment_id = _resolve_contract(db, data, actor)
+    # Giai đoạn 20: kỳ đã có bảng kê đối soát confirmed / closed của khách hàng → khóa (trigger CSDL giữ thêm lớp nữa)
+    from app.flows.operations.statement_service import locked_by
+
+    locked = locked_by(db, contract_id, data.invoice_date)
+    if locked:
+        raise AppError(
+            ErrorCode.INVALID_STATE_TRANSITION,
+            409,
+            f"Kỳ của ngày hóa đơn đã khóa bởi bảng kê đối soát {locked} (đã xác nhận)",
+            [{"field": "body.invoice_date", "issue": "period_locked", "message": f"Đã khóa bởi {locked}"}],
+        )
     invoice = OpsCommercialInvoice(
         contract_id=contract_id,
         shipment_id=shipment_id,

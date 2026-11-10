@@ -138,6 +138,11 @@ class Settings(BaseSettings):
     # BR-205 (Giai đoạn 13): cảnh báo chưa xử lý sau N giờ → leo thang lên business_manager
     control_escalation_hours: float = Field(default=2, gt=0)
 
+    # Sổ thu – chi, tạm ứng (Giai đoạn 20; 02 §3.10.3): BR-115 – tối đa n khoản tạm ứng chưa hoàn ứng mỗi nhân viên;
+    # hạn hoàn ứng mặc định (ngày) khi đề nghị không ghi `due_date`.
+    ops_advance_max_open: int = Field(default=2, ge=1)
+    ops_advance_due_days: int = Field(default=7, ge=1)
+
     # Zalo OA (Giai đoạn 13): gửi cảnh báo qua Zalo khi đặt ZALO_TOKEN (access token của Official Account) và người nhận
     # có `zalo_user_id` (ctl_staff_profiles). Không đặt → chỉ gửi email. Token không ghi vào log, Redis.
     zalo_token: SecretStr | None = None
