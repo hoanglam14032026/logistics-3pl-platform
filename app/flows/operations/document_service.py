@@ -95,6 +95,13 @@ def upload(
     shipment = _writable_shipment(db, shipment_id, actor)
     return _store(db, shipment, doc_type, upload_file, note, actor, "staff")
 
+def upload_from_ai_bill(
+    db: Session, shipment_id: int, doc_type: str, upload_file: UploadFile, note: str | None, actor: SysUser,
+    bill_image_path: str | None, ai_confidence: float | None, ai_raw: str | None
+) -> tuple[OpsDocument, OpsDocumentCheck]:
+    """Stage 23: Upload ảnh Bill, AI đã đọc trước -> lưu kèm AI fields, vẫn chạy _store + _reopen + pending check như cũ."""
+    shipment = _writable_shipment(db, shipment_id, actor)
+    return _store(db, shipment, doc_type, upload_file, note, actor, "staff", bill_image_path=bill_image_path, ai_parsed=True, ai_confidence=ai_confidence, ai_raw=ai_raw)
 
 def portal_upload(
     db: Session, party_id: int, shipment_id: int, doc_type: str, upload_file: UploadFile, note: str | None, actor
@@ -137,9 +144,9 @@ def _reopen_documents(db: Session, shipment: OpsShipment, doc: OpsDocument, acto
         shipment.mode,
     )
 
-
 def _store(
-    db: Session, shipment: OpsShipment, doc_type: str, upload_file: UploadFile, note: str | None, actor, channel: str
+    db, shipment, doc_type, upload_file, note, actor, channel,
+    bill_image_path=None, ai_parsed=False, ai_confidence=None, ai_raw=None
 ) -> tuple[OpsDocument, OpsDocumentCheck]:
     previous = current_documents(db, shipment.id).get(doc_type)
     version_no = (
@@ -155,6 +162,10 @@ def _store(
         db.flush()
     stored = files.store(db, upload_file, "shipment_document", "operations", ENTITY, 0, actor.id)
     doc = OpsDocument(
+        bill_image_path=bill_image_path,
+        ai_parsed=ai_parsed,
+        ai_confidence=ai_confidence,
+        ai_raw=ai_raw,
         shipment_id=shipment.id,
         doc_type=doc_type,
         version_no=version_no,

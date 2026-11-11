@@ -18,6 +18,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -546,7 +547,10 @@ class OpsDocument(Base):
             postgresql_where=text("status = 'current'"),
         ),
     )
-
+    bill_image_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    ai_parsed: Mapped[bool] = mapped_column(Boolean, server_default="false", default=False)
+    ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ai_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     shipment_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"), nullable=False, index=True
