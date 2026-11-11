@@ -49,9 +49,6 @@ from app.legacy_v1.api import business_guide
 from app.legacy_v1.api.business_data import records as business_data_records
 from app.legacy_v1.api.training import documents as training_documents
 from app.legacy_v1.api.video import resources as video_resources
-from app.shared.ai_models.router import router as ai_models_router
-from app.shared.ai_models.router import admin_router as ai_models_admin_router
-from app.shared.ai_models.router import router as ai_models_router
 from app.shared.audit.router import router as audit_router
 from app.shared.docai import registry as docai_registry
 from app.shared.docai import service as docai_service
@@ -153,8 +150,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(audit_router)
     app.include_router(files_router)
     # AI local trích xuất chứng từ (Giai đoạn 9) – dùng chung mọi tiến trình
-    app.include_router(ai_models_router)
-    app.include_router(ai_models_admin_router)
     app.include_router(qwen_sharp_router)
     app.include_router(doc_types_router)
     app.include_router(doc_jobs_router)
