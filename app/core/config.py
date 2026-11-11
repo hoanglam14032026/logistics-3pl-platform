@@ -153,6 +153,7 @@ class Settings(BaseSettings):
     # localhost / mạng riêng → ứng dụng KHÔNG khởi động (app/core/netguard.py). Danh mục model đọc từ bảng `ai_models`
     # (admin quản lý) – không ghi tên model trong mã nghiệp vụ.
     ollama_url: str = "http://localhost:11434"
+    llama_url: str = "http://localhost:8080"
     # Tên máy chủ nội bộ thêm (vd. ai.noibo.congty.vn) – lúc gọi vẫn kiểm DNS phải ra địa chỉ mạng riêng.
     ai_allowed_hosts: Annotated[tuple[str, ...], NoDecode] = ()
     # `code` của model được giao diện ĐÁNH DẤU gợi ý trong GET /api/v2/ai-models/active. Chỉ là gợi ý hiển thị:

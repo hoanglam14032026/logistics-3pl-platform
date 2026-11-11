@@ -2,7 +2,7 @@ import httpx
 
 LLAMA_URL = "http://localhost:8080/v1/chat/completions"
 OLLAMA_URL = "http://localhost:11434/api"
-llama_url: str = "http://localhost:8080"
+
 from app.core.config import get_settings
 def ask_logistics(prompt: str) -> str:
     settings = get_settings()
