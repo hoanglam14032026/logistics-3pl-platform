@@ -472,4 +472,13 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | 5 test `test_contract_documents_br103.py`; 6 test Playwright mới; `test_migrations` head `0023` | `07` §5 |
 | Màn hình giấy tờ không thấy hợp đồng đã ký, phụ lục, biên bản thanh lý | Nhóm "Hồ sơ hợp đồng – chỉ xem" trong ô chọn giấy tờ (file đính kèm + thông tin phụ lục), xem ảnh / pdf, báo thiếu bản hợp đồng đã ký; 1 test Playwright | Rà soát Giai đoạn 23 (mục 4) |
 
+## Stage 22 - AI Gateway (502/504, /api/ai chi ops_staff)
+- Commit: f7db81a
+- Gateway loi co kieu 502/504, router /api/ai chi ops_staff, khoi phuc ai_models_admin_router.
 
+## Stage 23 - Nhap tay giay to theo hop dong thay AI doc bill (BR-103)
+- Commit: 58693e1 + 798379c (P3)
+- staff_bill.html: nhap tay bill_of_lading / air_waybill, khong hardcode bill_image_path, khong nhap confidence tay, server tu tinh AI fields.
+- Migration 0022 + 0023: ops_documents.source_contract_document_id FK ops_contract_documents.id, nullable, ondelete RESTRICT, truy vet nguon + chong ghi trung.
+- P0.1: tests/architecture N3/N4/N6 - 4 passed. P0.2: E2E-01..08 - 8 passed. Tong tests/architecture + tests/e2e = 16 passed.
+- P3: ruff xanh, alembic check: No new upgrade operations detected.
