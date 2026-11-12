@@ -91,6 +91,11 @@ class ContractDocDetailOut(ContractDocOut):
     values: dict[str, Any]
     form: DocTypeOut
     shipment_update: dict[str, Any] | None = Field(None, description="Chỉ khi xác nhận vận đơn gắn lô")
+    shipment_document: dict[str, Any] | None = Field(
+        None,
+        description="Chỉ khi xác nhận giấy tờ cấp lô có loại trùng chứng từ lô: `registered` true → `document_id`, "
+        "`version_no`, `check_id` (lần kiểm tra BR-103 đang chờ); false → `reason` no_file | file_type | unchanged",
+    )
 
 
 class DocPatchIn(BaseModel):
@@ -292,7 +297,7 @@ def put_file(
 @router.post(
     "/contract-documents/{doc_id:int}:confirm",
     response_model=ContractDocDetailOut,
-    summary="Xác nhận (đủ trường bắt buộc) – khóa; vận đơn gắn lô → điền chỗ trống của lô",
+    summary="Xác nhận – khóa; giấy tờ cấp lô → chứng từ lô (BR-103); vận đơn → điền chỗ trống của lô",
 )
 def confirm_document(
     doc_id: int,
@@ -301,8 +306,8 @@ def confirm_document(
     actor: SysUser = Depends(_writer),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
-    doc, applied = service.confirm(db, doc_id, actor, parse_if_match(if_match))
-    return _detail(db, doc, actor, response, shipment_update=applied)
+    doc, applied, registered = service.confirm(db, doc_id, actor, parse_if_match(if_match))
+    return _detail(db, doc, actor, response, shipment_update=applied, shipment_document=registered)
 
 
 @router.post(
