@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Giấy tờ theo hợp đồng</title>
+<style>
+:root{--bg:#f4f5f7;--panel:#fff;--line:#d9dce1;--text:#1d2330;--muted:#6a7280;--accent:#1f5fbf;--ok:#1a7f45;--warn:#b4690e;--bad:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#14171c;--panel:#1d2128;--line:#343a44;--text:#e6e9ee;--muted:#98a1b0;--accent:#6ea3ff;--ok:#5fcf8a;--warn:#e8a54b;--bad:#ff8a80}}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column}
+input,select,button,textarea{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+#login{max-width:340px;margin:12vh auto;padding:20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;display:grid;gap:10px}
+#app{display:none;flex:1;min-height:0;flex-direction:column}
+.bar{display:flex;gap:8px;align-items:center;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.bar h1{font-size:16px;margin:0 8px 0 0}
+.bar .grow{flex:1;min-width:160px}
+.split{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)}
+.pane{display:flex;flex-direction:column;min-height:0;background:var(--panel);border-right:1px solid var(--line)}
+.pane:last-child{border-right:0}
+.pane h2{margin:0;padding:8px 12px;font-size:13px;border-bottom:1px solid var(--line);color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+#viewer{background:var(--bg)}
+.vbar{display:flex;gap:6px;align-items:center;padding:6px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:var(--panel)}
+.vbar input[type=number]{width:64px}
+#pageBox{flex:1;overflow:auto;padding:12px;text-align:center}
+#pageBox img{max-width:none;box-shadow:0 1px 6px #0004;background:#fff}
+#pageBox pre{text-align:left;white-space:pre-wrap;background:var(--panel);padding:12px;border:1px solid var(--line);border-radius:6px}
+.thumbs{display:flex;gap:6px;overflow:auto;padding:6px 12px;border-top:1px solid var(--line);background:var(--panel)}
+.thumbs button{padding:2px 8px;flex:0 0 auto}.thumbs button.active{background:var(--accent);color:#fff}
+.scroll{flex:1;overflow:auto;padding:10px 12px}
+.meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px dashed var(--line)}
+.meta .wide{grid-column:1/-1}
+.field{margin-bottom:10px}.field label,.meta label{display:block;font-weight:600;margin-bottom:2px}
+.field input,.field select,.field textarea,.meta input,.meta select{width:100%}
+.req{color:var(--bad)}.err{color:var(--bad);font-size:12px;margin-top:2px}.hint{color:var(--muted);font-size:12px}
+table.rows{width:100%;border-collapse:collapse}table.rows td,table.rows th{border:1px solid var(--line);padding:2px}
+table.rows input,table.rows select{width:100%;border:0;padding:4px}
+.actions{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);flex-wrap:wrap;align-items:center}
+.badge{display:inline-block;padding:0 6px;border-radius:9px;font-size:11px;border:1px solid currentColor}
+.b-confirmed{color:var(--ok)}.b-draft{color:var(--warn)}.b-void{color:var(--bad)}
+#saveState{font-size:12px;color:var(--muted)}#saveState.ok{color:var(--ok)}#saveState.bad{color:var(--bad)}
+#msg{padding:4px 12px;font-size:13px;min-height:24px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+dialog{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);max-width:520px;width:92vw}
+dialog form{display:grid;gap:10px}dialog label{font-weight:600;display:block}dialog select,dialog input{width:100%}
+@media (max-width:900px){.split{grid-template-columns:1fr;grid-auto-rows:minmax(360px,auto);overflow:auto}}
+</style>
+</head>
+<body>
+<div id="login">
+  <h1 style="margin:0;font-size:18px">Đăng nhập nhân viên</h1>
+  <input id="user" placeholder="Tên đăng nhập" autocomplete="username">
+  <input id="pass" type="password" placeholder="Mật khẩu" autocomplete="current-password">
+  <button class="primary" id="btnLogin">Đăng nhập</button>
+  <div id="loginMsg" class="bad"></div>
+</div>
+
+<div id="app">
+  <div class="bar">
+    <h1>Giấy tờ theo hợp đồng</h1>
+    <label>Hợp đồng <input id="contractQ" class="grow" placeholder="Gõ số hợp đồng / tên khách hàng" list="contractList"></label>
+    <datalist id="contractList"></datalist>
+    <button id="btnOpenContract">Mở</button>
+    <span id="contractInfo" class="hint"></span>
+    <span style="flex:1"></span>
+    <button id="btnLogout">Đăng xuất</button>
+  </div>
+  <div class="bar" id="docBar" style="display:none">
+    <label>Giấy tờ <select id="docSelect" class="grow" style="min-width:280px"></select></label>
+    <button class="primary" id="btnNew">+ Khai báo giấy tờ</button>
+    <span id="progress" class="hint"></span>
+  </div>
+  <div id="msg"></div>
+
+  <div class="split">
+    <section class="pane" id="viewer">
+      <h2><span id="vtitle">Tài liệu</span><span id="fileInfo" class="hint"></span></h2>
+      <div class="vbar">
+        <button id="prev">◀ Trước</button>
+        <input id="pageNo" type="number" min="1" value="1"> / <span id="pageCount">0</span>
+        <button id="next">Sau ▶</button>
+        <button id="zoomOut">−</button><button id="zoomIn">+</button><button id="zoomFit">Vừa khung</button>
+        <button id="btnFile">Đính / thay file…</button>
+        <input id="fileInput" type="file" hidden accept="image/*,.pdf,.docx,.xlsx,.txt">
+      </div>
+      <div id="pageBox"><span class="hint">Chọn hoặc khai báo giấy tờ để xem tài liệu.</span></div>
+      <div class="thumbs" id="thumbs"></div>
+    </section>
+
+    <section class="pane">
+      <h2><span id="ftitle">Dữ liệu nhập</span><span id="saveState"></span></h2>
+      <div class="scroll" id="formArea"><span class="hint">Chưa chọn giấy tờ.</span></div>
+      <div class="actions">
+        <button class="primary" id="btnConfirm">Xác nhận hoàn tất</button>
+        <button id="btnReopen">Mở lại để sửa</button>
+        <button id="btnVoid">Hủy giấy tờ</button>
+        <span id="entryBadge"></span>
+      </div>
+    </section>
+  </div>
+</div>
+
+<dialog id="dlgNew">
+  <form method="dialog" id="newForm">
+    <h3 style="margin:0">Khai báo giấy tờ tiếp nhận</h3>
+    <div><label>Loại giấy tờ (danh mục hệ thống)</label><select id="nCatalog" required></select><div class="hint" id="nHint"></div></div>
+    <div id="nShipRow"><label>Lô hàng</label><select id="nShipment"></select></div>
+    <div id="nPartyRow"><label>Đối tác phát hành</label><select id="nParty"></select></div>
+    <div><label>Ngày tiếp nhận</label><input type="date" id="nDate"></div>
+    <div><label>Ghi chú</label><input id="nNote" maxlength="500"></div>
+    <div><label>File (tùy chọn – có thể đính sau)</label><input type="file" id="nFile" accept="image/*,.pdf,.docx,.xlsx,.txt"></div>
+    <div id="nErr" class="bad"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" id="nCancel">Hủy</button><button type="submit" class="primary" id="nOk">Khai báo</button></div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const API = "/api/v2";
+const S = {token:null, contract:null, shipments:[], catalog:[], docs:[], doc:null, etag:null, pages:[], page:1, zoom:1, blobUrl:null,
+           saveTimer:null, pending:{}, saving:false, dirty:false, dirtyMeta:{}};
+const STATUS = {draft:"Nháp", confirmed:"Đã xác nhận", void:"Đã hủy"};
+const SRC = {customer:"Khách hàng cung cấp", partner:"Đối tác phát hành"};
+
+function say(t, cls){ const m=$("msg"); m.textContent=t||""; m.className=cls||""; }
+function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function saveState(t, cls){ const e=$("saveState"); e.textContent=t||""; e.className=cls||""; }
+
+async function api(path, opts={}){
+  const headers = Object.assign({Authorization:"Bearer "+S.token}, opts.headers||{});
+  const r = await fetch(API+path, Object.assign({}, opts, {headers}));
+  if(r.status===401){ logout(); throw new Error("Phiên đăng nhập hết hạn"); }
+  return r;
+}
+async function apiJson(path, opts){
+  const r = await api(path, opts);
+  const body = await r.json().catch(()=>null);
+  if(!r.ok){ const err=(body&&body.error)||{}; const e=new Error(err.message||("Lỗi HTTP "+r.status)); e.status=r.status; e.body=err; throw e; }
+  return {body, etag:r.headers.get("ETag")};
+}
+
+/* ---------- đăng nhập ---------- */
+$("btnLogin").onclick = async () => {
+  $("loginMsg").textContent="";
+  try{
+    const r = await fetch(API+"/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({username:$("user").value.trim(),password:$("pass").value})});
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error((j.error&&j.error.message)||"Sai tên đăng nhập hoặc mật khẩu");
+    if(!j.access_token) throw new Error("Tài khoản cần xác thực 2 lớp – đăng nhập qua ứng dụng chính");
+    S.token=j.access_token; $("pass").value="";
+    $("login").style.display="none"; $("app").style.display="flex";
+    S.catalog = (await apiJson("/ops/document-catalog")).body;
+  }catch(e){ $("loginMsg").textContent=e.message; }
+};
+function logout(){ S.token=null; $("app").style.display="none"; $("login").style.display="grid"; }
+$("btnLogout").onclick = logout;
+
+/* ---------- chọn hợp đồng ---------- */
+let qTimer=null;
+$("contractQ").oninput = () => { clearTimeout(qTimer); qTimer=setTimeout(searchContracts, 300); };
+async function searchContracts(){
+  const q=$("contractQ").value.trim(); if(q.length<2) return;
+  try{
+    const {body}=await apiJson("/ops/service-contracts?page_size=20&q="+encodeURIComponent(q));
+    $("contractList").innerHTML=body.items.map(c=>`<option value="${esc(c.contract_no)}">${esc(c.customer_name)} · ${esc(c.status)}</option>`).join("");
+    S.found=body.items;
+  }catch(e){}
+}
+$("btnOpenContract").onclick = async () => {
+  const q=$("contractQ").value.trim(); if(!q) return;
+  try{
+    let c=(S.found||[]).find(x=>x.contract_no===q);
+    if(!c){ const {body}=await apiJson("/ops/service-contracts?page_size=5&q="+encodeURIComponent(q)); c=body.items.find(x=>x.contract_no===q)||body.items[0]; }
+    if(!c) throw new Error("Không tìm thấy hợp đồng");
+    S.contract=c;
+    S.shipments=(await apiJson("/ops/shipments?page_size=100&contract_id="+c.id)).body.items;
+    $("contractInfo").textContent=`${c.contract_no} · ${c.customer_name} · ${c.status}`;
+    $("docBar").style.display="flex"; S.doc=null; say("");
+    await loadDocs();
+  }catch(e){ say(e.message,"bad"); }
+};
+
+/* ---------- danh sách giấy tờ của hợp đồng (nhóm theo bước chuỗi nghiệp vụ) ---------- */
+async function loadDocs(selectId){
+  S.docs=(await apiJson(`/ops/service-contracts/${S.contract.id}/documents`)).body;
+  renderDocSelect(selectId ?? (S.doc && S.doc.id));
+  const live=S.docs.filter(d=>d.status!=="void"), done=live.filter(d=>d.status==="confirmed").length;
+  $("progress").textContent=live.length?`${done}/${live.length} giấy tờ đã xác nhận`:"Chưa có giấy tờ nào – bấm “Khai báo giấy tờ”";
+  const id=Number($("docSelect").value);
+  if(id && (!S.doc || S.doc.id!==id)) await openDoc(id);
+}
+function shipLabel(id){ const s=S.shipments.find(x=>x.id===id); return s?s.shipment_no:("lô #"+id); }
+function renderDocSelect(keep){
+  const groups={};
+  for(const d of S.docs){ (groups[d.step_no+"|"+d.step_label] ||= []).push(d); }
+  const html=Object.keys(groups).sort().map(k=>`<optgroup label="Bước ${esc(k.replace("|",". "))}">`+groups[k].map(d=>
+    `<option value="${d.id}" ${d.id===keep?"selected":""}>${esc(d.catalog_name)}${d.shipment_id?" – "+esc(shipLabel(d.shipment_id)):""}${d.party_name?" – "+esc(d.party_name):""} [${STATUS[d.status]}]</option>`).join("")+"</optgroup>").join("");
+  $("docSelect").innerHTML=html;
+  if(keep && S.docs.some(d=>d.id===keep)) $("docSelect").value=keep;
+}
+$("docSelect").onchange = async () => { await flush(); openDoc(Number($("docSelect").value)); };
+
+/* ---------- mở một giấy tờ: trái xem file, phải form ---------- */
+async function openDoc(id){
+  try{
+    const {body,etag}=await apiJson("/ops/contract-documents/"+id);
+    S.doc=body; S.etag=etag; S.pending={}; S.dirtyMeta={}; S.dirty=false; S.page=1;
+    $("ftitle").textContent=body.catalog_name; saveState("");
+    await renderForm(); await loadPages();
+  }catch(e){ say(e.message,"bad"); }
+}
+async function loadPages(){
+  const d=S.doc;
+  if(S.blobUrl){ URL.revokeObjectURL(S.blobUrl); S.blobUrl=null; }
+  if(!d.file_id){ S.pages=[]; $("pageBox").innerHTML='<span class="hint">Giấy tờ chưa đính file. Bấm “Đính / thay file…” (bản scan, ảnh, pdf, docx).</span>';
+    $("thumbs").innerHTML=""; $("pageCount").textContent="0"; $("vtitle").textContent="Tài liệu"; $("fileInfo").textContent=""; return; }
+  try{
+    const {body}=await apiJson(`/ops/contract-documents/${d.id}/pages`);
+    S.pages=body.pages; $("vtitle").textContent=body.filename; $("fileInfo").textContent=`${body.page_count} trang`;
+    $("pageCount").textContent=body.page_count; $("pageNo").max=body.page_count;
+    $("thumbs").innerHTML=S.pages.map(p=>`<button data-n="${p.number}" title="${esc(p.label||"")}">${p.number}</button>`).join("");
+    $("thumbs").querySelectorAll("button").forEach(b=>b.onclick=()=>showPage(Number(b.dataset.n)));
+    await showPage(1);
+  }catch(e){ $("pageBox").innerHTML=`<span class="bad">${esc(e.message)}</span>`; }
+}
+async function showPage(n){
+  const info=S.pages.find(p=>p.number===n); if(!info) return;
+  S.page=n; $("pageNo").value=n;
+  document.querySelectorAll(".thumbs button").forEach(b=>b.classList.toggle("active",Number(b.dataset.n)===n));
+  const box=$("pageBox"), base=`/ops/contract-documents/${S.doc.id}/pages/${n}`;
+  try{
+    if(info.kind==="text"){
+      const r=await api(base+"/text"); if(!r.ok) throw new Error("Không đọc được trang");
+      box.innerHTML=`<pre>${esc(await r.text())}</pre>`;
+    }else{
+      const r=await api(base+"/image"); if(!r.ok) throw new Error("Không đọc được trang");
+      if(S.blobUrl) URL.revokeObjectURL(S.blobUrl);
+      S.blobUrl=URL.createObjectURL(await r.blob());
+      box.innerHTML=`<img alt="Trang ${n}" src="${S.blobUrl}">`; applyZoom(true);
+    }
+    box.scrollTop=0;
+  }catch(e){ box.innerHTML=`<span class="bad">${esc(e.message)}</span>`; }
+}
+function applyZoom(fit){
+  const img=$("pageBox").querySelector("img"); if(!img) return;
+  const set=()=>{ img.style.width=(fit?Math.min($("pageBox").clientWidth-28,img.naturalWidth):img.naturalWidth*S.zoom)+"px"; if(fit) S.zoom=img.clientWidth/img.naturalWidth; };
+  img.complete?set():img.onload=set;
+}
+$("prev").onclick=()=>showPage(Math.max(1,S.page-1));
+$("next").onclick=()=>showPage(Math.min(S.pages.length,S.page+1));
+$("pageNo").onchange=()=>showPage(Math.min(S.pages.length,Math.max(1,Number($("pageNo").value)||1)));
+$("zoomIn").onclick=()=>{S.zoom=Math.min(4,S.zoom*1.25);applyZoom(false)};
+$("zoomOut").onclick=()=>{S.zoom=Math.max(.2,S.zoom/1.25);applyZoom(false)};
+$("zoomFit").onclick=()=>applyZoom(true);
+document.addEventListener("keydown",e=>{
+  if(!S.doc||/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  if(e.key==="ArrowRight"||e.key==="PageDown") $("next").click();
+  if(e.key==="ArrowLeft"||e.key==="PageUp") $("prev").click();
+});
+$("btnFile").onclick=()=>{ if(S.doc) $("fileInput").click(); };
+$("fileInput").onchange=async()=>{
+  const f=$("fileInput").files[0]; $("fileInput").value=""; if(!f||!S.doc) return;
+  try{
+    await flush();
+    const fd=new FormData(); fd.append("file",f);
+    const r=await apiJson(`/ops/contract-documents/${S.doc.id}/file`,{method:"PUT",headers:{"If-Match":S.etag},body:fd});
+    S.doc=r.body; S.etag=r.etag; renderForm(); await loadPages(); say("Đã đính file","ok");
+  }catch(e){ say(e.message,"bad"); }
+};
+
+/* ---------- form nhập (phải) ---------- */
+const HINT={date:"YYYY-MM-DD",datetime:"ngày giờ",number:"số, dấu chấm thập phân",integer:"số nguyên"};
+function inputFor(spec,value,path){
+  const v=value??"", dis=S.doc.editable?"":"disabled", name=`data-path="${esc(path)}" data-type="${spec.type}"`;
+  if(spec.type==="enum") return `<select ${name} ${dis}><option value=""></option>${spec.values.map(o=>`<option ${o===v?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
+  if(spec.type==="text") return `<textarea rows="3" ${name} ${dis}>${esc(v)}</textarea>`;
+  if(spec.type==="date") return `<input type="date" value="${esc(v)}" ${name} ${dis}>`;
+  if(spec.type==="datetime") return `<input type="datetime-local" value="${esc(v?toLocalInput(v):"")}" ${name} ${dis}>`;
+  const mode=spec.type==="number"?' inputmode="decimal"':spec.type==="integer"?' inputmode="numeric"':"";
+  return `<input type="text"${mode} value="${esc(v)}" ${spec.max_length?`maxlength="${spec.max_length}"`:""} ${name} ${dis}>`;
+}
+function rowHtml(spec,r,idx){
+  const dis=S.doc.editable?"":"disabled";
+  return `<tr>${spec.items.map(i=>`<td>${inputFor(i,r[i.key],`${spec.key}.${idx}.${i.key}`)}</td>`).join("")}<td><button type="button" class="rm" ${dis}>×</button></td></tr>`;
+}
+function arrayTable(spec,rows){
+  const dis=S.doc.editable?"":"disabled";
+  return `<table class="rows" data-array="${spec.key}"><thead><tr>${spec.items.map(i=>`<th>${esc(i.label)}${i.required?" *":""}</th>`).join("")}<th></th></tr></thead><tbody>${rows.map((r,i)=>rowHtml(spec,r,i)).join("")}</tbody></table><button type="button" data-addrow="${spec.key}" ${dis}>+ Thêm dòng</button>`;
+}
+function partyField(d){
+  const dis=S.doc.editable?"":"disabled";
+  if(d.source==="customer") return `<div><label>Bên gửi</label><input value="${esc(d.party_name||"")}" disabled></div>`;
+  return `<div><label>Đối tác phát hành</label><select data-meta="party_id" ${dis}>${partyOptions(d.party_id,d.party_name)}</select></div>`;
+}
+function partyOptions(id,name){ return (S.parties||[]).concat(id&&!(S.parties||[]).some(p=>p.id===id)?[{id,name:name||("#"+id)}]:[]).reduce((h,p)=>h+`<option value="${p.id}" ${p.id===id?"selected":""}>${esc(p.name)}</option>`,'<option value=""></option>'); }
+async function ensureParties(d){
+  if(d.source!=="partner") return;
+  const cat=S.catalog.find(c=>c.code===d.catalog_code);
+  const q=cat&&cat.partner_type?("&party_type="+cat.partner_type):"";
+  try{ S.parties=(await apiJson("/md/parties?page_size=100"+q)).body.items; }catch(e){ S.parties=[]; }
+}
+async function renderForm(){
+  const d=S.doc; await ensureParties(d);
+  const dis=d.editable?"":"disabled";
+  const meta=`<div class="meta">
+    <div class="wide"><span class="badge b-${d.status}">${STATUS[d.status]}</span> <span class="hint">${SRC[d.source]}${d.shipment_id?" · lô "+esc(shipLabel(d.shipment_id)):" · hồ sơ cả hợp đồng"} · v${d.contract_version}</span></div>
+    ${partyField(d)}
+    <div><label>Ngày tiếp nhận</label><input type="date" data-meta="received_date" value="${esc(d.received_date||"")}" ${dis}></div>
+    <div class="wide"><label>Ghi chú</label><input data-meta="note" maxlength="500" value="${esc(d.note||"")}" ${dis}></div></div>`;
+  const fields=d.form.fields.map(spec=>{
+    const label=`<label>${esc(spec.label)}${spec.required?' <span class="req">*</span>':""}${HINT[spec.type]?` <span class="hint">(${HINT[spec.type]})</span>`:""}</label>`;
+    const body=spec.type==="array"?arrayTable(spec,d.values[spec.key]||[]):inputFor(spec,d.values[spec.key],spec.key);
+    return `<div class="field">${label}${body}<div class="err" data-err="${spec.key}"></div></div>`;
+  }).join("");
+  $("formArea").innerHTML=meta+fields;
+  $("formArea").querySelectorAll("[data-addrow]").forEach(b=>b.onclick=()=>{ addRow(b.dataset.addrow); S.dirty=true; queueSave(true); });
+  bindRm();
+  $("formArea").querySelectorAll("[data-path],[data-meta]").forEach(el=>{
+    el.addEventListener("input",()=>{ S.dirty=true; queueSave(el.tagName==="SELECT"||el.type==="date"||el.type==="datetime-local"); });
+    el.addEventListener("blur",()=>{ if(S.dirty) queueSave(true); });
+  });
+  $("btnConfirm").disabled=!d.editable;
+  $("btnReopen").disabled=d.status!=="confirmed";
+  $("btnVoid").disabled=d.status!=="draft"||!d.editable;
+  $("entryBadge").innerHTML=`<span class="badge b-${d.status}">${STATUS[d.status]}</span>`;
+}
+function addRow(key){
+  const spec=S.doc.form.fields.find(f=>f.key===key), tb=document.querySelector(`table[data-array="${key}"] tbody`);
+  tb.insertAdjacentHTML("beforeend",rowHtml(spec,{},tb.rows.length)); bindRm();
+  tb.rows[tb.rows.length-1].querySelectorAll("[data-path]").forEach(el=>el.addEventListener("input",()=>{ S.dirty=true; queueSave(false); }));
+}
+function bindRm(){ document.querySelectorAll("button.rm").forEach(b=>b.onclick=()=>{ b.closest("tr").remove(); S.dirty=true; queueSave(true); }); }
+function pad2(n){ return String(n).padStart(2,"0"); }
+function toLocalInput(v){   // ISO có múi giờ → "YYYY-MM-DDTHH:MM" theo giờ của trình duyệt
+  const d=new Date(v); if(isNaN(d)) return String(v||"").slice(0,16);
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+function readEl(el){
+  const v=el.value.trim(); if(v==="") return null;
+  if(el.dataset.type==="datetime"&&v.length===16){ const d=new Date(v); return isNaN(d)?v:d.toISOString(); }  // giờ địa phương → UTC
+  return v;
+}
+function collect(){
+  const out={};
+  for(const spec of S.doc.form.fields){
+    if(spec.type==="array"){
+      const rows=[]; document.querySelectorAll(`table[data-array="${spec.key}"] tbody tr`).forEach(tr=>{
+        const row={}; tr.querySelectorAll("[data-path]").forEach(el=>row[el.dataset.path.split(".").pop()]=readEl(el)); rows.push(row); });
+      out[spec.key]=rows;
+    }else{ const el=document.querySelector(`[data-path="${spec.key}"]`); out[spec.key]=el?readEl(el):null; }
+  }
+  return out;
+}
+function collectMeta(){
+  const m={};
+  document.querySelectorAll("[data-meta]").forEach(el=>{
+    const k=el.dataset.meta, v=el.value.trim();
+    m[k]= k==="party_id" ? (v?Number(v):null) : (v||null);
+  });
+  return m;
+}
+function showErrors(err){
+  document.querySelectorAll("[data-err]").forEach(e=>e.textContent="");
+  for(const x of (err&&err.details)||[]){
+    const key=String(x.field||"").replace(/^(body\.)?values\./,"").split(".")[0];
+    const el=document.querySelector(`[data-err="${key}"]`); if(el) el.textContent=x.message;
+  }
+}
+
+/* ---------- TỰ ĐỘNG LƯU: sau mỗi bước nhập gửi ngay lên CSDL của hợp đồng ---------- */
+function queueSave(now){
+  if(!S.doc||!S.doc.editable) return;
+  if(!S.dirty) return;
+  saveState("Đang nhập…");
+  clearTimeout(S.saveTimer);
+  S.saveTimer=setTimeout(doSave, now?50:700);
+}
+async function doSave(){
+  clearTimeout(S.saveTimer); S.saveTimer=null;
+  if(!S.doc||!S.doc.editable||!S.dirty) { saveState(""); return; }
+  if(S.saving){ S.saveTimer=setTimeout(doSave,200); return; }   // một yêu cầu tại một thời điểm (ETag)
+  S.saving=true; S.dirty=false; saveState("Đang lưu…");
+  const id=S.doc.id, values=collect(), meta=collectMeta();
+  try{
+    const r=await apiJson(`/ops/contract-documents/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json","If-Match":S.etag},body:JSON.stringify({values,...meta})});
+    if(S.doc&&S.doc.id===id){ S.etag=r.etag; S.doc.row_version=r.body.row_version; S.doc.missing_required=r.body.missing_required; S.doc.party_id=r.body.party_id; S.doc.party_name=r.body.party_name; }
+    showErrors(null); saveState("Đã lưu "+new Date().toLocaleTimeString("vi-VN"),"ok");
+  }catch(e){
+    S.dirty=true; showErrors(e.body); saveState(e.message,"bad");
+    if(e.status===409){
+      // giữ lại phần đang gõ: hỏi trước khi bỏ để tải bản mới nhất
+      if(confirm("Giấy tờ vừa được người khác thay đổi.\nOK = tải bản mới nhất (bỏ phần bạn vừa nhập)\nHủy = giữ phần đang nhập (chưa lưu)")){
+        S.dirty=false; say("Đã tải lại bản mới nhất","bad"); await openDoc(id);
+      }else{ say("Phần nhập chưa được lưu do xung đột phiên bản – sao chép nội dung rồi tải lại trang","bad"); }
+    }
+  }finally{ S.saving=false; }
+}
+async function flush(){ if(S.saveTimer||S.dirty){ await doSave(); } while(S.saving) await new Promise(r=>setTimeout(r,50)); }
+window.addEventListener("beforeunload",e=>{ if(S.saving||S.saveTimer||S.dirty){ e.preventDefault(); e.returnValue=""; } });
+
+/* ---------- xác nhận / mở lại / hủy ---------- */
+async function transition(action,body){
+  await flush();
+  const r=await apiJson(`/ops/contract-documents/${S.doc.id}:${action}`,{method:"POST",
+    headers:Object.assign({"If-Match":S.etag},body?{"Content-Type":"application/json"}:{}),body:body?JSON.stringify(body):undefined});
+  S.doc=r.body; S.etag=r.etag; await renderForm(); await loadDocs(S.doc.id); return r.body;
+}
+$("btnConfirm").onclick=async()=>{
+  try{
+    const b=await transition("confirm");
+    const su=b.shipment_update||{}, f=Object.keys(su.filled||{}), c=Object.keys(su.conflicts||{});
+    say("Đã xác nhận."+(f.length?" Đã điền cho lô: "+f.join(", ")+".":"")+(c.length?" Lệch với lô (không ghi đè): "+c.join(", ")+".":""),c.length?"bad":"ok");
+  }catch(e){ say(e.message,"bad"); showErrors(e.body); }
+};
+$("btnReopen").onclick=async()=>{ const reason=prompt("Lý do mở lại để sửa:"); if(!reason||!reason.trim()) return;
+  try{ await transition("reopen",{reason}); say("Đã mở lại","ok"); }catch(e){ say(e.message,"bad"); } };
+$("btnVoid").onclick=async()=>{ const reason=prompt("Lý do hủy giấy tờ (khai báo nhầm…):"); if(!reason||!reason.trim()) return;
+  try{ await transition("void",{reason}); say("Đã hủy giấy tờ","ok"); }catch(e){ say(e.message,"bad"); } };
+
+/* ---------- khai báo giấy tờ mới: chọn từ danh mục ---------- */
+function catalogOption(c){ return `<option value="${esc(c.code)}">${esc(c.name)}</option>`; }
+$("btnNew").onclick=async()=>{
+  await flush();
+  const groups={};
+  for(const c of S.catalog){ (groups[c.source] ||= {}); (groups[c.source][c.step_no+". "+c.step_label] ||= []).push(c); }
+  $("nCatalog").innerHTML=Object.keys(groups).map(src=>Object.keys(groups[src]).sort().map(step=>
+    `<optgroup label="${esc(SRC[src])} – ${esc(step)}">${groups[src][step].map(catalogOption).join("")}</optgroup>`).join("")).join("");
+  $("nShipment").innerHTML=S.shipments.map(s=>`<option value="${s.id}">${esc(s.shipment_no)} · ${esc(s.status)}</option>`).join("");
+  $("nDate").value=new Date().toISOString().slice(0,10); $("nNote").value=""; $("nFile").value=""; $("nErr").textContent="";
+  await onCatalogChange(); $("dlgNew").showModal();
+};
+async function onCatalogChange(){
+  const c=S.catalog.find(x=>x.code===$("nCatalog").value); if(!c) return;
+  $("nHint").textContent=(c.description||"")+(c.level==="shipment"?" · gắn với một lô":" · hồ sơ cả hợp đồng");
+  $("nShipRow").style.display=c.level==="shipment"?"":"none";
+  $("nPartyRow").style.display=c.source==="partner"?"":"none";
+  if(c.source==="partner"){
+    const q=c.partner_type?("&party_type="+c.partner_type):"";
+    try{ const items=(await apiJson("/md/parties?page_size=100"+q)).body.items;
+      $("nParty").innerHTML='<option value=""></option>'+items.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join(""); }catch(e){ $("nParty").innerHTML=""; }
+  }
+}
+$("nCatalog").onchange=onCatalogChange;
+$("nCancel").onclick=()=>$("dlgNew").close();
+$("newForm").onsubmit=async ev=>{
+  ev.preventDefault();
+  const c=S.catalog.find(x=>x.code===$("nCatalog").value), fd=new FormData();
+  fd.append("catalog_code",c.code);
+  if(c.level==="shipment") fd.append("shipment_id",$("nShipment").value);
+  if(c.source==="partner"&&$("nParty").value) fd.append("party_id",$("nParty").value);
+  if($("nDate").value) fd.append("received_date",$("nDate").value);
+  if($("nNote").value.trim()) fd.append("note",$("nNote").value.trim());
+  if($("nFile").files[0]) fd.append("file",$("nFile").files[0]);
+  $("nOk").disabled=true;
+  try{
+    const r=await apiJson(`/ops/service-contracts/${S.contract.id}/documents`,{method:"POST",body:fd});
+    $("dlgNew").close(); S.doc=null; await loadDocs(r.body.id); say("Đã khai báo và lưu vào hợp đồng","ok");
+  }catch(e){ $("nErr").textContent=e.message; }
+  finally{ $("nOk").disabled=false; }
+};
+</script>
+</body>
+</html>

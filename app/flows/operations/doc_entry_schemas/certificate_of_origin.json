@@ -1,0 +1,67 @@
+{
+  "code": "certificate_of_origin",
+  "version": 1,
+  "name": "Giấy chứng nhận xuất xứ (C/O)",
+  "description": "Nhập tay các trường chính của C/O.",
+  "target": null,
+  "fields": [
+    {
+      "key": "co_no",
+      "label": "Số C/O",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "co_form",
+      "label": "Mẫu C/O (E, D, AK, B…)",
+      "type": "string",
+      "required": true,
+      "max_length": 20
+    },
+    {
+      "key": "issue_date",
+      "label": "Ngày cấp",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "issuing_authority",
+      "label": "Cơ quan cấp",
+      "type": "string",
+      "max_length": 300
+    },
+    {
+      "key": "exporter_name",
+      "label": "Nhà xuất khẩu",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "importer_name",
+      "label": "Nhà nhập khẩu",
+      "type": "string",
+      "max_length": 300
+    },
+    {
+      "key": "origin_country",
+      "label": "Nước xuất xứ",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "hs_code",
+      "label": "Mã HS",
+      "type": "string",
+      "max_length": 12
+    },
+    {
+      "key": "invoice_no",
+      "label": "Số hóa đơn liên quan",
+      "type": "string",
+      "max_length": 100
+    }
+  ]
+}

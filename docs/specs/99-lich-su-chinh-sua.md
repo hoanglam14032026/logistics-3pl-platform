@@ -444,3 +444,14 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | Migration `0021` (3 bảng, mở rộng `ops_contract_settlements`, `ctl_alerts`; trigger BR-112, khóa bảng kê, khóa hóa đơn) | `07` §6 điểm 3 |
 | – | 9 test mới (`tests/flows/operations/test_cashbook_g20.py`); `test_migrations` head `0021` | `07` §5 |
 
+### 10.36. Mã nguồn – Giai đoạn 22 – 23: trợ lý AI hỏi đáp, nhập tay giấy tờ theo hợp đồng (12/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Giai đoạn 22: gateway nuốt lỗi thành chuỗi (HTTP 200), `httpx` trong `async def`, router `/api/ai` không phân quyền, `/track` dữ liệu giả | Lỗi model → `AppError` 502 / 504; endpoint `def` (thread pool); chỉ `ops_staff`; `/track` đọc lô thật; giới hạn `prompt` 1–4000 ký tự | Rà soát Giai đoạn 22 |
+| Giai đoạn 23 bản đầu: AI đọc ảnh bill (`from-bill-image`, `read-bill*`, 4 cột `ai_*`, `staff_bill.html`) | Bỏ hẳn; nhân viên **nhập tay** giấy tờ theo hợp đồng (`ops_document_catalog`, `ops_contract_documents`, xem file theo trang, tự động lưu `If-Match`, `:confirm` / `:reopen` / `:void`); migration `0022` (gỡ cột `ai_*`) | Quyết định PO 12/11/2026: nhập tay thay AI tự động |
+| `update` ghi nhật ký `contract_document.save` kể cả khi giá trị không đổi | Chỉ ghi khi `received_date` / `note` / bên gửi / trường thực sự đổi; ngày bị xóa ghi `null` | Lỗi phát hiện khi rà soát (giao diện gửi đủ trường mỗi lần lưu) |
+| `doc_entry.html`: luôn hỏi "rời trang?", PATCH thừa khi chuyển ô / giấy tờ, giờ cố định `+07:00`, mất nội dung khi 409 | Cờ `dirty`, bộ đếm lưu được đặt lại; giờ theo múi giờ trình duyệt; 409 hỏi trước khi bỏ nội dung đang nhập; `StaticFiles` theo đường dẫn tuyệt đối | Như trên |
+| `conftest` không nạp lại danh mục seed `ops_document_catalog` sau TRUNCATE (khóa `code`, không có `id`) | Thêm vào `SEED_TABLES`; bỏ giả định cột `id` | Test Giai đoạn 23 không chạy được |
+| – | Test: `test_ai_gateway`, `test_ai_router`, thêm 2 test `test_contract_documents`, `tests/e2e/test_doc_entry_ui.py` (Playwright); `test_migrations` head `0022` | `07` §5 |
+

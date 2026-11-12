@@ -1,0 +1,51 @@
+{
+  "code": "service_request",
+  "version": 1,
+  "name": "Yêu cầu dịch vụ / lệnh làm hàng của khách hàng",
+  "description": "Khách hàng gửi yêu cầu thực hiện dịch vụ cho lô hàng.",
+  "target": null,
+  "fields": [
+    {
+      "key": "request_no",
+      "label": "Số yêu cầu",
+      "type": "string",
+      "max_length": 100
+    },
+    {
+      "key": "request_date",
+      "label": "Ngày yêu cầu",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "service_codes",
+      "label": "Dịch vụ yêu cầu",
+      "type": "text",
+      "required": true,
+      "max_length": 1000
+    },
+    {
+      "key": "cargo_description",
+      "label": "Mô tả hàng",
+      "type": "text",
+      "max_length": 3000
+    },
+    {
+      "key": "required_delivery_date",
+      "label": "Hạn giao yêu cầu",
+      "type": "date"
+    },
+    {
+      "key": "contact_person",
+      "label": "Người liên hệ",
+      "type": "string",
+      "max_length": 200
+    },
+    {
+      "key": "special_instructions",
+      "label": "Yêu cầu đặc biệt",
+      "type": "text",
+      "max_length": 3000
+    }
+  ]
+}

@@ -28,6 +28,7 @@ _reader = require_roles(Role.OPS_STAFF, Role.MANAGER, Role.BUSINESS_MANAGER, Rol
 _staff = require_roles(Role.OPS_STAFF)
 Note = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
+
 class DocumentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -41,10 +42,6 @@ class DocumentOut(BaseModel):
     note: str | None
     uploaded_by: int
     uploaded_at: UtcDatetime
-    bill_image_path: str | None = None
-    ai_parsed: bool = False
-    ai_confidence: float | None = None
-    ai_raw: str | None = None
 
 
 class CheckItemIn(BaseModel):
@@ -150,25 +147,8 @@ def upload_document(
 ):
     doc, check = service.upload(db, shipment_id, doc_type.value, file, (note or "").strip() or None, actor)
     return {"document": DocumentOut.model_validate(doc), "check": _check_out(db, check)}
-@router.post(
-    "/shipments/{shipment_id:int}/documents/from-bill-image",
-    response_model=UploadOut,
-    status_code=status.HTTP_201_CREATED,
-    summary="Stage 23: Upload ảnh Bill, AI đọc trước, lưu kèm AI fields",
-)
-def upload_from_bill_image(
-    shipment_id: int,
-    file: Annotated[UploadFile, File(description="jpg, png ảnh Bill")],
-    doc_type: Annotated[DocType, Form()],
-    note: Annotated[str | None, Form(max_length=500)] = None,
-    bill_image_path: Annotated[str | None, Form()] = None,
-    ai_confidence: Annotated[float | None, Form()] = None,
-    ai_raw: Annotated[str | None, Form()] = None,
-    actor: SysUser = Depends(_staff),
-    db: Session = Depends(get_db),
-):
-    doc, check = service.upload_from_ai_bill(db, shipment_id, doc_type.value, file, (note or "").strip() or None, actor, bill_image_path, ai_confidence, ai_raw)
-    return {"document": DocumentOut.model_validate(doc), "check": _check_out(db, check)}
+
+
 @router.get(
     "/shipments/{shipment_id:int}/document-checks", response_model=list[CheckOut], summary="Các lần kiểm tra chứng từ"
 )

@@ -18,7 +18,6 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
-    Float,
     ForeignKey,
     Index,
     Integer,
@@ -547,10 +546,7 @@ class OpsDocument(Base):
             postgresql_where=text("status = 'current'"),
         ),
     )
-    bill_image_path: Mapped[str | None] = mapped_column(String, nullable=True)
-    ai_parsed: Mapped[bool] = mapped_column(Boolean, server_default="false", default=False)
-    ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    ai_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     shipment_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"), nullable=False, index=True
@@ -1140,3 +1136,71 @@ class OpsStaffAdvance(AuditColumnsMixin, Base):
     spent_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     settled_by: Mapped[int | None] = mapped_column(BigInteger)
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OpsDocumentCatalog(Base):
+    """Danh mục giấy tờ, chứng từ nghiệp vụ do hệ thống lập sẵn (seed ở migration 0022): nhân viên **chọn** loại giấy tờ
+    từ danh mục này khi khai báo giấy tờ tiếp nhận. `source`: `customer` – khách hàng (chủ hàng) cung cấp; `partner` –
+    đối tác trong chuỗi nghiệp vụ (hãng tàu, hãng bay, đại lý hải quan, kho, nhà vận tải…, `partner_type` gợi ý loại
+    đối tác md_parties). `level`: `contract` – hồ sơ của cả hợp đồng; `shipment` – gắn một lô thuộc hợp đồng.
+    `code` trùng tên file biểu mẫu `doc_entry_schemas/<code>.json` (các trường nhập). `step_no`/`step_label`: bước trong
+    chuỗi nghiệp vụ (nhóm hiển thị)."""
+
+    __tablename__ = "ops_document_catalog"
+    __table_args__ = (
+        CheckConstraint("source IN ('customer', 'partner')", name="source_valid"),
+        CheckConstraint("level IN ('contract', 'shipment')", name="level_valid"),
+    )
+
+    code: Mapped[str] = mapped_column(String(50), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    source: Mapped[str] = mapped_column(String(10), nullable=False)
+    partner_type: Mapped[str | None] = mapped_column(String(32))
+    level: Mapped[str] = mapped_column(String(10), nullable=False)
+    step_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    step_label: Mapped[str] = mapped_column(String(100), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    description: Mapped[str | None] = mapped_column(String(500))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+
+
+class OpsContractDocument(AuditColumnsMixin, Base):
+    """Giấy tờ / chứng từ **đã khai báo** của một hợp đồng dịch vụ (khách hàng ↔ công ty), kèm dữ liệu nhập tay.
+
+    Luôn thuộc `contract_id` (bản chụp `contract_version` lúc khai báo); `shipment_id` NULL = hồ sơ cả hợp đồng. Mỗi lần
+    nhập một trường là lưu ngay (`PATCH`, tự động lưu). `draft` sửa tự do; `confirmed` khóa (mở lại kèm lý do); `void`
+    hủy (không xóa – giữ vết). Không dùng AI / OCR. File gốc (tùy chọn) ở `sys_files` (owner_type
+    `contract_document`)."""
+
+    __tablename__ = "ops_contract_documents"
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'confirmed', 'void')", name="status_valid"),
+        CheckConstraint(
+            "(status = 'confirmed') = (confirmed_at IS NOT NULL AND confirmed_by IS NOT NULL)",
+            name="confirmed_matches_status",
+        ),
+        CheckConstraint("(status = 'void') = (void_reason IS NOT NULL)", name="void_matches_status"),
+        Index("ix_ops_contract_documents_contract", "contract_id", "catalog_code"),
+        Index("ix_ops_contract_documents_shipment", "shipment_id"),
+    )
+
+    contract_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ops_service_contracts.id", ondelete="RESTRICT"), nullable=False
+    )
+    contract_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    shipment_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ops_shipments.id", ondelete="RESTRICT"))
+    catalog_code: Mapped[str] = mapped_column(
+        String(50), ForeignKey("ops_document_catalog.code", ondelete="RESTRICT"), nullable=False
+    )
+    source: Mapped[str] = mapped_column(String(10), nullable=False)  # chụp từ danh mục: customer | partner
+    party_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("md_parties.id", ondelete="RESTRICT"))
+    party_name: Mapped[str | None] = mapped_column(String(300))  # bản chụp tên bên gửi / bên phát hành
+    received_date: Mapped[date | None] = mapped_column(Date)
+    note: Mapped[str | None] = mapped_column(String(500))
+    file_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("sys_files.id", ondelete="RESTRICT"))
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="draft", server_default="draft")
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_by: Mapped[int | None] = mapped_column(BigInteger)
+    void_reason: Mapped[str | None] = mapped_column(String(500))

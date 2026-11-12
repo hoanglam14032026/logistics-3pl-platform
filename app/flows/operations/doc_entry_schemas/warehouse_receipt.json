@@ -1,0 +1,55 @@
+{
+  "code": "warehouse_receipt",
+  "version": 1,
+  "name": "Phiếu nhập / xuất kho của đối tác kho",
+  "description": "Kho đối tác xác nhận nhận hoặc xuất hàng.",
+  "target": null,
+  "fields": [
+    {
+      "key": "receipt_no",
+      "label": "Số phiếu",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "receipt_type",
+      "label": "Loại phiếu",
+      "type": "enum",
+      "required": true,
+      "values": [
+        "inbound",
+        "outbound"
+      ]
+    },
+    {
+      "key": "warehouse_name",
+      "label": "Tên kho",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "receipt_date",
+      "label": "Ngày",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "packages",
+      "label": "Số kiện",
+      "type": "integer"
+    },
+    {
+      "key": "gross_weight_kg",
+      "label": "Trọng lượng (kg)",
+      "type": "number"
+    },
+    {
+      "key": "condition_note",
+      "label": "Tình trạng hàng",
+      "type": "text",
+      "max_length": 2000
+    }
+  ]
+}

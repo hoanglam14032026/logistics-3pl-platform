@@ -1,0 +1,111 @@
+{
+  "code": "air_waybill",
+  "version": 1,
+  "name": "Vận đơn hàng không (Air Waybill)",
+  "description": "Nhập tay các trường chính của AWB.",
+  "target": null,
+  "fields": [
+    {
+      "key": "awb_no",
+      "label": "Số AWB",
+      "type": "string",
+      "required": true,
+      "max_length": 30
+    },
+    {
+      "key": "shipper_name",
+      "label": "Người gửi hàng",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "consignee_name",
+      "label": "Người nhận hàng",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "airport_departure",
+      "label": "Sân bay đi",
+      "type": "string",
+      "required": true,
+      "max_length": 200
+    },
+    {
+      "key": "airport_destination",
+      "label": "Sân bay đến",
+      "type": "string",
+      "required": true,
+      "max_length": 200
+    },
+    {
+      "key": "flight_no",
+      "label": "Số chuyến bay",
+      "type": "string",
+      "max_length": 30
+    },
+    {
+      "key": "issue_date",
+      "label": "Ngày phát hành",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "etd",
+      "label": "Ngày khởi hành (ETD)",
+      "type": "datetime"
+    },
+    {
+      "key": "eta",
+      "label": "Ngày đến (ETA)",
+      "type": "datetime"
+    },
+    {
+      "key": "incoterm",
+      "label": "Incoterms 2020",
+      "type": "enum",
+      "values": [
+        "EXW",
+        "FCA",
+        "CPT",
+        "CIP",
+        "DAP",
+        "DPU",
+        "DDP",
+        "FAS",
+        "FOB",
+        "CFR",
+        "CIF"
+      ]
+    },
+    {
+      "key": "incoterm_place",
+      "label": "Địa điểm Incoterms",
+      "type": "string",
+      "max_length": 200
+    },
+    {
+      "key": "packages",
+      "label": "Số kiện",
+      "type": "integer"
+    },
+    {
+      "key": "gross_weight_kg",
+      "label": "Trọng lượng thực (kg)",
+      "type": "number"
+    },
+    {
+      "key": "chargeable_weight_kg",
+      "label": "Trọng lượng tính cước (kg)",
+      "type": "number"
+    },
+    {
+      "key": "cargo_description",
+      "label": "Mô tả hàng",
+      "type": "text",
+      "max_length": 4000
+    }
+  ]
+}

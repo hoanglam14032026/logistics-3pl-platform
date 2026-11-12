@@ -65,6 +65,7 @@ SEED_TABLES = (
     "asm_kpi_definitions",  # Giai đoạn 15: danh mục KPI
     "ops_document_requirements",  # Giai đoạn 17: quy tắc chứng từ bắt buộc
     "md_cashbook_categories",  # Giai đoạn 20: khoản mục thu – chi
+    "ops_document_catalog",  # Giai đoạn 23: danh mục giấy tờ (khóa chính `code`, không có `id`)
 )
 _SEED: dict[str, list[dict]] = {}
 
@@ -72,7 +73,7 @@ _SEED: dict[str, list[dict]] = {}
 def capture_seed() -> None:
     with engine.connect() as conn:
         for table in SEED_TABLES:
-            _SEED[table] = [dict(r) for r in conn.execute(text(f"SELECT * FROM {table} ORDER BY id")).mappings()]
+            _SEED[table] = [dict(r) for r in conn.execute(text(f"SELECT * FROM {table} ORDER BY 1")).mappings()]
 
 
 def truncate_all() -> None:
@@ -83,9 +84,16 @@ def truncate_all() -> None:
             rows = _SEED.get(table)
             if rows:
                 conn.execute(Base.metadata.tables[table].insert(), rows)
-                conn.execute(
-                    text(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), (SELECT max(id) FROM {table}))")
-                )
+                has_id = conn.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.columns "
+                        f"WHERE table_schema = 'public' AND table_name = '{table}' AND column_name = 'id'"
+                    )
+                ).scalar()
+                if has_id:
+                    conn.execute(
+                        text(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), (SELECT max(id) FROM {table}))")
+                    )
 
 
 def reset_database() -> None:

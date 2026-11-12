@@ -1,0 +1,52 @@
+{
+  "code": "customer_business_license",
+  "version": 1,
+  "name": "Giấy đăng ký kinh doanh của khách hàng",
+  "description": "Hồ sơ pháp lý do khách hàng cung cấp.",
+  "target": null,
+  "fields": [
+    {
+      "key": "company_name",
+      "label": "Tên doanh nghiệp",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "tax_code",
+      "label": "Mã số thuế",
+      "type": "string",
+      "required": true,
+      "max_length": 32
+    },
+    {
+      "key": "registration_no",
+      "label": "Số đăng ký",
+      "type": "string",
+      "max_length": 50
+    },
+    {
+      "key": "issue_date",
+      "label": "Ngày cấp",
+      "type": "date"
+    },
+    {
+      "key": "legal_representative",
+      "label": "Người đại diện pháp luật",
+      "type": "string",
+      "max_length": 300
+    },
+    {
+      "key": "address",
+      "label": "Địa chỉ",
+      "type": "text",
+      "max_length": 1000
+    },
+    {
+      "key": "business_lines",
+      "label": "Ngành nghề chính",
+      "type": "text",
+      "max_length": 2000
+    }
+  ]
+}

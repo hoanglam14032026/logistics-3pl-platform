@@ -1,0 +1,83 @@
+{
+  "code": "customs_declaration",
+  "version": 1,
+  "name": "Tờ khai hải quan",
+  "description": "Nhập tay các trường chính của tờ khai.",
+  "target": null,
+  "fields": [
+    {
+      "key": "declaration_no",
+      "label": "Số tờ khai",
+      "type": "string",
+      "required": true,
+      "max_length": 30
+    },
+    {
+      "key": "declaration_date",
+      "label": "Ngày đăng ký",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "declaration_type",
+      "label": "Loại hình (A11, E21…)",
+      "type": "string",
+      "max_length": 20
+    },
+    {
+      "key": "customs_office",
+      "label": "Chi cục hải quan",
+      "type": "string",
+      "max_length": 200
+    },
+    {
+      "key": "lane",
+      "label": "Luồng",
+      "type": "enum",
+      "values": [
+        "green",
+        "yellow",
+        "red"
+      ]
+    },
+    {
+      "key": "declarant_name",
+      "label": "Người khai",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "hs_code",
+      "label": "Mã HS chính",
+      "type": "string",
+      "max_length": 12
+    },
+    {
+      "key": "customs_value",
+      "label": "Trị giá hải quan",
+      "type": "number"
+    },
+    {
+      "key": "currency",
+      "label": "Tiền tệ",
+      "type": "string",
+      "max_length": 3
+    },
+    {
+      "key": "duty_amount",
+      "label": "Thuế nhập khẩu",
+      "type": "number"
+    },
+    {
+      "key": "vat_amount",
+      "label": "Thuế GTGT",
+      "type": "number"
+    },
+    {
+      "key": "clearance_date",
+      "label": "Ngày thông quan",
+      "type": "date"
+    }
+  ]
+}

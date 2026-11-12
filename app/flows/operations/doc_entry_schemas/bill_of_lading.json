@@ -1,0 +1,158 @@
+{
+  "code": "bill_of_lading",
+  "version": 1,
+  "name": "Vận đơn đường biển (Bill of Lading)",
+  "description": "Nhập tay các trường chính của B/L; xác nhận → điền bổ sung ngày ETD/ETA, Incoterms cho lô nếu lô còn trống.",
+  "target": null,
+  "fields": [
+    {
+      "key": "bl_no",
+      "label": "Số B/L",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "booking_no",
+      "label": "Số booking",
+      "type": "string",
+      "max_length": 100
+    },
+    {
+      "key": "shipper_name",
+      "label": "Người gửi hàng (Shipper)",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "consignee_name",
+      "label": "Người nhận hàng (Consignee)",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "notify_party_name",
+      "label": "Bên nhận thông báo (Notify)",
+      "type": "string",
+      "max_length": 300
+    },
+    {
+      "key": "vessel_voyage",
+      "label": "Tàu / chuyến",
+      "type": "string",
+      "max_length": 200
+    },
+    {
+      "key": "port_of_loading",
+      "label": "Cảng xếp hàng (POL)",
+      "type": "string",
+      "required": true,
+      "max_length": 200
+    },
+    {
+      "key": "port_of_discharge",
+      "label": "Cảng dỡ hàng (POD)",
+      "type": "string",
+      "required": true,
+      "max_length": 200
+    },
+    {
+      "key": "issue_date",
+      "label": "Ngày phát hành",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "etd",
+      "label": "Ngày khởi hành (ETD)",
+      "type": "datetime"
+    },
+    {
+      "key": "eta",
+      "label": "Ngày đến (ETA)",
+      "type": "datetime"
+    },
+    {
+      "key": "freight_terms",
+      "label": "Cước phí",
+      "type": "enum",
+      "values": [
+        "prepaid",
+        "collect"
+      ]
+    },
+    {
+      "key": "incoterm",
+      "label": "Incoterms 2020",
+      "type": "enum",
+      "values": [
+        "EXW",
+        "FCA",
+        "CPT",
+        "CIP",
+        "DAP",
+        "DPU",
+        "DDP",
+        "FAS",
+        "FOB",
+        "CFR",
+        "CIF"
+      ]
+    },
+    {
+      "key": "incoterm_place",
+      "label": "Địa điểm Incoterms",
+      "type": "string",
+      "max_length": 200
+    },
+    {
+      "key": "packages",
+      "label": "Số kiện",
+      "type": "integer"
+    },
+    {
+      "key": "gross_weight_kg",
+      "label": "Trọng lượng cả bì (kg)",
+      "type": "number"
+    },
+    {
+      "key": "volume_cbm",
+      "label": "Thể tích (m³)",
+      "type": "number"
+    },
+    {
+      "key": "cargo_description",
+      "label": "Mô tả hàng",
+      "type": "text",
+      "max_length": 4000
+    },
+    {
+      "key": "containers",
+      "label": "Container",
+      "type": "array",
+      "items": [
+        {
+          "key": "container_no",
+          "label": "Số container",
+          "type": "string",
+          "required": true,
+          "max_length": 20
+        },
+        {
+          "key": "container_type",
+          "label": "Loại (20GP, 40HC…)",
+          "type": "string",
+          "max_length": 10
+        },
+        {
+          "key": "seal_no",
+          "label": "Số seal",
+          "type": "string",
+          "max_length": 30
+        }
+      ]
+    }
+  ]
+}

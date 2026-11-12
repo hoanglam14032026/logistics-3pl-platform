@@ -1,0 +1,47 @@
+{
+  "code": "power_of_attorney",
+  "version": 1,
+  "name": "Giấy ủy quyền",
+  "description": "Khách hàng ủy quyền cho công ty làm thủ tục.",
+  "target": null,
+  "fields": [
+    {
+      "key": "poa_no",
+      "label": "Số giấy ủy quyền",
+      "type": "string",
+      "max_length": 100
+    },
+    {
+      "key": "principal_name",
+      "label": "Bên ủy quyền",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "attorney_name",
+      "label": "Bên được ủy quyền",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "scope",
+      "label": "Phạm vi ủy quyền",
+      "type": "text",
+      "required": true,
+      "max_length": 3000
+    },
+    {
+      "key": "issue_date",
+      "label": "Ngày lập",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "valid_until",
+      "label": "Có hiệu lực đến",
+      "type": "date"
+    }
+  ]
+}

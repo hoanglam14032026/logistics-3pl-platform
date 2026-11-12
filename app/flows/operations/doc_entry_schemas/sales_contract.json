@@ -1,0 +1,123 @@
+{
+  "code": "sales_contract",
+  "version": 1,
+  "name": "Hợp đồng mua bán (Sales Contract)",
+  "description": "Nhập tay các trường chính của hợp đồng mua bán giữa người bán và người mua.",
+  "target": null,
+  "fields": [
+    {
+      "key": "contract_no",
+      "label": "Số hợp đồng",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "contract_date",
+      "label": "Ngày ký",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "seller_name",
+      "label": "Bên bán",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "buyer_name",
+      "label": "Bên mua",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "incoterm",
+      "label": "Incoterms 2020",
+      "type": "enum",
+      "values": [
+        "EXW",
+        "FCA",
+        "CPT",
+        "CIP",
+        "DAP",
+        "DPU",
+        "DDP",
+        "FAS",
+        "FOB",
+        "CFR",
+        "CIF"
+      ]
+    },
+    {
+      "key": "currency",
+      "label": "Tiền tệ",
+      "type": "string",
+      "max_length": 3
+    },
+    {
+      "key": "total_value",
+      "label": "Tổng giá trị",
+      "type": "number"
+    },
+    {
+      "key": "payment_terms",
+      "label": "Điều kiện thanh toán",
+      "type": "text",
+      "max_length": 2000
+    },
+    {
+      "key": "delivery_terms",
+      "label": "Điều kiện giao hàng",
+      "type": "text",
+      "max_length": 2000
+    },
+    {
+      "key": "valid_until",
+      "label": "Hiệu lực đến",
+      "type": "date"
+    },
+    {
+      "key": "goods",
+      "label": "Dòng hàng",
+      "type": "array",
+      "items": [
+        {
+          "key": "description",
+          "label": "Mô tả hàng",
+          "type": "string",
+          "required": true,
+          "max_length": 1000
+        },
+        {
+          "key": "hs_code",
+          "label": "Mã HS",
+          "type": "string",
+          "max_length": 12
+        },
+        {
+          "key": "quantity",
+          "label": "Số lượng",
+          "type": "number"
+        },
+        {
+          "key": "unit",
+          "label": "Đơn vị",
+          "type": "string",
+          "max_length": 20
+        },
+        {
+          "key": "unit_price",
+          "label": "Đơn giá",
+          "type": "number"
+        },
+        {
+          "key": "amount",
+          "label": "Thành tiền",
+          "type": "number"
+        }
+      ]
+    }
+  ]
+}

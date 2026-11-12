@@ -40,6 +40,11 @@ _DEFAULT_PURPOSES = {
     ),
     # Chứng từ của lô hàng (Giai đoạn 16 – ops_documents)
     "shipment_document": Purpose(frozenset({sniff.PDF, sniff.JPEG, sniff.PNG, sniff.DOCX, sniff.XLSX}), 20 * MB),
+    # Giấy tờ khách hàng / đối tác gửi, khai báo theo hợp đồng dịch vụ (Giai đoạn 23 – ops_contract_documents)
+    "contract_received_document": Purpose(
+        frozenset({sniff.PDF, sniff.JPEG, sniff.PNG, sniff.TIFF, sniff.WEBP, sniff.DOCX, sniff.XLSX, sniff.TXT}),
+        20 * MB,
+    ),
     # Chứng từ gốc của phiếu thu / chi, tạm ứng – hoàn ứng (Giai đoạn 20 – 02 §3.10): hóa đơn, biên lai, ủy nhiệm chi…
     "cash_document": Purpose(frozenset({sniff.PDF, sniff.JPEG, sniff.PNG}), 20 * MB),
 }

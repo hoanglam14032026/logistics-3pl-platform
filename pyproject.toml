@@ -45,6 +45,7 @@ dev = [
     "pytest-cov==7.1.0",
     "httpx==0.28.1",
     "ruff==0.17.4",
+    "playwright==1.65.1",  # test giao diện tests/e2e (cần: python -m playwright install chromium)
 ]
 
 [tool.pytest.ini_options]

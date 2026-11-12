@@ -1,0 +1,46 @@
+{
+  "code": "special_permit",
+  "version": 1,
+  "name": "Giấy phép / kiểm tra chuyên ngành",
+  "description": "Giấy phép nhập khẩu, kiểm dịch, kiểm tra chuyên ngành… của khách hàng.",
+  "target": null,
+  "fields": [
+    {
+      "key": "permit_no",
+      "label": "Số giấy phép",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "permit_type",
+      "label": "Loại giấy phép",
+      "type": "string",
+      "required": true,
+      "max_length": 200
+    },
+    {
+      "key": "issuing_authority",
+      "label": "Cơ quan cấp",
+      "type": "string",
+      "max_length": 300
+    },
+    {
+      "key": "issue_date",
+      "label": "Ngày cấp",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "valid_until",
+      "label": "Có hiệu lực đến",
+      "type": "date"
+    },
+    {
+      "key": "scope",
+      "label": "Hàng hóa / phạm vi",
+      "type": "text",
+      "max_length": 2000
+    }
+  ]
+}

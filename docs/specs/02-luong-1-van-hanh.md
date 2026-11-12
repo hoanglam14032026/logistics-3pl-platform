@@ -617,6 +617,30 @@ Cấu hình ma trận và quy tắc (§5.3) – thuộc danh mục dùng chung:
 
 `ops_checkpoints` – nhận hàng (`cargo_receipt`), thông quan (`customs_clearance`), xuất kho (`warehouse_release`), giao hàng (`delivery`); mỗi loại một điểm / lô, kèm thời điểm dự kiến, địa điểm (`md_locations`). `ops_staff` phụ trách lô tạo (`POST /api/v2/ops/shipments/{id}/checkpoints`, mặc định đủ 4 loại) và xác nhận `passed` (qua) / `failed` (trượt – bắt buộc ghi chú) với thời điểm thực tế (`POST /api/v2/ops/checkpoints/{id}:evaluate`); `failed` xác nhận lại được, `passed` khóa. Thông quan đạt cần số tờ khai, luồng xanh / vàng / đỏ, thời điểm nộp. Mỗi lần xác nhận ghi `ops_checkpoint_evaluations` (chỉ thêm) → sự kiện `ops.checkpoint.evaluated` (Luồng 4 – KPI-05); thông quan đạt → EV-141 (KPI-06). Không bắt buộc thứ tự giữa các điểm – **CẦN XÁC NHẬN**. Khác điểm kiểm soát **bước** của Luồng 2 (EV-204 – chưa làm).
 
+## 8c. Giấy tờ theo hợp đồng – nhập tay (Giai đoạn 23)
+
+**Đã làm (Giai đoạn 23, 12/11/2026)** – nhân viên khai báo giấy tờ, chứng từ khách hàng / đối tác gửi và **nhập tay** các trường chính; **không dùng AI / OCR** (hướng đọc bill bằng AI của bản đầu Giai đoạn 23 đã bỏ: gỡ endpoint `from-bill-image`, `read-bill*` và 4 cột `ai_*` của `ops_documents`).
+
+- **Danh mục lập sẵn** `ops_document_catalog` (khóa `code`; trùng tên file biểu mẫu `app/flows/operations/doc_entry_schemas/<code>.json`): nguồn `customer` (khách hàng cung cấp) hoặc `partner` (đối tác phát hành, gợi ý `partner_type`), cấp `contract` (cả hợp đồng) hoặc `shipment` (gắn một lô), bước trong chuỗi nghiệp vụ (`step_no`, `step_label`). Nhân viên chỉ chọn loại từ danh mục.
+- **Giấy tờ khai báo** `ops_contract_documents` (thuộc hợp đồng `production`; không xóa – trigger): `draft → confirmed` (`:confirm`, đủ trường bắt buộc, khóa) → `:reopen` (ghi lý do) · `draft → void` (`:void`, ghi lý do). File đính kèm **tùy chọn**, đính hoặc thay sau (`PUT …/file`); file thay ra **không bị xóa** – `contract_document.file` trong nhật ký giữ `file_id` cũ để truy vết / dọn sau.
+- **Tự động lưu**: `PATCH` ghi ngay các trường vừa nhập (gộp vào dữ liệu hiện có; rỗng = xóa trường); `If-Match` (`ETag` = `row_version`) chống ghi đè lẫn nhau. Lưu giống hệt bản đang có → **không** tăng phiên bản, **không** ghi nhật ký. Mọi thao tác ghi `audit` cùng giao dịch.
+- **Vận đơn (B/L, AWB) gắn lô** khi xác nhận: điền chỗ **còn trống** của `ops_shipments` (`etd`, `eta`, `incoterm`, `incoterm_place`); giá trị đã có không ghi đè, lệch nhau trả về `shipment_update.conflicts`.
+- **Quyền**: đọc – `ops_staff`, `manager`, `business_manager`, `instructor`, `admin`; ghi – `ops_staff`, `manager` (hồ sơ cấp lô: chỉ `ops_staff` phụ trách lô). Hợp đồng `closed` → không khai báo / sửa. `customer` → 403.
+- **Xem file theo trang** (không OCR): pdf, ảnh (kể cả TIFF nhiều trang), docx (văn bản + ảnh nhúng), xlsx (mỗi sheet một trang), txt.
+- **Giao diện** `/static/doc_entry.html` (đăng nhập bằng tài khoản nhân viên): trái xem file, phải nhập trường; ngày giờ nhập theo múi giờ trình duyệt. Có test trình duyệt thật `tests/e2e/test_doc_entry_ui.py` (Playwright).
+- Chưa có: bắt buộc đính file trước khi xác nhận (quyết định 12/11/2026: **không chặn**), dọn tự động file đã thay, giao diện cổng khách hàng.
+
+| Phương thức | Đường dẫn | Ghi chú |
+|---|---|---|
+| GET | `/api/v2/ops/document-catalog` (`?source=&level=`), `/{code}` | Danh mục + biểu mẫu nhập |
+| GET · POST | `/api/v2/ops/service-contracts/{id}/documents` | Danh sách / khai báo (multipart, file tùy chọn) |
+| GET · PATCH | `/api/v2/ops/contract-documents/{id}` | Chi tiết + biểu mẫu · tự động lưu (`If-Match`) |
+| PUT | `/api/v2/ops/contract-documents/{id}/file` | Đính / thay file |
+| POST | `/api/v2/ops/contract-documents/{id}:confirm` · `:reopen` · `:void` | `:reopen`, `:void` cần `reason` |
+| GET | `/api/v2/ops/contract-documents/{id}/pages`, `/pages/{n}/image`, `/pages/{n}/text` | Xem file theo trang |
+
+**Trợ lý AI hỏi đáp (Giai đoạn 22)** – chỉ hỗ trợ, không ghi dữ liệu nghiệp vụ: `POST /api/ai/ask`, `POST /api/ai/embed`, `GET /api/ai/track/{shipment_id}` (dữ liệu lô thật); chỉ `ops_staff`. Model Qwen27B qua llama-server (`LLAMA_URL`), embedding qua Ollama (`OLLAMA_URL`). Model tắt / sai dạng → 502, quá thời gian → 504 (`INTERNAL_ERROR`).
+
 ## 9. Cổng khách hàng
 
 ### 9.1. Mục đích và nguyên tắc

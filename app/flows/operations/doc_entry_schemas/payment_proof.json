@@ -1,0 +1,53 @@
+{
+  "code": "payment_proof",
+  "version": 1,
+  "name": "Chứng từ thanh toán của khách hàng",
+  "description": "Ủy nhiệm chi, biên lai khách hàng thanh toán / tạm ứng.",
+  "target": null,
+  "fields": [
+    {
+      "key": "reference_no",
+      "label": "Số chứng từ / giao dịch",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "payment_date",
+      "label": "Ngày thanh toán",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "amount",
+      "label": "Số tiền",
+      "type": "number",
+      "required": true
+    },
+    {
+      "key": "currency",
+      "label": "Tiền tệ",
+      "type": "string",
+      "required": true,
+      "max_length": 3
+    },
+    {
+      "key": "payer_name",
+      "label": "Người nộp",
+      "type": "string",
+      "max_length": 300
+    },
+    {
+      "key": "bank_name",
+      "label": "Ngân hàng",
+      "type": "string",
+      "max_length": 200
+    },
+    {
+      "key": "purpose",
+      "label": "Nội dung",
+      "type": "text",
+      "max_length": 1000
+    }
+  ]
+}

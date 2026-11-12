@@ -1,0 +1,55 @@
+{
+  "code": "proof_of_delivery",
+  "version": 1,
+  "name": "Biên bản giao nhận hàng (POD)",
+  "description": "Nhà vận tải / người nhận ký xác nhận giao hàng.",
+  "target": null,
+  "fields": [
+    {
+      "key": "pod_no",
+      "label": "Số biên bản",
+      "type": "string",
+      "max_length": 100
+    },
+    {
+      "key": "delivery_date",
+      "label": "Ngày giao",
+      "type": "datetime",
+      "required": true
+    },
+    {
+      "key": "receiver_name",
+      "label": "Người nhận",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "delivery_location",
+      "label": "Địa điểm giao",
+      "type": "string",
+      "max_length": 300
+    },
+    {
+      "key": "packages_delivered",
+      "label": "Số kiện giao",
+      "type": "integer"
+    },
+    {
+      "key": "condition",
+      "label": "Tình trạng hàng",
+      "type": "enum",
+      "values": [
+        "intact",
+        "damaged",
+        "shortage"
+      ]
+    },
+    {
+      "key": "remarks",
+      "label": "Ghi chú",
+      "type": "text",
+      "max_length": 2000
+    }
+  ]
+}

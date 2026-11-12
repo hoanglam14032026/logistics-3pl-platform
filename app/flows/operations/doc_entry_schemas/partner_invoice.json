@@ -1,0 +1,69 @@
+{
+  "code": "partner_invoice",
+  "version": 1,
+  "name": "Hóa đơn của đối tác (nhà cung cấp dịch vụ)",
+  "description": "Hóa đơn phí cảng, hãng tàu, vận tải, kho… do đối tác phát hành.",
+  "target": null,
+  "fields": [
+    {
+      "key": "invoice_no",
+      "label": "Số hóa đơn",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "invoice_date",
+      "label": "Ngày hóa đơn",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "issuer_name",
+      "label": "Bên phát hành",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "issuer_tax_code",
+      "label": "MST bên phát hành",
+      "type": "string",
+      "max_length": 32
+    },
+    {
+      "key": "currency",
+      "label": "Tiền tệ",
+      "type": "string",
+      "required": true,
+      "max_length": 3
+    },
+    {
+      "key": "amount_before_vat",
+      "label": "Tiền trước thuế",
+      "type": "number"
+    },
+    {
+      "key": "vat_amount",
+      "label": "Thuế GTGT",
+      "type": "number"
+    },
+    {
+      "key": "total_amount",
+      "label": "Tổng tiền",
+      "type": "number",
+      "required": true
+    },
+    {
+      "key": "due_date",
+      "label": "Hạn thanh toán",
+      "type": "date"
+    },
+    {
+      "key": "description",
+      "label": "Nội dung phí",
+      "type": "text",
+      "max_length": 2000
+    }
+  ]
+}

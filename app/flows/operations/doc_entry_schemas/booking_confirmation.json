@@ -1,0 +1,62 @@
+{
+  "code": "booking_confirmation",
+  "version": 1,
+  "name": "Xác nhận đặt chỗ (Booking) của hãng vận chuyển",
+  "description": "Hãng tàu / hãng bay xác nhận booking.",
+  "target": null,
+  "fields": [
+    {
+      "key": "booking_no",
+      "label": "Số booking",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "carrier_name",
+      "label": "Hãng vận chuyển",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "vessel_voyage",
+      "label": "Tàu / chuyến",
+      "type": "string",
+      "max_length": 200
+    },
+    {
+      "key": "port_of_loading",
+      "label": "Nơi đi",
+      "type": "string",
+      "max_length": 200
+    },
+    {
+      "key": "port_of_discharge",
+      "label": "Nơi đến",
+      "type": "string",
+      "max_length": 200
+    },
+    {
+      "key": "etd",
+      "label": "ETD",
+      "type": "datetime"
+    },
+    {
+      "key": "eta",
+      "label": "ETA",
+      "type": "datetime"
+    },
+    {
+      "key": "cut_off",
+      "label": "Hạn chót nhận hàng (cut-off)",
+      "type": "datetime"
+    },
+    {
+      "key": "container_summary",
+      "label": "Container / hàng đặt",
+      "type": "text",
+      "max_length": 1000
+    }
+  ]
+}

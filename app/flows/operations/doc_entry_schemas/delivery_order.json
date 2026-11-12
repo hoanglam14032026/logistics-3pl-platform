@@ -1,0 +1,80 @@
+{
+  "code": "delivery_order",
+  "version": 1,
+  "name": "Lệnh giao hàng (D/O)",
+  "description": "Nhập tay các trường chính của D/O.",
+  "target": null,
+  "fields": [
+    {
+      "key": "do_no",
+      "label": "Số D/O",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "issue_date",
+      "label": "Ngày cấp",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "issuer_name",
+      "label": "Hãng tàu / đại lý cấp",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "consignee_name",
+      "label": "Người nhận hàng",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "bl_no",
+      "label": "Số B/L / AWB liên quan",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "valid_until",
+      "label": "Có hiệu lực đến",
+      "type": "date"
+    },
+    {
+      "key": "pickup_location",
+      "label": "Nơi lấy hàng",
+      "type": "string",
+      "max_length": 300
+    },
+    {
+      "key": "containers",
+      "label": "Container",
+      "type": "array",
+      "items": [
+        {
+          "key": "container_no",
+          "label": "Số container",
+          "type": "string",
+          "required": true,
+          "max_length": 20
+        },
+        {
+          "key": "container_type",
+          "label": "Loại (20GP, 40HC…)",
+          "type": "string",
+          "max_length": 10
+        },
+        {
+          "key": "seal_no",
+          "label": "Số seal",
+          "type": "string",
+          "max_length": 30
+        }
+      ]
+    }
+  ]
+}

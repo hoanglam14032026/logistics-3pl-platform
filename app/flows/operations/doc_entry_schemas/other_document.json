@@ -1,0 +1,33 @@
+{
+  "code": "other_document",
+  "version": 1,
+  "name": "Giấy tờ khác",
+  "description": "Giấy tờ chưa có biểu mẫu riêng – ghi nhận thông tin cơ bản.",
+  "target": null,
+  "fields": [
+    {
+      "key": "title",
+      "label": "Tên giấy tờ",
+      "type": "string",
+      "required": true,
+      "max_length": 300
+    },
+    {
+      "key": "reference_no",
+      "label": "Số hiệu",
+      "type": "string",
+      "max_length": 100
+    },
+    {
+      "key": "document_date",
+      "label": "Ngày",
+      "type": "date"
+    },
+    {
+      "key": "summary",
+      "label": "Nội dung tóm tắt",
+      "type": "text",
+      "max_length": 3000
+    }
+  ]
+}

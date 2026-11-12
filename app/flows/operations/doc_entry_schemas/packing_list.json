@@ -1,0 +1,62 @@
+{
+  "code": "packing_list",
+  "version": 1,
+  "name": "Phiếu đóng gói (Packing List)",
+  "description": "Nhập tay các trường chính của packing list.",
+  "target": null,
+  "fields": [
+    {
+      "key": "pl_no",
+      "label": "Số packing list",
+      "type": "string",
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "pl_date",
+      "label": "Ngày lập",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "invoice_no",
+      "label": "Số hóa đơn liên quan",
+      "type": "string",
+      "max_length": 100
+    },
+    {
+      "key": "total_packages",
+      "label": "Tổng số kiện",
+      "type": "integer",
+      "required": true
+    },
+    {
+      "key": "package_type",
+      "label": "Loại kiện (carton, pallet…)",
+      "type": "string",
+      "max_length": 50
+    },
+    {
+      "key": "net_weight_kg",
+      "label": "Trọng lượng tịnh (kg)",
+      "type": "number"
+    },
+    {
+      "key": "gross_weight_kg",
+      "label": "Trọng lượng cả bì (kg)",
+      "type": "number",
+      "required": true
+    },
+    {
+      "key": "volume_cbm",
+      "label": "Thể tích (m³)",
+      "type": "number"
+    },
+    {
+      "key": "shipping_marks",
+      "label": "Ký hiệu, nhãn hàng",
+      "type": "text",
+      "max_length": 2000
+    }
+  ]
+}

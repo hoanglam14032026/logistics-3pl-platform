@@ -10,9 +10,11 @@ gắn theo ENABLED_FLOWS khi được xây dựng. API v1.1.0 (app/legacy_v1) đ
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app import handlers as _event_handlers  # noqa: F401  (Giai đoạn 11: xử lý sự kiện của các luồng)
 from app.ai_router import router as qwen_sharp_router
@@ -29,11 +31,13 @@ from app.flows.learning.router import portal_router as learning_portal_router
 from app.flows.learning.router import router as learning_router
 from app.flows.operations import advance_service as ops_advance_service
 from app.flows.operations import cashbook_service as ops_cashbook_service
+from app.flows.operations import contract_document_service as ops_contract_document_service
 from app.flows.operations import document_service as ops_document_service
 from app.flows.operations import service as ops_service
 from app.flows.operations.advance_router import router as ops_advances_router
 from app.flows.operations.cashbook_router import router as ops_cashbook_router
 from app.flows.operations.checkpoint_router import router as ops_checkpoints_router
+from app.flows.operations.contract_document_router import router as ops_contract_documents_router
 from app.flows.operations.contract_lifecycle_router import router as ops_contract_lifecycle_router
 from app.flows.operations.document_router import router as ops_documents_router
 from app.flows.operations.invoice_router import router as ops_invoices_router
@@ -160,6 +164,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(doc_jobs_router)
     docai_service.register_file_access()
     ops_document_service.register_file_access()  # Giai đoạn 16: file chứng từ lô
+    ops_contract_document_service.register_file_access()  # Giai đoạn 23: file giấy tờ theo hợp đồng
     ops_cashbook_service.register_file_access()  # Giai đoạn 20: chứng từ phiếu thu / chi
     ops_advance_service.register_file_access()  # Giai đoạn 20: chứng từ tạm ứng – hoàn ứng
     # Điều kiện của Luồng 1 với danh mục khách hàng, tài khoản cổng: luôn đăng ký (kể cả khi tắt Luồng 1 – khi đó
@@ -171,6 +176,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(ops_shipments_router)
         app.include_router(ops_tasks_router)  # Giai đoạn 13
         app.include_router(ops_documents_router)  # Giai đoạn 16: chứng từ + BR-103
+        app.include_router(ops_contract_documents_router)  # Giai đoạn 23: giấy tờ theo hợp đồng + nhập tay
         app.include_router(ops_checkpoints_router)  # Giai đoạn 16: điểm kiểm soát
         app.include_router(ops_requirements_router)  # Giai đoạn 17: quy tắc chứng từ bắt buộc
         app.include_router(ops_invoices_router)  # Giai đoạn 10
@@ -191,4 +197,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(learning_router)
         app.include_router(learning_portal_router)
     _include_legacy_v1_routers(app)
+    app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")
     return app
