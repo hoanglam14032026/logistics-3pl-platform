@@ -123,7 +123,7 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0022"
+    assert head_revision() == "0023"
 
 
 def test_upgrade_from_empty_creates_all_tables():

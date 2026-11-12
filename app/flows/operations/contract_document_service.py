@@ -34,6 +34,7 @@ from app.core.errors import AppError, ErrorCode
 from app.core.timeutil import now_utc
 from app.flows.operations.models import (
     ContractStatus,
+    DocType,
     OpsContractDocument,
     OpsDocumentCatalog,
     OpsServiceContract,
@@ -52,6 +53,13 @@ SCHEMA_DIR = Path(__file__).resolve().parent / "doc_entry_schemas"
 READ_ROLES = {"ops_staff", "manager", "business_manager", "instructor", "admin"}
 _TRANSPORT_DOCS = {"bill_of_lading", "air_waybill"}
 _SHIPMENT_FILL = ("etd", "eta", "incoterm", "incoterm_place")
+# Loại giấy tờ cấp lô trùng loại chứng từ lô (DocType) → xác nhận ghi sang ops_documents (BR-103)
+SHIPMENT_DOC_TYPES = frozenset(t.value for t in DocType if t is not DocType.OTHER)
+_SHIPMENT_DOC_MESSAGES = {
+    "no_file": "Chưa đính file – chưa tính vào kiểm tra chứng từ lô (BR-103); đính file, mở lại rồi xác nhận lại",
+    "file_type": "Chứng từ lô chỉ nhận pdf, jpg, png, docx, xlsx – chưa tính vào kiểm tra chứng từ lô (BR-103)",
+    "unchanged": "Chứng từ lô đã có đúng file này – không ghi thêm phiên bản",
+}
 
 
 # --- Biểu mẫu ----------------------------------------------------------------------------------------------------
@@ -393,10 +401,53 @@ def confirm(db: Session, doc_id: int, actor: SysUser, expected: int | None) -> t
     if doc.shipment_id is not None and doc.catalog_code in _TRANSPORT_DOCS:
         applied = _fill_shipment(db.get(OpsShipment, doc.shipment_id), doc.data, actor)
     db.flush()
-    audit.record(db, "contract_document.confirm", ENTITY, doc.id, actor.id, None, {"shipment": applied})
-    db.commit()
+    registered, copied = _to_shipment_document(db, doc, actor)
+    audit.record(
+        db,
+        "contract_document.confirm",
+        ENTITY,
+        doc.id,
+        actor.id,
+        None,
+        {"shipment": applied, "shipment_document": registered},
+    )
+    if copied is not None:
+        files.commit_or_discard(db, [copied])
+    else:
+        db.commit()
     db.refresh(doc)
-    return doc, applied
+    return doc, applied, registered
+
+
+def _to_shipment_document(
+    db: Session, doc: OpsContractDocument, actor: SysUser
+) -> tuple[dict[str, Any] | None, SysFile | None]:
+    """Giấy tờ cấp lô có loại trùng loại chứng từ lô (`ops_documents.doc_type`) → ghi phiên bản chứng từ lô để kiểm
+    tra BR-103, quy tắc chứng từ bắt buộc, EV-121, KPI nhận được. Trả về (kết quả cho giao diện, file mới cần commit).
+    Không có file / loại file không nhận ở chứng từ lô → không ghi, nêu lý do (xác nhận vẫn thành công)."""
+    if doc.shipment_id is None or doc.catalog_code not in SHIPMENT_DOC_TYPES:
+        return None, None
+    from app.flows.operations import document_service
+
+    if doc.file_id is None:
+        return {"registered": False, "reason": "no_file", "message": _SHIPMENT_DOC_MESSAGES["no_file"]}, None
+    source = db.get(SysFile, doc.file_id)
+    if not files.allowed_for("shipment_document", source.mime_type):
+        return {"registered": False, "reason": "file_type", "message": _SHIPMENT_DOC_MESSAGES["file_type"]}, None
+    shipment = db.get(OpsShipment, doc.shipment_id)
+    result = document_service.register_from_contract_document(
+        db, shipment, doc.catalog_code, source, doc.note, actor, doc.id
+    )
+    if result is None:
+        return {"registered": False, "reason": "unchanged", "message": _SHIPMENT_DOC_MESSAGES["unchanged"]}, None
+    shipment_doc, check, stored = result
+    return {
+        "registered": True,
+        "document_id": shipment_doc.id,
+        "version_no": shipment_doc.version_no,
+        "check_id": check.id,
+        "shipment_status": shipment.status,
+    }, stored
 
 
 def reopen(db: Session, doc_id: int, reason: str, actor: SysUser, expected: int | None) -> OpsContractDocument:

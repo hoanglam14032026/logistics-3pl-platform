@@ -141,6 +141,25 @@ def _reopen_documents(db: Session, shipment: OpsShipment, doc: OpsDocument, acto
 def _store(
     db: Session, shipment: OpsShipment, doc_type: str, upload_file: UploadFile, note: str | None, actor, channel: str
 ) -> tuple[OpsDocument, OpsDocumentCheck]:
+    stored = files.store(db, upload_file, "shipment_document", "operations", ENTITY, 0, actor.id)
+    doc, check = _register(db, shipment, doc_type, stored, note, actor, channel)
+    files.commit_or_discard(db, [stored])
+    db.refresh(doc)
+    db.refresh(check)
+    return doc, check
+
+
+def _register(
+    db: Session,
+    shipment: OpsShipment,
+    doc_type: str,
+    stored: SysFile,
+    note: str | None,
+    actor,
+    channel: str,
+    source_contract_document_id: int | None = None,
+) -> tuple[OpsDocument, OpsDocumentCheck]:
+    """Phiên bản chứng từ mới từ file đã lưu (`owner_id` gán ở đây); chưa commit – bên gọi commit cùng giao dịch."""
     previous = current_documents(db, shipment.id).get(doc_type)
     version_no = (
         db.scalar(
@@ -153,7 +172,6 @@ def _store(
     if previous is not None:
         previous.status = "superseded"
         db.flush()
-    stored = files.store(db, upload_file, "shipment_document", "operations", ENTITY, 0, actor.id)
     doc = OpsDocument(
         shipment_id=shipment.id,
         doc_type=doc_type,
@@ -161,6 +179,7 @@ def _store(
         file_id=stored.id,
         note=note,
         channel=channel,
+        source_contract_document_id=source_contract_document_id,
         uploaded_by=actor.id,
     )
     db.add(doc)
@@ -197,6 +216,7 @@ def _store(
             "check_created": created,
             "channel": channel,
             "shipment_reopened": reopened,
+            "source_contract_document_id": source_contract_document_id,
         },
     )
     publisher.publish(
@@ -207,10 +227,30 @@ def _store(
         actor.id,
         shipment.mode,
     )
-    files.commit_or_discard(db, [stored])
-    db.refresh(doc)
-    db.refresh(check)
     return doc, check
+
+
+def register_from_contract_document(
+    db: Session,
+    shipment: OpsShipment,
+    doc_type: str,
+    source_file: SysFile,
+    note: str | None,
+    actor,
+    contract_document_id: int,
+) -> tuple[OpsDocument, OpsDocumentCheck, SysFile] | None:
+    """Giai đoạn 23 (sửa) – giấy tờ cấp lô nhập tay đã xác nhận → chứng từ lô (BR-103): bản sao file thuộc
+    `shipment_document`, rồi đi đúng luồng tải lên (phiên bản, lần kiểm tra chờ, EV-121, lô quay về
+    `docs_collecting`). Bản hiện hành đã sinh từ cùng giấy tờ, cùng nội dung file → `None` (không ghi trùng).
+    Chưa commit – bên gọi commit (`files.commit_or_discard` với file trả về)."""
+    current = current_documents(db, shipment.id).get(doc_type)
+    if current is not None and current.source_contract_document_id == contract_document_id:
+        current_file = db.get(SysFile, current.file_id)
+        if current_file is not None and current_file.sha256 == source_file.sha256:
+            return None
+    stored = files.copy(db, source_file, "shipment_document", "operations", ENTITY, 0, actor.id)
+    doc, check = _register(db, shipment, doc_type, stored, note, actor, "staff", contract_document_id)
+    return doc, check, stored
 
 
 def get_check(db: Session, check_id: int, for_update: bool = False) -> OpsDocumentCheck:
