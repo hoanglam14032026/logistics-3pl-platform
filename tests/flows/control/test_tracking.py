@@ -90,16 +90,16 @@ def test_start_progress_complete_with_events_and_history(client, world, setup):
         ("complete", "in_progress", "done"),
     ]
     assert _act(client, world, nk2, "start").status_code == 200  # NK-01 xong → NK-02 bắt đầu được
-    [ev_start, _] = _events("ctl.task.started")
+    [ev_start, _] = _events("EV-211")
     assert ev_start.consumers == ["assessment"] and ev_start.payload["data"]["step_code"] == "NK-01"
-    [ev_done] = _events("ctl.task.completed")
+    [ev_done] = _events("EV-212")
     assert ev_done.payload["data"]["delay_hours"] == 0.0 and ev_done.payload["data"]["task_id"] == nk1
     assert [log.action for log in _logs("task.start")] == ["task.start", "task.start"]
     # sự kiện Luồng 2 gửi tới Luồng 4 qua stream
     drain(setup["url"])
     stream = Redis.from_url(setup["url"]).xrange("l3pl:events:assessment")
     codes = [json.loads(f[b"payload"])["event_code"] for _, f in stream]
-    assert codes.count("ctl.task.started") == 2 and codes.count("ctl.task.completed") == 1
+    assert codes.count("EV-211") == 2 and codes.count("EV-212") == 1
 
 
 # --- Lỗi (bị chặn) → cảnh báo manager --------------------------------------------------------------------------
@@ -125,9 +125,9 @@ def test_block_raises_alert_and_unblock_resolves_it(client, world, setup):
     assert "Thiếu C/O" in alert.message
     track = client.get(f"{CTL}/tracking/shipments/{detail['shipment_id']}", headers=world["h"]["m1"]).json()
     assert track["tracking"]["health"] == "blocked"
-    [blocked] = _events("ctl.task.blocked")
+    [blocked] = _events("EV-213")
     assert blocked.payload["data"]["reason"] == "Thiếu C/O bản gốc"
-    assert _events("ctl.alert.raised")[0].payload["data"]["alert_id"] == alert.id
+    assert _events("EV-221")[0].payload["data"]["alert_id"] == alert.id
     assert _logs("alert.raise")[0].entity_id == alert.id
 
     r = _act(client, world, nk1, "unblock", json={"note": "Khách đã gửi C/O"})
@@ -150,7 +150,7 @@ def test_overdue_scan_warns_escalates_and_resolves(client, world, setup):
     assert stats["task_overdue"] == 1
     [alert] = _alerts()
     assert (alert.alert_type, alert.severity, alert.task_id) == ("task_overdue", "warning", nk1)
-    [delayed] = _events("ctl.task.delayed")
+    [delayed] = _events("EV-214")
     assert delayed.payload["data"]["overdue_hours"] >= 1.0
     assert _scan(6)["task_overdue"] == 0 and len(_alerts()) == 1  # không cảnh báo lặp
 

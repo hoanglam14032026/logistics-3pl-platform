@@ -302,7 +302,7 @@ def test_settlement_br110_and_close(client, world, extra, redis_url):
     assert [d["field"] for d in err["details"]] == ["body.settlement"]
     r = client.post(f"{url}/settlement:approve", json={"note": "Đồng ý"}, headers=h["business_manager"])
     assert (r.json()["status"], r.json()["balance_due"]) == ("approved", "47000000.50")
-    ev = _events("ops.settlement.approved")
+    ev = _events("EV-144")
     assert len(ev) == 1 and ev[0]["data"]["balance_due"] == "47000000.50" and ev[0]["data"]["currency"] == "VND"
     assert _logs("settlement.") == [
         "settlement.create",

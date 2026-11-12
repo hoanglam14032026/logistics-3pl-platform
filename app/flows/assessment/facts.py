@@ -204,7 +204,7 @@ def on_task_synced(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
     return _apply(db, task, envelope, d["revision"], values, d.get("blocked_reason"))
 
 
-_CTL_STATUS = {"ctl.task.started": "in_progress", "ctl.task.completed": "done", "ctl.task.blocked": BLOCKED}
+_CTL_STATUS = {"EV-211": "in_progress", "EV-212": "done", "EV-213": BLOCKED}
 
 
 def on_ctl_task_event(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
@@ -212,7 +212,7 @@ def on_ctl_task_event(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
     d = envelope["data"]
     code = envelope["event_code"]
     task = _task(db, envelope, d["task_id"])
-    if code == "ctl.task.delayed":
+    if code == "EV-214":
         overdue = Decimal(str(d["overdue_hours"]))
         if task.max_overdue_hours is None or overdue > task.max_overdue_hours:
             task.max_overdue_hours = overdue
@@ -224,9 +224,9 @@ def on_ctl_task_event(db: Session, envelope: dict[str, Any]) -> dict[str, Any]:
         "planned_end": _dt(d["planned_end"]),
         "status": _CTL_STATUS[code],
     }
-    if code == "ctl.task.started":
+    if code == "EV-211":
         values["actual_start"] = _dt(d["actual_start"])
-    elif code == "ctl.task.completed":
+    elif code == "EV-212":
         values["actual_end"] = _dt(d["actual_end"])
         if d.get("actual_start"):
             values["actual_start"] = _dt(d["actual_start"])
@@ -497,7 +497,7 @@ def on_training_session(db: Session, envelope: dict[str, Any]) -> dict[str, Any]
     from app.flows.assessment.models import AsmFactTrainingSession
 
     d = envelope["data"]
-    if envelope["event_code"] == "lrn.session.scheduled":
+    if envelope["event_code"] == "EV-304":
         values = {
             "contract_id": d["contract_id"],
             "seq": d["seq"],

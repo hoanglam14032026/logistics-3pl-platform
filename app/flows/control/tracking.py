@@ -484,7 +484,7 @@ def complete(db: Session, task_id: int, note: str | None, actor: SysUser) -> Ctl
 
 # --- Đồng bộ ngược: Luồng 1 → Luồng 2 (Giai đoạn 13) -------------------------------------------------------------
 
-_OPS_ACTIONS = {"EV-131": "start", "EV-132": "complete", "EV-133": "block", "ops.task.unblocked": "unblock"}
+_OPS_ACTIONS = {"EV-131": "start", "EV-132": "complete", "EV-133": "block", "EV-135": "unblock"}
 _TARGET = {"start": "in_progress", "complete": "done", "block": "blocked"}
 
 

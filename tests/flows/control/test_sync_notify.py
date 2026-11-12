@@ -116,17 +116,17 @@ def test_tasks_created_in_ops_and_l2_changes_flow_to_l1_with_ev13x(client, world
     drain_all(setup["url"])
     _assert_in_sync(sid)
     # Luồng 1 phát EV-131/133/unblocked/132 (chuyển tiếp thay đổi của Luồng 2); Luồng 2 không xử lý lại (không vòng lặp)
-    assert _codes("EV-131", "EV-132", "EV-133", "ops.task.unblocked") == [
+    assert _codes("EV-131", "EV-132", "EV-133", "EV-135") == [
         "EV-131",
         "EV-133",
-        "ops.task.unblocked",
+        "EV-135",
         "EV-132",
     ]
     with SessionLocal() as db:
         ev132 = db.scalar(select(SysEvent).where(SysEvent.event_code == "EV-132"))
     assert ev132.payload["data"]["origin"] == "control" and ev132.payload["data"]["sequence_ok"] is True
     assert ev132.consumers == ["control", "assessment"]
-    assert len(_codes("ctl.task.synced")) == 10 + 4  # tạo 10 bước + 4 thao tác
+    assert len(_codes("EV-215")) == 10 + 4  # tạo 10 bước + 4 thao tác
     ops_nk1 = [t for t in client.get(f"{OPS}/shipments/{sid}/tasks", headers=h).json() if t["step_code"] == "NK-01"]
     assert ops_nk1[0]["status"] == "done" and ops_nk1[0]["revision"] == 5 and ops_nk1[0]["actual_end"]
 
@@ -143,7 +143,7 @@ def test_l1_changes_flow_to_l2(client, world, setup):
     with SessionLocal() as db:
         ctl1 = db.get(CtlShipmentTask, tasks["NK-01"]["ctl_task_id"])
     assert ctl1.status == "in_progress" and ctl1.revision == 2
-    assert _codes("ctl.task.started") == []  # Luồng 4 đã nhận EV-131 – Luồng 2 không phát trùng
+    assert _codes("EV-211") == []  # Luồng 4 đã nhận EV-131 – Luồng 2 không phát trùng
     [log] = _logs("task.start")
     assert log.after["source"] == "ops" and log.actor_id == world["u"]["s1"].id
 
@@ -188,7 +188,7 @@ def test_stale_sync_ignored_and_permissions(client, world, setup):
     ops1 = tasks["NK-01"]
     with SessionLocal() as db:
         ev = db.scalar(
-            select(SysEvent).where(SysEvent.event_code == "ctl.task.synced", SysEvent.entity_id == ops1["ctl_task_id"])
+            select(SysEvent).where(SysEvent.event_code == "EV-215", SysEvent.entity_id == ops1["ctl_task_id"])
         )
     stale = {
         **ev.payload,
@@ -244,7 +244,7 @@ def test_unresolved_alert_escalates_to_business_manager_after_2_hours(client, wo
     drain_all(setup["url"])
     [log] = [entry for entry in _logs("alert.escalate") if entry.after.get("kind") == "business_manager"]
     assert log.entity_id == alert.id and log.after["rule"] == "BR-205" and log.after["unresolved_hours"] >= 2
-    assert _codes("ctl.alert.escalated") == ["ctl.alert.escalated"]
+    assert _codes("EV-222") == ["EV-222"]
     escalated = [m for m in mail.OUTBOX if m.to == "em@cty.vn"]
     assert len(escalated) == 1 and escalated[0].subject.startswith("[LEO THANG]")
     [mine] = client.get(f"{CTL}/alerts", params={"mine": True}, headers=h["bm"]).json()

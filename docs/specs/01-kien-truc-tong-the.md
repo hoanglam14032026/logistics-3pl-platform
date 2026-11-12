@@ -120,8 +120,12 @@ flowchart LR
 | EV-132 | `ops.task.completed` | 1 | 2, 4 | `task_id`, `shipment_id`, `step_code`, `performer_id`, `planned_end`, `actual_end`, `sequence_ok`, `evidence_ok` |
 | EV-133 | `ops.task.blocked` | 1 | 2 | `task_id`, `shipment_id`, `reason_code`, `note` |
 | EV-134 | `ops.approval.requested` | 1 | 2 | `request_id`, `contract_id`, `shipment_id?`, `request_type`, `reference`, `amount?`, `currency?`, `reason`, `requested_by` |
+| EV-135 | `ops.task.unblocked` | 1 | 2, 4 | `task_id`, `shipment_id`, `step_code` |
 | EV-141 | `ops.customs.cleared` | 1 | 2, 4 | `shipment_id`, `declaration_no`, `channel` (`green/yellow/red`), `submitted_at`, `cleared_at` |
 | EV-142 | `ops.shipment.delivered` | 1 | 2, 4 | `shipment_id`, `delivered_at`, `sla_due_at`, `in_full`, `damage_free` |
+| EV-143 | `ops.checkpoint.evaluated` | 1 | 2, 4 | `checkpoint_id`, `shipment_id`, `task_id`, `result` |
+| EV-144 | `ops.settlement.approved` | 1 | 2, 4 | `settlement_id`, `contract_id`, `approved_at` |
+
 | EV-201 | `ctl.plan.approved` | 2 | 1, 4 | `plan_id`, `contract_id`, `kpi_targets[]` (kpi_code, target), `milestones[]` |
 | EV-202 | `ctl.assignment.changed` | 2 | 1 | `shipment_id`, `task_id?`, `assignee_id` |
 | EV-203 | `ctl.approval.decided` | 2 | 1 | `request_id`, `decision` (`approved/rejected`) – quyết định cuối cùng, `decisions[]` (level, approver_id, approver_role, decision, note, decided_at) |
@@ -129,9 +133,18 @@ flowchart LR
 | EV-205 | `ctl.incident.opened` | 2 | 1, 4 | `incident_id`, `contract_id`, `shipment_id`, `incident_type`, `severity`, `attributed_to?` |
 | EV-206 | `ctl.incident.closed` | 2 | 1, 4 | `incident_id`, `contract_id`, `shipment_id`, `root_cause_code`, `liability` (`company` / `customer` / `third_party` / `force_majeure`), `compensation_amount?`, `currency?`, `closed_at` |
 | EV-207 | `ctl.coordination.directive` | 2 | 1 | `shipment_id`, `task_id?`, `directive_type` (`set_priority` / `remind` / `expedite`), `priority?`, `target_user_id?`, `message`, `issued_by` |
+| EV-211 | `ctl.task.started` | 2 | 4 | `task_id`, `shipment_id`, `step_code`, `actual_start` |
+| EV-212 | `ctl.task.completed` | 2 | 4 | `task_id`, `shipment_id`, `step_code`, `actual_end` |
+| EV-213 | `ctl.task.blocked` | 2 | 4 | `task_id`, `shipment_id`, `step_code`, `reason` |
+| EV-214 | `ctl.task.delayed` | 2 | 4 | `task_id`, `shipment_id`, `step_code`, `overdue_hours` |
+| EV-215 | `ctl.task.synced` | 2 | 1, 4 | `task_id`, `shipment_id`, `step_code`, `revision`, `origin` |
+| EV-221 | `ctl.alert.raised` | 2 | 1, 4 | `alert_id`, `shipment_id`, `severity` |
+| EV-222 | `ctl.alert.escalated` | 2 | 1, 4 | `alert_id`, `shipment_id`, `escalated_to` |
 | EV-301 | `lrn.resource.published` | 3 | – (dự phòng) | `resource_id`, `resource_type`, `topic_codes[]`, `step_codes[]` |
 | EV-302 | `lrn.enrollment.created` | 3 | 4 | `cohort_id`, `course_id`, `learner_id`, `required_resource_ids[]` |
 | EV-303 | `lrn.progress.completed` | 3 | 4 | `learner_id`, `course_id`, `resource_id`, `completed_at` |
+| EV-304 | `lrn.session.scheduled` | 3 | 4 | `session_id`, `course_id`, `scheduled_at` |
+| EV-305 | `lrn.session.cancelled` | 3 | 4 | `session_id`, `course_id`, `reason` |
 | EV-401 | `asm.scenario.assigned` | 4 | 1 | `assignment_id`, `learner_id`, `scenario_code`, `contract_payload`, `shipment_payload`, `document_payloads[]` (kèm `file_id`), `process_code`, `ruleset_code`, `ruleset_version`, `auto_check_visible`, `due_at` – **không** chứa đáp án |
 | EV-402 | `asm.result.finalized` | 4 | 2, 3 | `learner_id`, `assessment_id`, `course_id`, `score`, `grade` |
 | EV-403 | `asm.kpi.alert` | 4 | 2 | `subject_type`, `subject_id`, `kpi_code`, `value`, `threshold`, `period` |

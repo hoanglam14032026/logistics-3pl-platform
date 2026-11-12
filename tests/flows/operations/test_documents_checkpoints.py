@@ -246,7 +246,7 @@ def test_checkpoints_create_and_evaluate(client, world, make_user, auth_headers)
     _error(client.post(cev, json=late, headers=h), 422, "VALIDATION_ERROR")
     r = client.post(cev, json=customs_on_wrong, headers=h)
     assert r.status_code == 200 and r.json()["evaluations"][0]["declaration_no"] == "105123456789"
-    evaluated = _events("ops.checkpoint.evaluated")
+    evaluated = _events("EV-143")
     assert [(e["data"]["checkpoint_type"], e["data"]["attempt_no"], e["data"]["result"]) for e in evaluated] == [
         ("cargo_receipt", 1, "failed"),
         ("cargo_receipt", 2, "passed"),

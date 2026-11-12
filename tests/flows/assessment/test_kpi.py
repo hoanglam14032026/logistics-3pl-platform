@@ -63,7 +63,7 @@ def _synced(task_id, shipment_id, revision, status, at, assignee=U1, planned_end
         "origin": kw.pop("origin", "control"),
         "conflict": kw.pop("conflict", False),
     }
-    return _ev("ctl.task.synced", data, at, **kw)
+    return _ev("EV-215", data, at, **kw)
 
 
 def _ops(code, task_id, shipment_id, base, origin, at, **data):
@@ -151,7 +151,7 @@ def _alert(aid, sid, task_id, severity, at, mode="production") -> dict:
         "plan_id": None,
         "recipient_id": None,
     }
-    return _ev("ctl.alert.raised", data, at, mode)
+    return _ev("EV-221", data, at, mode)
 
 
 SLA_A = {
@@ -197,7 +197,7 @@ def data(client, make_user, auth_headers):
         ),
         # 707 (lô 602, U2) bị chặn 2 lần: lần 1 đến qua 3 sự kiện (ctl.task.blocked, synced, EV-133 chuyển tiếp)
         _synced(707, 602, 1, "in_progress", "2026-10-19T00:00:00Z", U2),
-        _ctl("ctl.task.blocked", 707, 602, 2, "2026-10-20T01:00:00Z", reason="Thiếu B/L"),
+        _ctl("EV-213", 707, 602, 2, "2026-10-20T01:00:00Z", reason="Thiếu B/L"),
         _synced(707, 602, 2, "blocked", "2026-10-20T01:00:00Z", U2, blocked_reason="Thiếu B/L"),
         _ops("EV-133", 707, 602, 2, "control", "2026-10-20T01:00:01Z", reason_code="other", note="Thiếu B/L"),
         _synced(707, 602, 3, "in_progress", "2026-10-20T03:00:00Z", U2),
@@ -215,7 +215,7 @@ def data(client, make_user, auth_headers):
         _alert(803, 603, None, "critical", "2026-10-15T01:00:00Z"),
         _alert(804, 604, None, "critical", "2026-10-15T01:00:00Z", mode="training"),
         _ev(
-            "ctl.alert.escalated",
+            "EV-222",
             {
                 "alert_id": 802,
                 "alert_type": "task_overdue",
@@ -364,12 +364,12 @@ def test_facts_dedup_stale_and_duplicates(client, data):
 
 
 def test_legacy_and_out_of_order_events(client):
-    old = _ctl("ctl.task.started", 901, 611, None, "2026-10-03T00:00:00Z", actual_start="2026-10-03T00:00:00Z")
-    old_block = _ctl("ctl.task.blocked", 901, 611, None, "2026-10-03T01:00:00Z", reason="x")
+    old = _ctl("EV-211", 901, 611, None, "2026-10-03T00:00:00Z", actual_start="2026-10-03T00:00:00Z")
+    old_block = _ctl("EV-213", 901, 611, None, "2026-10-03T01:00:00Z", reason="x")
     later = _ev("EV-112", {"shipment_id": 611, "from": "in_execution", "to": "delivered"}, "2026-10-05T00:00:00Z")
     earlier = _ev("EV-112", {"shipment_id": 611, "from": "draft", "to": "docs_collecting"}, "2026-10-04T00:00:00Z")
     esc = _ev(
-        "ctl.alert.escalated",
+        "EV-222",
         {
             "alert_id": 911,
             "alert_type": "task_blocked",
@@ -486,7 +486,7 @@ def test_end_to_end_via_redis_stream(client, world, make_contract, redis_url, ma
     assert (t2.status, t2.block_count, t2.performer_id) == ("blocked", 1, world["u"]["s1"].id)
     assert n_blocks == 2
     with SessionLocal() as db:  # ctl.task.* mang revision (Giai đoạn 14) – lần chặn ghi từ sự kiện đến đầu tiên
-        blocked_ev = db.scalar(select(SysEvent).where(SysEvent.event_code == "ctl.task.blocked"))
+        blocked_ev = db.scalar(select(SysEvent).where(SysEvent.event_code == "EV-213"))
         first = db.scalar(select(AsmFactTaskBlock).where(AsmFactTaskBlock.task_id == nk1))
     assert blocked_ev.payload["data"]["revision"] == 3 and first.revision == 3
     assert str(first.source_event_id) == str(blocked_ev.event_id)

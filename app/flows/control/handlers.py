@@ -12,7 +12,7 @@ consumer.handler(CONSUMER, "EV-101")(service.on_contract_activated)
 consumer.handler(CONSUMER, "EV-111")(service.on_shipment_created)
 consumer.handler(CONSUMER, "EV-112")(service.on_shipment_status_changed)
 # Giai đoạn 13: bước đổi ở Luồng 1 → đồng bộ về Luồng 2 (nguồn chuẩn)
-for _code in ("EV-131", "EV-132", "EV-133", "ops.task.unblocked"):
+for _code in ("EV-131", "EV-132", "EV-133", "EV-135"):
     consumer.handler(CONSUMER, _code)(tracking.apply_from_ops)
 consumer.handler(CONSUMER, "EV-403")(kpi_alerts.on_kpi_alert)  # Giai đoạn 15: cảnh báo KPI của Luồng 4
 consumer.handler(CONSUMER, "EV-116")(advance_alerts.on_advance_settled)  # Giai đoạn 20: M-10 tự đóng khi hoàn ứng

@@ -482,3 +482,6 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 - Migration 0022 + 0023: ops_documents.source_contract_document_id FK ops_contract_documents.id, nullable, ondelete RESTRICT, truy vet nguon + chong ghi trung.
 - P0.1: tests/architecture N3/N4/N6 - 4 passed. P0.2: E2E-01..08 - 8 passed. Tong tests/architecture + tests/e2e = 16 passed.
 - P3: ruff xanh, alembic check: No new upgrade operations detected.
+## P1 - Chuan hoa ma EV (G22)
+- Doi code tam -> EV: ctl.task.* -> EV-211..215, ctl.alert.* -> EV-221/222, ops.task.unblocked -> EV-135, ops.checkpoint.evaluated -> EV-143, ops.settlement.approved -> EV-144, lrn.session.* -> EV-304/305.
+- Giu name la ten cham, chi doi code. Cap nhat 01 §5 + handlers/facts/tracking + tests.

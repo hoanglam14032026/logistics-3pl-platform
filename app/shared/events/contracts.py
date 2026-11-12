@@ -133,7 +133,7 @@ class _CtlTaskEvent(EventData):
 
 
 class CtlTaskStarted(_CtlTaskEvent):
-    code: ClassVar[str] = "ctl.task.started"
+    code: ClassVar[str] = "EV-211"
     name: ClassVar[str] = "ctl.task.started"
 
     actual_start: UtcDatetime
@@ -141,7 +141,7 @@ class CtlTaskStarted(_CtlTaskEvent):
 
 
 class CtlTaskCompleted(_CtlTaskEvent):
-    code: ClassVar[str] = "ctl.task.completed"
+    code: ClassVar[str] = "EV-212"
     name: ClassVar[str] = "ctl.task.completed"
 
     actual_start: UtcDatetime | None
@@ -151,14 +151,14 @@ class CtlTaskCompleted(_CtlTaskEvent):
 
 
 class CtlTaskBlocked(_CtlTaskEvent):
-    code: ClassVar[str] = "ctl.task.blocked"
+    code: ClassVar[str] = "EV-213"
     name: ClassVar[str] = "ctl.task.blocked"
 
     reason: str
 
 
 class CtlTaskDelayed(_CtlTaskEvent):
-    code: ClassVar[str] = "ctl.task.delayed"
+    code: ClassVar[str] = "EV-214"
     name: ClassVar[str] = "ctl.task.delayed"
 
     overdue_hours: float
@@ -171,7 +171,7 @@ class CtlTaskSynced(EventData):
     đổi (`control` – thao tác ở Luồng 2; `ops` – xác nhận thay đổi Luồng 1 gửi lên). `conflict`: thay đổi của Luồng 1 bị
     từ chối (xung đột) – đây là trạng thái chuẩn để Luồng 1 quay về."""
 
-    code: ClassVar[str] = "ctl.task.synced"
+    code: ClassVar[str] = "EV-215"
     name: ClassVar[str] = "ctl.task.synced"
     consumers: ClassVar[tuple[str, ...]] = ("ops", "assessment")  # Giai đoạn 14: Luồng 4 dựng dữ kiện bước
 
@@ -199,7 +199,7 @@ class CtlTaskSynced(EventData):
 class CtlAlertEscalated(EventData):
     """BR-205 (Giai đoạn 13): cảnh báo chưa xử lý quá hạn → leo thang lên business_manager."""
 
-    code: ClassVar[str] = "ctl.alert.escalated"
+    code: ClassVar[str] = "EV-222"
     name: ClassVar[str] = "ctl.alert.escalated"
     consumers: ClassVar[tuple[str, ...]] = ("assessment",)
 
@@ -212,7 +212,7 @@ class CtlAlertEscalated(EventData):
 
 
 class CtlAlertRaised(EventData):
-    code: ClassVar[str] = "ctl.alert.raised"
+    code: ClassVar[str] = "EV-221"
     name: ClassVar[str] = "ctl.alert.raised"
     consumers: ClassVar[tuple[str, ...]] = ("assessment",)
 
@@ -270,7 +270,7 @@ class OpsTaskBlocked(_OpsTaskEvent):
 class OpsTaskUnblocked(_OpsTaskEvent):
     """Gỡ chặn – 01 §5 chưa có mã EV (CẦN XÁC NHẬN)."""
 
-    code: ClassVar[str] = "ops.task.unblocked"
+    code: ClassVar[str] = "EV-135"
     name: ClassVar[str] = "ops.task.unblocked"
     consumers: ClassVar[tuple[str, ...]] = ("control", "assessment")
 
@@ -520,7 +520,7 @@ class OpsCheckpointEvaluated(EventData):
     """Điểm kiểm soát của lô được xác nhận ở Luồng 1 (Giai đoạn 16) – nhận hàng / thông quan / xuất kho / giao hàng.
     01 §5 chưa có mã EV (EV-204 là điểm kiểm soát bước của Luồng 2) – CẦN XÁC NHẬN. Luồng 4 tính KPI-05."""
 
-    code: ClassVar[str] = "ops.checkpoint.evaluated"
+    code: ClassVar[str] = "EV-143"
     name: ClassVar[str] = "ops.checkpoint.evaluated"
     consumers: ClassVar[tuple[str, ...]] = ("assessment",)
 
@@ -579,7 +579,7 @@ class EnrollmentCreated(_LearningEvent):
 
 
 class SessionScheduled(_LearningEvent):
-    code: ClassVar[str] = "lrn.session.scheduled"
+    code: ClassVar[str] = "EV-304"
     name: ClassVar[str] = "lrn.session.scheduled"
 
     session_id: int
@@ -592,7 +592,7 @@ class SessionScheduled(_LearningEvent):
 
 
 class SessionCancelled(_LearningEvent):
-    code: ClassVar[str] = "lrn.session.cancelled"
+    code: ClassVar[str] = "EV-305"
     name: ClassVar[str] = "lrn.session.cancelled"
 
     session_id: int
@@ -651,7 +651,7 @@ class ContractLiquidationStarted(EventData):
 class SettlementApproved(EventData):
     """Quyết toán `final` được duyệt (Giai đoạn 19) – Luồng 4 lưu dữ kiện. 01 §5 chưa có mã (CẦN XÁC NHẬN)."""
 
-    code: ClassVar[str] = "ops.settlement.approved"
+    code: ClassVar[str] = "EV-144"
     name: ClassVar[str] = "ops.settlement.approved"
 
     settlement_id: int

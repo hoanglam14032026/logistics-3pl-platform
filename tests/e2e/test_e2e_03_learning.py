@@ -3,6 +3,7 @@
 """
 from fastapi.testclient import TestClient
 
+
 def test_e2e_03_learning_flow(client: TestClient):
     r = client.get("/openapi.json")
     assert r.status_code == 200

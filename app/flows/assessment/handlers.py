@@ -13,13 +13,13 @@ consumer.handler(CONSUMER, "EV-101")(facts.on_contract_activated)
 consumer.handler(CONSUMER, "EV-111")(facts.on_shipment_created)
 consumer.handler(CONSUMER, "EV-112")(facts.on_shipment_status_changed)
 consumer.handler(CONSUMER, "EV-142")(facts.on_shipment_delivered)
-for _code in ("EV-131", "EV-132", "EV-133", "ops.task.unblocked"):
+for _code in ("EV-131", "EV-132", "EV-133", "EV-135"):
     consumer.handler(CONSUMER, _code)(facts.on_ops_task_event)
-consumer.handler(CONSUMER, "ctl.task.synced")(facts.on_task_synced)
-for _code in ("ctl.task.started", "ctl.task.completed", "ctl.task.blocked", "ctl.task.delayed"):
+consumer.handler(CONSUMER, "EV-215")(facts.on_task_synced)
+for _code in ("EV-211", "EV-212", "EV-213", "EV-214"):
     consumer.handler(CONSUMER, _code)(facts.on_ctl_task_event)
-consumer.handler(CONSUMER, "ctl.alert.raised")(facts.on_alert_raised)
-consumer.handler(CONSUMER, "ctl.alert.escalated")(facts.on_alert_escalated)
+consumer.handler(CONSUMER, "EV-221")(facts.on_alert_raised)
+consumer.handler(CONSUMER, "EV-222")(facts.on_alert_escalated)
 # Giai đoạn 15
 consumer.handler(CONSUMER, "EV-201")(facts.on_plan_approved)
 consumer.handler(CONSUMER, "EV-121")(facts.on_document_received)
@@ -30,14 +30,14 @@ for _code in ("EV-205", "EV-206"):
     consumer.handler(CONSUMER, _code)(facts.on_incident)
 for _code in ("EV-113", "EV-114"):
     consumer.handler(CONSUMER, _code)(facts.on_service_request)
-consumer.handler(CONSUMER, "ops.checkpoint.evaluated")(facts.on_ops_checkpoint_evaluated)  # Giai đoạn 16
+consumer.handler(CONSUMER, "EV-143")(facts.on_ops_checkpoint_evaluated)  # Giai đoạn 16
 # Giai đoạn 18: đào tạo (Luồng 3)
 for _code in ("lrn.contract.activated", "lrn.contract.closed"):
     consumer.handler(CONSUMER, _code)(facts.on_training_contract)
 consumer.handler(CONSUMER, "EV-302")(facts.on_enrollment)
-for _code in ("lrn.session.scheduled", "lrn.session.cancelled"):
+for _code in ("EV-304", "EV-305"):
     consumer.handler(CONSUMER, _code)(facts.on_training_session)
 consumer.handler(CONSUMER, "EV-303")(facts.on_progress)
 # Giai đoạn 19
 consumer.handler(CONSUMER, "EV-103")(facts.on_contract_amended)
-consumer.handler(CONSUMER, "ops.settlement.approved")(facts.on_settlement_approved)
+consumer.handler(CONSUMER, "EV-144")(facts.on_settlement_approved)

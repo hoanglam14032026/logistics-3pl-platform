@@ -194,7 +194,7 @@ def test_sessions_attendance_completion_events(client, world):
         _events("EV-302")[0]["data"]["required_resource_ids"] == [past["id"]]
         and _events("EV-302")[0]["mode"] == "training"
     )
-    assert [e["data"]["session_id"] for e in _events("lrn.session.scheduled")] == [past["id"], future["id"]]
+    assert [e["data"]["session_id"] for e in _events("EV-304")] == [past["id"], future["id"]]
     assert _events("lrn.contract.activated")[0]["data"]["instructor_id"] == world["u"]["gv"].id
     _error(client.patch(url, json={"title": "Y"}, headers=h["manager"]), 409, "INVALID_STATE_TRANSITION")
     # ghi danh sau khi kích hoạt → EV-302 ngay
@@ -248,7 +248,7 @@ def test_sessions_attendance_completion_events(client, world):
         "INVALID_STATE_TRANSITION",
     )
     r = client.post(f"{LRN}/sessions/{future['id']}:cancel", json={"reason": "Nghỉ lễ"}, headers=h["gv"])
-    assert r.json()["status"] == "cancelled" and _events("lrn.session.cancelled")[0]["data"]["reason"] == "Nghỉ lễ"
+    assert r.json()["status"] == "cancelled" and _events("EV-305")[0]["data"]["reason"] == "Nghỉ lễ"
     with pytest.raises(DBAPIError), SessionLocal() as db:
         db.execute(text("DELETE FROM lrn_attendance"))
 
