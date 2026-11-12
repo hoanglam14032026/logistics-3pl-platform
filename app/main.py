@@ -7,13 +7,15 @@ Dùng hàm tạo ứng dụng, không tạo `app` ở cấp module:
 Router v2: xác thực `/api/v2/auth`, người dùng `/api/v2/users` (app/shared/identity, bước 0.6); router các luồng
 gắn theo ENABLED_FLOWS khi được xây dựng. API v1.1.0 (app/legacy_v1) đánh dấu deprecated trên OpenAPI (06 §1).
 """
-from app.shared.ai_models.router import router as ai_models_router
-from app.ai_router import router as qwen_sharp_router
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app import handlers as _event_handlers  # noqa: F401  (Giai đoạn 11: xử lý sự kiện của các luồng)
+from app.ai_router import router as qwen_sharp_router
 from app.core.config import Settings, get_settings
 from app.core.db import SessionLocal, engine
 from app.core.errors import UnhandledErrorMiddleware, register_exception_handlers
@@ -49,6 +51,8 @@ from app.legacy_v1.api import business_guide
 from app.legacy_v1.api.business_data import records as business_data_records
 from app.legacy_v1.api.training import documents as training_documents
 from app.legacy_v1.api.video import resources as video_resources
+from app.shared.ai_models.router import admin_router as ai_models_admin_router
+from app.shared.ai_models.router import router as ai_models_router
 from app.shared.audit.router import router as audit_router
 from app.shared.docai import registry as docai_registry
 from app.shared.docai import service as docai_service
@@ -113,7 +117,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(RequestIDMiddleware)
-    app.include_router(ai_models_router)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
@@ -150,7 +153,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(audit_router)
     app.include_router(files_router)
     # AI local trích xuất chứng từ (Giai đoạn 9) – dùng chung mọi tiến trình
-    app.include_router(qwen_sharp_router)
+    app.include_router(ai_models_admin_router)
+    app.include_router(ai_models_router)
+    app.include_router(qwen_sharp_router)  # Giai đoạn 22: trợ lý hỏi đáp /api/ai
     app.include_router(doc_types_router)
     app.include_router(doc_jobs_router)
     docai_service.register_file_access()
