@@ -209,3 +209,32 @@ def test_boolean_field_renders_yes_no_select(page, live_server):
         "(() => { S.doc = {editable: true}; return inputFor({key: 'is_dg', type: 'boolean'}, true, 'is_dg'); })()"
     )
     assert "<select" in html and 'value="true" selected' in html and "Không" in html
+
+
+def test_contract_dossier_attachments_are_view_only(page, live_server, world, client):
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (240, 160), "white").save(buf, format="PNG")
+    r = client.post(
+        f"/api/v2/ops/service-contracts/{world['contract_a'].id}/attachments",
+        data={"kind": "signed_contract", "description": "Bản hợp đồng đã ký 2 bên"},
+        files={"file": ("hop-dong-ky.png", buf.getvalue(), "image/png")},
+        headers=world["h"]["ops_staff"],
+    )
+    assert r.status_code == 201, r.text
+    att_id = r.json()["id"]
+
+    _login_and_open_contract(page, live_server, world)
+    expect(page.locator("#progress")).to_contain_text("Hồ sơ hợp đồng: ")
+    page.select_option("#docSelect", f"att:{att_id}")
+    expect(page.locator("#formArea")).to_contain_text("chỉ xem")
+    expect(page.locator("#formArea")).to_contain_text("Bản hợp đồng đã ký 2 bên")
+    expect(page.locator("#pageBox img")).to_be_visible()
+    for b in ("#btnConfirm", "#btnReopen", "#btnVoid"):
+        expect(page.locator(b)).to_be_disabled()
+    # quay lại khai báo giấy tờ nhập tay vẫn bình thường
+    _declare_license(page)
+    expect(page.locator("#btnConfirm")).to_be_enabled()

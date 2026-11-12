@@ -463,4 +463,5 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | – | Migration `0023` (`ops_documents.source_contract_document_id`); `files.copy`, `files.allowed_for` | `07` §6 điểm 3 |
 | Giao diện: đổi hợp đồng không lưu nốt; mã truy cập 15 phút không làm mới, tài khoản đã bật 2 lớp không vào được; đối tác / lô chỉ 100 dòng đầu, lỗi tải bị bỏ qua; hợp đồng chưa có lô → 422 không hướng dẫn; không có ô `boolean`; không biết còn thiếu trường nào; lý do qua `prompt()` | Lưu nốt trước khi đổi; refresh token xoay vòng + bước TOTP, mất phiên giữ phần đang nhập; tìm đối tác phía máy chủ, đọc hết các trang lô, báo lỗi tải; chặn khai báo cấp lô khi chưa có lô; ô Có / Không; đếm + đánh dấu trường bắt buộc trống; hộp thoại lý do | Rà soát Giai đoạn 23 |
 | – | 5 test `test_contract_documents_br103.py`; 6 test Playwright mới; `test_migrations` head `0023` | `07` §5 |
+| Màn hình giấy tờ không thấy hợp đồng đã ký, phụ lục, biên bản thanh lý | Nhóm "Hồ sơ hợp đồng – chỉ xem" trong ô chọn giấy tờ (file đính kèm + thông tin phụ lục), xem ảnh / pdf, báo thiếu bản hợp đồng đã ký; 1 test Playwright | Rà soát Giai đoạn 23 (mục 4) |
 

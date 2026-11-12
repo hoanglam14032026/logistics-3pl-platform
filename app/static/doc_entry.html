@@ -206,7 +206,7 @@ function sessionExpired(){   // không xóa dữ liệu trên trang: đăng nh�
 async function logout(){
   if(S.token){ await flush().catch(()=>{});
     if(S.refresh) fetch(API+"/auth/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({refresh_token:S.refresh})}).catch(()=>{}); }
-  Object.assign(S,{token:null,refresh:null,contract:null,shipments:[],docs:[],doc:null,etag:null,dirty:false,pending:{}});
+  Object.assign(S,{token:null,refresh:null,contract:null,shipments:[],docs:[],doc:null,att:null,atts:[],amends:[],etag:null,dirty:false,pending:{}});
   clearTimeout(S.saveTimer); S.saveTimer=null;
   $("docBar").style.display="none"; $("contractInfo").textContent=""; $("formArea").innerHTML='<span class="hint">Chưa chọn giấy tờ.</span>';
   $("pageBox").innerHTML='<span class="hint">Chọn hoặc khai báo giấy tờ để xem tài liệu.</span>'; $("thumbs").innerHTML=""; say("");
@@ -245,18 +245,33 @@ $("btnOpenContract").onclick = async () => {
     S.contract=c;
     S.shipments=await fetchAll("/ops/shipments?contract_id="+c.id);
     $("contractInfo").textContent=`${c.contract_no} · ${c.customer_name} · ${c.status}`;
-    $("docBar").style.display="flex"; S.doc=null; say("");
+    $("docBar").style.display="flex"; S.doc=null; S.att=null; say("");
+    await loadDossier();
     await loadDocs();
   }catch(e){ say(e.message,"bad"); }
 };
+
+/* ---------- hồ sơ hợp đồng (chỉ xem): bản ký, phụ lục, biên bản thanh lý – file đính kèm của hợp đồng ---------- */
+const ATT_KIND={signed_contract:"Hợp đồng đã ký",amendment:"Phụ lục đã ký",liquidation_minutes:"Biên bản thanh lý",other:"File khác của hợp đồng"};
+const ATT_ORDER=["signed_contract","amendment","liquidation_minutes","other"];
+async function loadDossier(){
+  S.atts=[]; S.amends=[]; S.dossierErr="";
+  try{ S.atts=(await apiJson(`/ops/service-contracts/${S.contract.id}/attachments`)).body; }
+  catch(e){ S.dossierErr="Không tải được hồ sơ hợp đồng: "+e.message; }
+  try{ S.amends=(await apiJson(`/ops/service-contracts/${S.contract.id}/amendments`)).body; }catch(e){ S.amends=[]; }
+  S.atts.sort((a,b)=>ATT_ORDER.indexOf(a.kind)-ATT_ORDER.indexOf(b.kind)||String(a.created_at).localeCompare(String(b.created_at)));
+}
+function amendmentOf(att){ return (S.amends||[]).find(m=>m.attachment_id===att.id); }
 
 /* ---------- danh sách giấy tờ của hợp đồng (nhóm theo bước chuỗi nghiệp vụ) ---------- */
 async function loadDocs(selectId){
   S.docs=(await apiJson(`/ops/service-contracts/${S.contract.id}/documents`)).body;
   renderDocSelect(selectId ?? (S.doc && S.doc.id));
   const live=S.docs.filter(d=>d.status!=="void"), done=live.filter(d=>d.status==="confirmed").length;
-  $("progress").textContent=live.length?`${done}/${live.length} giấy tờ đã xác nhận`:"Chưa có giấy tờ nào – bấm “Khai báo giấy tờ”";
-  const id=Number($("docSelect").value);
+  const kinds=new Set((S.atts||[]).map(a=>a.kind));
+  const dossier=`Hồ sơ hợp đồng: ${(S.atts||[]).length} file`+(kinds.has("signed_contract")?"":" – chưa có bản hợp đồng đã ký");
+  $("progress").textContent=(live.length?`${done}/${live.length} giấy tờ đã xác nhận`:"Chưa có giấy tờ nào – bấm “Khai báo giấy tờ”")+" · "+(S.dossierErr||dossier);
+  const v=$("docSelect").value, id=/^\d+$/.test(v)?Number(v):0;
   if(id && (!S.doc || S.doc.id!==id)) await openDoc(id);
 }
 function shipLabel(id){ const s=S.shipments.find(x=>x.id===id); return s?s.shipment_no:("lô #"+id); }
@@ -265,20 +280,53 @@ function renderDocSelect(keep){
   for(const d of S.docs){ (groups[d.step_no+"|"+d.step_label] ||= []).push(d); }
   const html=Object.keys(groups).sort().map(k=>`<optgroup label="Bước ${esc(k.replace("|",". "))}">`+groups[k].map(d=>
     `<option value="${d.id}" ${d.id===keep?"selected":""}>${esc(d.catalog_name)}${d.shipment_id?" – "+esc(shipLabel(d.shipment_id)):""}${d.party_name?" – "+esc(d.party_name):""} [${STATUS[d.status]}]</option>`).join("")+"</optgroup>").join("");
-  $("docSelect").innerHTML=html;
+  const atts=(S.atts||[]).map(a=>{ const m=amendmentOf(a);
+    return `<option value="att:${a.id}" ${S.att&&S.att.id===a.id?"selected":""}>${esc(ATT_KIND[a.kind]||a.kind)}${m?" "+esc(m.amendment_no):""} – ${esc(a.file.original_filename)}</option>`; }).join("");
+  $("docSelect").innerHTML='<option value="">— Chọn giấy tờ —</option>'+html+(atts?`<optgroup label="Hồ sơ hợp đồng – chỉ xem">${atts}</optgroup>`:"");
   if(keep && S.docs.some(d=>d.id===keep)) $("docSelect").value=keep;
+  else if(S.att) $("docSelect").value="att:"+S.att.id;
+  else { const first=[...$("docSelect").options].find(o=>/^\d+$/.test(o.value)); if(first) $("docSelect").value=first.value; }  // mở sẵn giấy tờ đầu
 }
 $("docSelect").onchange = async () => {
   await flush();
   if(S.dirty){ $("docSelect").value=S.doc.id; say("Phần đang nhập chưa lưu được – xử lý lỗi lưu trước khi chuyển giấy tờ","bad"); return; }
-  openDoc(Number($("docSelect").value));
+  const v=$("docSelect").value;
+  if(v.startsWith("att:")) openAttachment(Number(v.slice(4)));
+  else if(v) openDoc(Number(v));
 };
+
+/* ---------- mở một file hồ sơ hợp đồng: trái xem file, phải thông tin (không sửa ở màn hình này) ---------- */
+async function openAttachment(id){
+  const a=(S.atts||[]).find(x=>x.id===id); if(!a) return;
+  S.doc=null; S.att=a; S.etag=null; S.dirty=false; S.pages=[]; saveState("");
+  const m=amendmentOf(a);
+  $("ftitle").textContent=ATT_KIND[a.kind]||a.kind;
+  const row=(k,v)=>v==null||v===""?"":`<tr><th style="text-align:left;padding-right:12px">${esc(k)}</th><td>${esc(v)}</td></tr>`;
+  $("formArea").innerHTML=`<p class="hint">Hồ sơ của hợp đồng – chỉ xem. Tải lên / duyệt phụ lục, thanh lý ở màn hình hợp đồng.</p>
+    <table>${row("Loại",ATT_KIND[a.kind]||a.kind)}${row("Mô tả",a.description)}${row("Tên file",a.file.original_filename)}
+    ${row("Dung lượng",Math.ceil(a.file.size_bytes/1024)+" KB")}${row("Ngày tải lên",new Date(a.created_at).toLocaleString("vi-VN"))}
+    ${row("Khách hàng xem được",a.customer_visible?"Có":"Không")}
+    ${m?row("Số phụ lục",m.amendment_no)+row("Hiệu lực từ",m.effective_from)+row("Trạng thái",m.status)+row("Lý do",m.reason)+row("Phiên bản áp dụng",m.applied_version):""}</table>`;
+  ["btnConfirm","btnReopen","btnVoid"].forEach(b=>$(b).disabled=true);
+  $("entryBadge").innerHTML='<span class="badge">Chỉ xem</span>';
+  if(S.blobUrl){ URL.revokeObjectURL(S.blobUrl); S.blobUrl=null; }
+  $("thumbs").innerHTML=""; $("vtitle").textContent=a.file.original_filename; $("fileInfo").textContent=a.file.mime_type;
+  const box=$("pageBox"); box.innerHTML='<span class="hint">Đang tải…</span>';
+  try{
+    const r=await api(`/files/${a.file.file_id}`); if(!r.ok) throw new Error("Không tải được file (HTTP "+r.status+")");
+    S.blobUrl=URL.createObjectURL(await r.blob());
+    const mime=a.file.mime_type;
+    if(mime.startsWith("image/")){ box.innerHTML=`<img alt="${esc(a.file.original_filename)}" src="${S.blobUrl}">`; applyZoom(true); $("pageCount").textContent="1"; }
+    else if(mime==="application/pdf"){ box.innerHTML=`<iframe title="${esc(a.file.original_filename)}" src="${S.blobUrl}" style="width:100%;height:100%;min-height:480px;border:0"></iframe>`; $("pageCount").textContent="–"; }
+    else box.innerHTML=`<p class="hint">Không xem trực tiếp được loại file này.</p><a href="${S.blobUrl}" download="${esc(a.file.original_filename)}">Tải về ${esc(a.file.original_filename)}</a>`;
+  }catch(e){ box.innerHTML=`<span class="bad">${esc(e.message)}</span>`; }
+}
 
 /* ---------- mở một giấy tờ: trái xem file, phải form ---------- */
 async function openDoc(id){
   try{
     const {body,etag}=await apiJson("/ops/contract-documents/"+id);
-    S.doc=body; S.etag=etag; S.pending={}; S.dirtyMeta={}; S.dirty=false; S.page=1;
+    S.doc=body; S.att=null; S.etag=etag; S.pending={}; S.dirtyMeta={}; S.dirty=false; S.page=1;
     $("ftitle").textContent=body.catalog_name; saveState("");
     await renderForm(); await loadPages();
   }catch(e){ say(e.message,"bad"); }
