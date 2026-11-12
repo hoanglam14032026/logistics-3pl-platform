@@ -454,4 +454,8 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | `doc_entry.html`: luôn hỏi "rời trang?", PATCH thừa khi chuyển ô / giấy tờ, giờ cố định `+07:00`, mất nội dung khi 409 | Cờ `dirty`, bộ đếm lưu được đặt lại; giờ theo múi giờ trình duyệt; 409 hỏi trước khi bỏ nội dung đang nhập; `StaticFiles` theo đường dẫn tuyệt đối | Như trên |
 | `conftest` không nạp lại danh mục seed `ops_document_catalog` sau TRUNCATE (khóa `code`, không có `id`) | Thêm vào `SEED_TABLES`; bỏ giả định cột `id` | Test Giai đoạn 23 không chạy được |
 | – | Test: `test_ai_gateway`, `test_ai_router`, thêm 2 test `test_contract_documents`, `tests/e2e/test_doc_entry_ui.py` (Playwright); `test_migrations` head `0022` | `07` §5 |
-
+## §10.37 - P0.1 Architecture Tests (07 §4.2)
+- Thêm tests/architecture/: test_import_linter.py (N4), test_no_cross_flow_fk.py (N3), test_enabled_flows.py (N6)
+- Chạy: pytest tests/architecture/ -v -> 4 passed
+- Nhánh canonical: stage-23-ai-operations
+- Hướng AI: nhập tay là chính, docai + Qwen27B chỉ dự phòng
