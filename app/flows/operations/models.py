@@ -559,6 +559,11 @@ class OpsDocument(Base):
     )
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="current", server_default="current")
     channel: Mapped[str] = mapped_column(String(8), nullable=False, default="staff", server_default="staff")  # G17
+    # G23 (sửa): chứng từ sinh từ giấy tờ nhập tay theo hợp đồng khi xác nhận (ops_contract_documents) – truy vết, chống
+    # ghi trùng khi xác nhận lại cùng file
+    source_contract_document_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ops_contract_documents.id", ondelete="RESTRICT")
+    )
     note: Mapped[str | None] = mapped_column(String(500))
     uploaded_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(

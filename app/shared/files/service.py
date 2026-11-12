@@ -120,6 +120,48 @@ def store(
     return record
 
 
+def allowed_for(purpose_name: str, mime_type: str) -> bool:
+    return mime_type in purpose(purpose_name).mime_types
+
+
+def copy(
+    db: Session,
+    source: SysFile,
+    purpose_name: str,
+    module: str,
+    owner_type: str,
+    owner_id: int,
+    actor_id: int | None,
+    storage: StorageBackend | None = None,
+) -> SysFile:
+    """Bản sao nội dung của `source` thành file mới (mục đích, chủ sở hữu mới) – quyền tải đi theo chủ sở hữu mới.
+    Loại file / dung lượng không hợp mục đích mới → 415 / 413 (như `store`)."""
+    storage = storage or get_storage()
+    rule = purpose(purpose_name)
+    if source.mime_type not in rule.mime_types:
+        allowed = ", ".join(sorted(sniff.EXTENSIONS[m] for m in rule.mime_types))
+        raise _error(ErrorCode.UNSUPPORTED_FILE_TYPE, 415, f"Loại file không được phép (cho phép: {allowed})")
+    with storage.path(source.storage_key).open("rb") as stream:
+        try:
+            blob = storage.save(module, stream, rule.max_bytes)
+        except TooLarge as exc:
+            raise _error(ErrorCode.FILE_TOO_LARGE, 413, f"File vượt {rule.max_bytes // MB} MB") from exc
+    record = SysFile(
+        storage_key=blob.storage_key,
+        original_filename=source.original_filename,
+        mime_type=source.mime_type,
+        size_bytes=blob.size_bytes,
+        sha256=blob.sha256,
+        purpose=purpose_name,
+        owner_type=owner_type,
+        owner_id=owner_id,
+        created_by=actor_id,
+    )
+    db.add(record)
+    db.flush()
+    return record
+
+
 def commit_or_discard(db: Session, files: list[SysFile], storage: StorageBackend | None = None) -> None:
     """Commit; lỗi → rollback và xóa các file vừa ghi (không để file mồ côi)."""
     try:

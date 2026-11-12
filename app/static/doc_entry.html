@@ -34,6 +34,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .meta .wide{grid-column:1/-1}
 .field{margin-bottom:10px}.field label,.meta label{display:block;font-weight:600;margin-bottom:2px}
 .field input,.field select,.field textarea,.meta input,.meta select{width:100%}
+.field.missing>input,.field.missing>select,.field.missing>textarea{border-color:var(--warn)}
 .req{color:var(--bad)}.err{color:var(--bad);font-size:12px;margin-top:2px}.hint{color:var(--muted);font-size:12px}
 table.rows{width:100%;border-collapse:collapse}table.rows td,table.rows th{border:1px solid var(--line);padding:2px}
 table.rows input,table.rows select{width:100%;border:0;padding:4px}
@@ -52,6 +53,7 @@ dialog form{display:grid;gap:10px}dialog label{font-weight:600;display:block}dia
   <h1 style="margin:0;font-size:18px">Đăng nhập nhân viên</h1>
   <input id="user" placeholder="Tên đăng nhập" autocomplete="username">
   <input id="pass" type="password" placeholder="Mật khẩu" autocomplete="current-password">
+  <input id="totp" placeholder="Mã xác thực 2 lớp (6 số)" inputmode="numeric" autocomplete="one-time-code" maxlength="8" hidden>
   <button class="primary" id="btnLogin">Đăng nhập</button>
   <div id="loginMsg" class="bad"></div>
 </div>
@@ -105,13 +107,24 @@ dialog form{display:grid;gap:10px}dialog label{font-weight:600;display:block}dia
   <form method="dialog" id="newForm">
     <h3 style="margin:0">Khai báo giấy tờ tiếp nhận</h3>
     <div><label>Loại giấy tờ (danh mục hệ thống)</label><select id="nCatalog" required></select><div class="hint" id="nHint"></div></div>
-    <div id="nShipRow"><label>Lô hàng</label><select id="nShipment"></select></div>
-    <div id="nPartyRow"><label>Đối tác phát hành</label><select id="nParty"></select></div>
+    <div id="nShipRow"><label for="nShipment">Lô hàng</label><select id="nShipment"></select><div class="err" id="nShipErr"></div></div>
+    <div id="nPartyRow"><label for="nParty">Đối tác phát hành</label>
+      <input id="nPartyQ" placeholder="Tìm đối tác theo tên / mã số thuế…" style="margin-bottom:4px">
+      <select id="nParty"></select><div class="err" id="nPartyErr"></div></div>
     <div><label>Ngày tiếp nhận</label><input type="date" id="nDate"></div>
     <div><label>Ghi chú</label><input id="nNote" maxlength="500"></div>
     <div><label>File (tùy chọn – có thể đính sau)</label><input type="file" id="nFile" accept="image/*,.pdf,.docx,.xlsx,.txt"></div>
     <div id="nErr" class="bad"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" id="nCancel">Hủy</button><button type="submit" class="primary" id="nOk">Khai báo</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgReason">
+  <form method="dialog">
+    <h3 style="margin:0" id="rTitle">Lý do</h3>
+    <div><label for="rText">Lý do</label><input id="rText" maxlength="500"></div>
+    <div id="rErr" class="bad"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" id="rCancel">Hủy</button><button type="submit" class="primary" id="rOk">Đồng ý</button></div>
   </form>
 </dialog>
 
@@ -129,10 +142,24 @@ function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&l
 function saveState(t, cls){ const e=$("saveState"); e.textContent=t||""; e.className=cls||""; }
 
 async function api(path, opts={}){
-  const headers = Object.assign({Authorization:"Bearer "+S.token}, opts.headers||{});
-  const r = await fetch(API+path, Object.assign({}, opts, {headers}));
-  if(r.status===401){ logout(); throw new Error("Phiên đăng nhập hết hạn"); }
+  const send = () => fetch(API+path, Object.assign({}, opts, {headers:Object.assign({Authorization:"Bearer "+S.token}, opts.headers||{})}));
+  let r = await send();
+  if(r.status===401 && await refreshSession()) r = await send();   // mã truy cập hết hạn → đổi refresh token, gửi lại 1 lần
+  if(r.status===401){ sessionExpired(); throw new Error("Phiên đăng nhập hết hạn – đăng nhập lại để tiếp tục (phần đang nhập được giữ)"); }
   return r;
+}
+let refreshing=null;   // refresh token xoay vòng: chỉ một yêu cầu đổi tại một thời điểm
+function refreshSession(){
+  if(!S.refresh) return Promise.resolve(false);
+  refreshing ||= (async()=>{
+    try{
+      const r=await fetch(API+"/auth/refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({refresh_token:S.refresh})});
+      if(!r.ok){ S.refresh=null; return false; }
+      const j=await r.json(); S.token=j.access_token; S.refresh=j.refresh_token; return true;
+    }catch(e){ return false; }
+    finally{ setTimeout(()=>{ refreshing=null; },0); }
+  })();
+  return refreshing;
 }
 async function apiJson(path, opts){
   const r = await api(path, opts);
@@ -141,21 +168,50 @@ async function apiJson(path, opts){
   return {body, etag:r.headers.get("ETag")};
 }
 
-/* ---------- đăng nhập ---------- */
+/* ---------- đăng nhập (mật khẩu → mã 2 lớp nếu tài khoản đã bật) ---------- */
+let mfaToken=null;
+async function postJson(path, body){
+  const r=await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error((j.error&&j.error.message)||"Đăng nhập không thành công");
+  return j;
+}
 $("btnLogin").onclick = async () => {
   $("loginMsg").textContent="";
   try{
-    const r = await fetch(API+"/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({username:$("user").value.trim(),password:$("pass").value})});
-    const j = await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error((j.error&&j.error.message)||"Sai tên đăng nhập hoặc mật khẩu");
-    if(!j.access_token) throw new Error("Tài khoản cần xác thực 2 lớp – đăng nhập qua ứng dụng chính");
-    S.token=j.access_token; $("pass").value="";
+    let j;
+    if(mfaToken){
+      j=await postJson("/auth/login/totp",{mfa_token:mfaToken,code:$("totp").value.trim()});
+    }else{
+      j=await postJson("/auth/login",{username:$("user").value.trim(),password:$("pass").value});
+      if(j.mfa_setup_required) throw new Error("Tài khoản cần thiết lập xác thực 2 lớp – thiết lập trên ứng dụng chính rồi quay lại");
+      if(j.mfa_required){ mfaToken=j.mfa_token; $("totp").hidden=false; $("totp").value=""; $("totp").focus();
+        $("loginMsg").textContent="Nhập mã 6 số trên ứng dụng xác thực"; return; }
+    }
+    if(!j.access_token) throw new Error("Đăng nhập không thành công");
+    S.token=j.access_token; S.refresh=j.refresh_token||null; $("pass").value=""; resetMfa();
+    const resumed=!!S.contract;   // hết phiên giữa chừng → quay lại đúng chỗ, giữ phần đang nhập
     $("login").style.display="none"; $("app").style.display="flex";
-    S.catalog = (await apiJson("/ops/document-catalog")).body;
-  }catch(e){ $("loginMsg").textContent=e.message; }
+    if(!S.catalog.length) S.catalog = (await apiJson("/ops/document-catalog")).body;
+    if(resumed){ say("Đã đăng nhập lại","ok"); if(S.dirty) queueSave(true); }
+  }catch(e){ $("loginMsg").textContent=e.message; if(mfaToken&&/hết hạn|expired/i.test(e.message)) resetMfa(); }
 };
-function logout(){ S.token=null; $("app").style.display="none"; $("login").style.display="grid"; }
+function resetMfa(){ mfaToken=null; $("totp").hidden=true; $("totp").value=""; }
+$("totp").addEventListener("keydown",e=>{ if(e.key==="Enter") $("btnLogin").click(); });
+$("pass").addEventListener("keydown",e=>{ if(e.key==="Enter") $("btnLogin").click(); });
+function sessionExpired(){   // không xóa dữ liệu trên trang: đăng nhập lại là lưu tiếp
+  S.token=null; S.refresh=null; $("app").style.display="none"; $("login").style.display="grid";
+  $("loginMsg").textContent="Phiên đăng nhập hết hạn – đăng nhập lại để tiếp tục";
+}
+async function logout(){
+  if(S.token){ await flush().catch(()=>{});
+    if(S.refresh) fetch(API+"/auth/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({refresh_token:S.refresh})}).catch(()=>{}); }
+  Object.assign(S,{token:null,refresh:null,contract:null,shipments:[],docs:[],doc:null,att:null,atts:[],amends:[],etag:null,dirty:false,pending:{}});
+  clearTimeout(S.saveTimer); S.saveTimer=null;
+  $("docBar").style.display="none"; $("contractInfo").textContent=""; $("formArea").innerHTML='<span class="hint">Chưa chọn giấy tờ.</span>';
+  $("pageBox").innerHTML='<span class="hint">Chọn hoặc khai báo giấy tờ để xem tài liệu.</span>'; $("thumbs").innerHTML=""; say("");
+  $("app").style.display="none"; $("login").style.display="grid"; $("loginMsg").textContent="";
+}
 $("btnLogout").onclick = logout;
 
 /* ---------- chọn hợp đồng ---------- */
@@ -169,27 +225,53 @@ async function searchContracts(){
     S.found=body.items;
   }catch(e){}
 }
+async function fetchAll(path, maxPages=20){   // đọc hết các trang (page_size tối đa 100 – 06 §2.3)
+  const out=[];
+  for(let p=1;p<=maxPages;p++){
+    const {body}=await apiJson(`${path}${path.includes("?")?"&":"?"}page_size=100&page=${p}`);
+    out.push(...body.items);
+    if(out.length>=body.total||!body.items.length) break;
+  }
+  return out;
+}
 $("btnOpenContract").onclick = async () => {
   const q=$("contractQ").value.trim(); if(!q) return;
   try{
+    await flush();   // lưu nốt giấy tờ đang nhập trước khi đổi hợp đồng
+    if(S.dirty) throw new Error("Phần đang nhập chưa lưu được – xử lý lỗi lưu trước khi đổi hợp đồng");
     let c=(S.found||[]).find(x=>x.contract_no===q);
     if(!c){ const {body}=await apiJson("/ops/service-contracts?page_size=5&q="+encodeURIComponent(q)); c=body.items.find(x=>x.contract_no===q)||body.items[0]; }
     if(!c) throw new Error("Không tìm thấy hợp đồng");
     S.contract=c;
-    S.shipments=(await apiJson("/ops/shipments?page_size=100&contract_id="+c.id)).body.items;
+    S.shipments=await fetchAll("/ops/shipments?contract_id="+c.id);
     $("contractInfo").textContent=`${c.contract_no} · ${c.customer_name} · ${c.status}`;
-    $("docBar").style.display="flex"; S.doc=null; say("");
+    $("docBar").style.display="flex"; S.doc=null; S.att=null; say("");
+    await loadDossier();
     await loadDocs();
   }catch(e){ say(e.message,"bad"); }
 };
+
+/* ---------- hồ sơ hợp đồng (chỉ xem): bản ký, phụ lục, biên bản thanh lý – file đính kèm của hợp đồng ---------- */
+const ATT_KIND={signed_contract:"Hợp đồng đã ký",amendment:"Phụ lục đã ký",liquidation_minutes:"Biên bản thanh lý",other:"File khác của hợp đồng"};
+const ATT_ORDER=["signed_contract","amendment","liquidation_minutes","other"];
+async function loadDossier(){
+  S.atts=[]; S.amends=[]; S.dossierErr="";
+  try{ S.atts=(await apiJson(`/ops/service-contracts/${S.contract.id}/attachments`)).body; }
+  catch(e){ S.dossierErr="Không tải được hồ sơ hợp đồng: "+e.message; }
+  try{ S.amends=(await apiJson(`/ops/service-contracts/${S.contract.id}/amendments`)).body; }catch(e){ S.amends=[]; }
+  S.atts.sort((a,b)=>ATT_ORDER.indexOf(a.kind)-ATT_ORDER.indexOf(b.kind)||String(a.created_at).localeCompare(String(b.created_at)));
+}
+function amendmentOf(att){ return (S.amends||[]).find(m=>m.attachment_id===att.id); }
 
 /* ---------- danh sách giấy tờ của hợp đồng (nhóm theo bước chuỗi nghiệp vụ) ---------- */
 async function loadDocs(selectId){
   S.docs=(await apiJson(`/ops/service-contracts/${S.contract.id}/documents`)).body;
   renderDocSelect(selectId ?? (S.doc && S.doc.id));
   const live=S.docs.filter(d=>d.status!=="void"), done=live.filter(d=>d.status==="confirmed").length;
-  $("progress").textContent=live.length?`${done}/${live.length} giấy tờ đã xác nhận`:"Chưa có giấy tờ nào – bấm “Khai báo giấy tờ”";
-  const id=Number($("docSelect").value);
+  const kinds=new Set((S.atts||[]).map(a=>a.kind));
+  const dossier=`Hồ sơ hợp đồng: ${(S.atts||[]).length} file`+(kinds.has("signed_contract")?"":" – chưa có bản hợp đồng đã ký");
+  $("progress").textContent=(live.length?`${done}/${live.length} giấy tờ đã xác nhận`:"Chưa có giấy tờ nào – bấm “Khai báo giấy tờ”")+" · "+(S.dossierErr||dossier);
+  const v=$("docSelect").value, id=/^\d+$/.test(v)?Number(v):0;
   if(id && (!S.doc || S.doc.id!==id)) await openDoc(id);
 }
 function shipLabel(id){ const s=S.shipments.find(x=>x.id===id); return s?s.shipment_no:("lô #"+id); }
@@ -198,16 +280,53 @@ function renderDocSelect(keep){
   for(const d of S.docs){ (groups[d.step_no+"|"+d.step_label] ||= []).push(d); }
   const html=Object.keys(groups).sort().map(k=>`<optgroup label="Bước ${esc(k.replace("|",". "))}">`+groups[k].map(d=>
     `<option value="${d.id}" ${d.id===keep?"selected":""}>${esc(d.catalog_name)}${d.shipment_id?" – "+esc(shipLabel(d.shipment_id)):""}${d.party_name?" – "+esc(d.party_name):""} [${STATUS[d.status]}]</option>`).join("")+"</optgroup>").join("");
-  $("docSelect").innerHTML=html;
+  const atts=(S.atts||[]).map(a=>{ const m=amendmentOf(a);
+    return `<option value="att:${a.id}" ${S.att&&S.att.id===a.id?"selected":""}>${esc(ATT_KIND[a.kind]||a.kind)}${m?" "+esc(m.amendment_no):""} – ${esc(a.file.original_filename)}</option>`; }).join("");
+  $("docSelect").innerHTML='<option value="">— Chọn giấy tờ —</option>'+html+(atts?`<optgroup label="Hồ sơ hợp đồng – chỉ xem">${atts}</optgroup>`:"");
   if(keep && S.docs.some(d=>d.id===keep)) $("docSelect").value=keep;
+  else if(S.att) $("docSelect").value="att:"+S.att.id;
+  else { const first=[...$("docSelect").options].find(o=>/^\d+$/.test(o.value)); if(first) $("docSelect").value=first.value; }  // mở sẵn giấy tờ đầu
 }
-$("docSelect").onchange = async () => { await flush(); openDoc(Number($("docSelect").value)); };
+$("docSelect").onchange = async () => {
+  await flush();
+  if(S.dirty){ $("docSelect").value=S.doc.id; say("Phần đang nhập chưa lưu được – xử lý lỗi lưu trước khi chuyển giấy tờ","bad"); return; }
+  const v=$("docSelect").value;
+  if(v.startsWith("att:")) openAttachment(Number(v.slice(4)));
+  else if(v) openDoc(Number(v));
+};
+
+/* ---------- mở một file hồ sơ hợp đồng: trái xem file, phải thông tin (không sửa ở màn hình này) ---------- */
+async function openAttachment(id){
+  const a=(S.atts||[]).find(x=>x.id===id); if(!a) return;
+  S.doc=null; S.att=a; S.etag=null; S.dirty=false; S.pages=[]; saveState("");
+  const m=amendmentOf(a);
+  $("ftitle").textContent=ATT_KIND[a.kind]||a.kind;
+  const row=(k,v)=>v==null||v===""?"":`<tr><th style="text-align:left;padding-right:12px">${esc(k)}</th><td>${esc(v)}</td></tr>`;
+  $("formArea").innerHTML=`<p class="hint">Hồ sơ của hợp đồng – chỉ xem. Tải lên / duyệt phụ lục, thanh lý ở màn hình hợp đồng.</p>
+    <table>${row("Loại",ATT_KIND[a.kind]||a.kind)}${row("Mô tả",a.description)}${row("Tên file",a.file.original_filename)}
+    ${row("Dung lượng",Math.ceil(a.file.size_bytes/1024)+" KB")}${row("Ngày tải lên",new Date(a.created_at).toLocaleString("vi-VN"))}
+    ${row("Khách hàng xem được",a.customer_visible?"Có":"Không")}
+    ${m?row("Số phụ lục",m.amendment_no)+row("Hiệu lực từ",m.effective_from)+row("Trạng thái",m.status)+row("Lý do",m.reason)+row("Phiên bản áp dụng",m.applied_version):""}</table>`;
+  ["btnConfirm","btnReopen","btnVoid"].forEach(b=>$(b).disabled=true);
+  $("entryBadge").innerHTML='<span class="badge">Chỉ xem</span>';
+  if(S.blobUrl){ URL.revokeObjectURL(S.blobUrl); S.blobUrl=null; }
+  $("thumbs").innerHTML=""; $("vtitle").textContent=a.file.original_filename; $("fileInfo").textContent=a.file.mime_type;
+  const box=$("pageBox"); box.innerHTML='<span class="hint">Đang tải…</span>';
+  try{
+    const r=await api(`/files/${a.file.file_id}`); if(!r.ok) throw new Error("Không tải được file (HTTP "+r.status+")");
+    S.blobUrl=URL.createObjectURL(await r.blob());
+    const mime=a.file.mime_type;
+    if(mime.startsWith("image/")){ box.innerHTML=`<img alt="${esc(a.file.original_filename)}" src="${S.blobUrl}">`; applyZoom(true); $("pageCount").textContent="1"; }
+    else if(mime==="application/pdf"){ box.innerHTML=`<iframe title="${esc(a.file.original_filename)}" src="${S.blobUrl}" style="width:100%;height:100%;min-height:480px;border:0"></iframe>`; $("pageCount").textContent="–"; }
+    else box.innerHTML=`<p class="hint">Không xem trực tiếp được loại file này.</p><a href="${S.blobUrl}" download="${esc(a.file.original_filename)}">Tải về ${esc(a.file.original_filename)}</a>`;
+  }catch(e){ box.innerHTML=`<span class="bad">${esc(e.message)}</span>`; }
+}
 
 /* ---------- mở một giấy tờ: trái xem file, phải form ---------- */
 async function openDoc(id){
   try{
     const {body,etag}=await apiJson("/ops/contract-documents/"+id);
-    S.doc=body; S.etag=etag; S.pending={}; S.dirtyMeta={}; S.dirty=false; S.page=1;
+    S.doc=body; S.att=null; S.etag=etag; S.pending={}; S.dirtyMeta={}; S.dirty=false; S.page=1;
     $("ftitle").textContent=body.catalog_name; saveState("");
     await renderForm(); await loadPages();
   }catch(e){ say(e.message,"bad"); }
@@ -273,8 +392,11 @@ $("fileInput").onchange=async()=>{
 
 /* ---------- form nhập (phải) ---------- */
 const HINT={date:"YYYY-MM-DD",datetime:"ngày giờ",number:"số, dấu chấm thập phân",integer:"số nguyên"};
+function fieldId(path){ return "f_"+String(path).replace(/[^\w]/g,"_"); }
 function inputFor(spec,value,path){
-  const v=value??"", dis=S.doc.editable?"":"disabled", name=`data-path="${esc(path)}" data-type="${spec.type}"`;
+  const v=value??"", dis=S.doc.editable?"":"disabled", name=`id="${fieldId(path)}" data-path="${esc(path)}" data-type="${spec.type}"`;
+  if(spec.type==="boolean"){ const b=value===true||value==="true"?"true":value===false||value==="false"?"false":"";
+    return `<select ${name} ${dis}><option value=""></option><option value="true" ${b==="true"?"selected":""}>Có</option><option value="false" ${b==="false"?"selected":""}>Không</option></select>`; }
   if(spec.type==="enum") return `<select ${name} ${dis}><option value=""></option>${spec.values.map(o=>`<option ${o===v?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
   if(spec.type==="text") return `<textarea rows="3" ${name} ${dis}>${esc(v)}</textarea>`;
   if(spec.type==="date") return `<input type="date" value="${esc(v)}" ${name} ${dis}>`;
@@ -293,14 +415,38 @@ function arrayTable(spec,rows){
 function partyField(d){
   const dis=S.doc.editable?"":"disabled";
   if(d.source==="customer") return `<div><label>Bên gửi</label><input value="${esc(d.party_name||"")}" disabled></div>`;
-  return `<div><label>Đối tác phát hành</label><select data-meta="party_id" ${dis}>${partyOptions(d.party_id,d.party_name)}</select></div>`;
+  return `<div><label for="fParty">Đối tác phát hành</label>
+    <input id="fPartyQ" placeholder="Tìm đối tác theo tên / mã số thuế…" ${dis} style="margin-bottom:4px">
+    <select id="fParty" data-meta="party_id" ${dis}>${partyOptions(S.parties,d.party_id,d.party_name)}</select>
+    <div class="err" id="fPartyErr">${esc(S.partyErr||"")}</div></div>`;
 }
-function partyOptions(id,name){ return (S.parties||[]).concat(id&&!(S.parties||[]).some(p=>p.id===id)?[{id,name:name||("#"+id)}]:[]).reduce((h,p)=>h+`<option value="${p.id}" ${p.id===id?"selected":""}>${esc(p.name)}</option>`,'<option value=""></option>'); }
+function partyOptions(list,id,name){
+  list=list||[];
+  const all=list.concat(id&&!list.some(p=>p.id===id)?[{id,name:name||("#"+id)}]:[]);   // giữ đối tác đang chọn dù ngoài kết quả tìm
+  return all.reduce((h,p)=>h+`<option value="${p.id}" ${p.id===id?"selected":""}>${esc(p.name)}${p.tax_code?" · "+esc(p.tax_code):""}</option>`,'<option value=""></option>');
+}
+/* tìm đối tác phía máy chủ (q) theo loại gợi ý của danh mục – không giới hạn 100 đối tác đầu tiên */
+async function searchParties(partnerType, q){
+  const qs=(partnerType?"&party_type="+encodeURIComponent(partnerType):"")+(q?"&q="+encodeURIComponent(q):"");
+  const {body}=await apiJson("/md/parties?page_size=50&status=active"+qs);
+  return {items:body.items, more:body.total>body.items.length};
+}
+function bindPartySearch(input, select, errEl, partnerType, currentId){
+  let t=null;
+  input.oninput=()=>{ clearTimeout(t); t=setTimeout(async()=>{
+    const keep=Number(select.value)||currentId();
+    try{ const r=await searchParties(partnerType, input.value.trim());
+      select.innerHTML=partyOptions(r.items, keep, select.selectedOptions[0]&&select.selectedOptions[0].textContent);
+      errEl.textContent=r.items.length?(r.more?"Còn nhiều kết quả – gõ thêm để thu hẹp":""):"Không có đối tác phù hợp";
+    }catch(e){ errEl.textContent="Không tải được danh sách đối tác: "+e.message; }
+  },300); };
+}
+function partnerTypeOf(code){ const c=S.catalog.find(x=>x.code===code); return c&&c.partner_type; }
 async function ensureParties(d){
+  S.partyErr="";
   if(d.source!=="partner") return;
-  const cat=S.catalog.find(c=>c.code===d.catalog_code);
-  const q=cat&&cat.partner_type?("&party_type="+cat.partner_type):"";
-  try{ S.parties=(await apiJson("/md/parties?page_size=100"+q)).body.items; }catch(e){ S.parties=[]; }
+  try{ S.parties=(await searchParties(partnerTypeOf(d.catalog_code),"")).items; }
+  catch(e){ S.parties=[]; S.partyErr="Không tải được danh sách đối tác: "+e.message; }
 }
 async function renderForm(){
   const d=S.doc; await ensureParties(d);
@@ -311,11 +457,13 @@ async function renderForm(){
     <div><label>Ngày tiếp nhận</label><input type="date" data-meta="received_date" value="${esc(d.received_date||"")}" ${dis}></div>
     <div class="wide"><label>Ghi chú</label><input data-meta="note" maxlength="500" value="${esc(d.note||"")}" ${dis}></div></div>`;
   const fields=d.form.fields.map(spec=>{
-    const label=`<label>${esc(spec.label)}${spec.required?' <span class="req">*</span>':""}${HINT[spec.type]?` <span class="hint">(${HINT[spec.type]})</span>`:""}</label>`;
+    const forAttr=spec.type==="array"?"":` for="${fieldId(spec.key)}"`;
+    const label=`<label${forAttr}>${esc(spec.label)}${spec.required?' <span class="req">*</span>':""}${HINT[spec.type]?` <span class="hint">(${HINT[spec.type]})</span>`:""}</label>`;
     const body=spec.type==="array"?arrayTable(spec,d.values[spec.key]||[]):inputFor(spec,d.values[spec.key],spec.key);
     return `<div class="field">${label}${body}<div class="err" data-err="${spec.key}"></div></div>`;
   }).join("");
   $("formArea").innerHTML=meta+fields;
+  if($("fPartyQ")) bindPartySearch($("fPartyQ"),$("fParty"),$("fPartyErr"),partnerTypeOf(d.catalog_code),()=>S.doc.party_id);
   $("formArea").querySelectorAll("[data-addrow]").forEach(b=>b.onclick=()=>{ addRow(b.dataset.addrow); S.dirty=true; queueSave(true); });
   bindRm();
   $("formArea").querySelectorAll("[data-path],[data-meta]").forEach(el=>{
@@ -325,7 +473,18 @@ async function renderForm(){
   $("btnConfirm").disabled=!d.editable;
   $("btnReopen").disabled=d.status!=="confirmed";
   $("btnVoid").disabled=d.status!=="draft"||!d.editable;
-  $("entryBadge").innerHTML=`<span class="badge b-${d.status}">${STATUS[d.status]}</span>`;
+  renderMissing();
+}
+/* số trường bắt buộc còn trống (máy chủ trả về sau mỗi lần lưu) – hiện cạnh nút xác nhận, đánh dấu trường */
+function renderMissing(){
+  const d=S.doc; if(!d) return;
+  const miss=d.status==="draft"?(d.missing_required||[]):[];
+  document.querySelectorAll(".field.missing").forEach(e=>e.classList.remove("missing"));
+  for(const k of miss){ const e=document.querySelector(`[data-err="${k}"]`); if(e) e.parentElement.classList.add("missing"); }
+  const labels=miss.map(k=>{ const f=d.form.fields.find(x=>x.key===k); return f?f.label:k; });
+  $("entryBadge").innerHTML=`<span class="badge b-${d.status}">${STATUS[d.status]}</span>`+
+    (miss.length?` <span class="hint" id="missingInfo" title="${esc(labels.join(", "))}">Còn ${miss.length} trường bắt buộc trống</span>`
+      :d.status==="draft"?' <span class="hint ok" id="missingInfo">Đủ trường bắt buộc</span>':"");
 }
 function addRow(key){
   const spec=S.doc.form.fields.find(f=>f.key===key), tb=document.querySelector(`table[data-array="${key}"] tbody`);
@@ -386,7 +545,7 @@ async function doSave(){
   const id=S.doc.id, values=collect(), meta=collectMeta();
   try{
     const r=await apiJson(`/ops/contract-documents/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json","If-Match":S.etag},body:JSON.stringify({values,...meta})});
-    if(S.doc&&S.doc.id===id){ S.etag=r.etag; S.doc.row_version=r.body.row_version; S.doc.missing_required=r.body.missing_required; S.doc.party_id=r.body.party_id; S.doc.party_name=r.body.party_name; }
+    if(S.doc&&S.doc.id===id){ S.etag=r.etag; S.doc.row_version=r.body.row_version; S.doc.missing_required=r.body.missing_required; S.doc.party_id=r.body.party_id; S.doc.party_name=r.body.party_name; renderMissing(); }
     showErrors(null); saveState("Đã lưu "+new Date().toLocaleTimeString("vi-VN"),"ok");
   }catch(e){
     S.dirty=true; showErrors(e.body); saveState(e.message,"bad");
@@ -411,13 +570,26 @@ async function transition(action,body){
 $("btnConfirm").onclick=async()=>{
   try{
     const b=await transition("confirm");
-    const su=b.shipment_update||{}, f=Object.keys(su.filled||{}), c=Object.keys(su.conflicts||{});
-    say("Đã xác nhận."+(f.length?" Đã điền cho lô: "+f.join(", ")+".":"")+(c.length?" Lệch với lô (không ghi đè): "+c.join(", ")+".":""),c.length?"bad":"ok");
+    const su=b.shipment_update||{}, f=Object.keys(su.filled||{}), c=Object.keys(su.conflicts||{}), sd=b.shipment_document;
+    let text="Đã xác nhận."+(f.length?" Đã điền cho lô: "+f.join(", ")+".":"")+(c.length?" Lệch với lô (không ghi đè): "+c.join(", ")+".":"");
+    if(sd&&sd.registered) text+=` Đã đưa vào chứng từ lô (phiên bản ${sd.version_no}) – chờ kiểm tra chứng từ (BR-103).`;
+    else if(sd) text+=" "+sd.message+".";
+    say(text,c.length||(sd&&!sd.registered&&sd.reason!=="unchanged")?"bad":"ok");
   }catch(e){ say(e.message,"bad"); showErrors(e.body); }
 };
-$("btnReopen").onclick=async()=>{ const reason=prompt("Lý do mở lại để sửa:"); if(!reason||!reason.trim()) return;
+/* hộp thoại lý do (thay prompt của trình duyệt) */
+function askReason(title){
+  return new Promise(resolve=>{
+    const dlg=$("dlgReason"); $("rTitle").textContent=title; $("rText").value=""; $("rErr").textContent="";
+    $("rOk").onclick=ev=>{ ev.preventDefault(); const v=$("rText").value.trim(); if(!v){ $("rErr").textContent="Nhập lý do"; return; } dlg.close(); resolve(v); };
+    $("rCancel").onclick=()=>{ dlg.close(); resolve(null); };
+    dlg.oncancel=()=>resolve(null);
+    dlg.showModal(); $("rText").focus();
+  });
+}
+$("btnReopen").onclick=async()=>{ const reason=await askReason("Lý do mở lại để sửa"); if(!reason) return;
   try{ await transition("reopen",{reason}); say("Đã mở lại","ok"); }catch(e){ say(e.message,"bad"); } };
-$("btnVoid").onclick=async()=>{ const reason=prompt("Lý do hủy giấy tờ (khai báo nhầm…):"); if(!reason||!reason.trim()) return;
+$("btnVoid").onclick=async()=>{ const reason=await askReason("Lý do hủy giấy tờ (khai báo nhầm…)"); if(!reason) return;
   try{ await transition("void",{reason}); say("Đã hủy giấy tờ","ok"); }catch(e){ say(e.message,"bad"); } };
 
 /* ---------- khai báo giấy tờ mới: chọn từ danh mục ---------- */
@@ -437,10 +609,16 @@ async function onCatalogChange(){
   $("nHint").textContent=(c.description||"")+(c.level==="shipment"?" · gắn với một lô":" · hồ sơ cả hợp đồng");
   $("nShipRow").style.display=c.level==="shipment"?"":"none";
   $("nPartyRow").style.display=c.source==="partner"?"":"none";
+  const noShipment=c.level==="shipment"&&!S.shipments.length;   // hợp đồng chưa có lô → không khai báo giấy tờ cấp lô được
+  $("nShipErr").textContent=noShipment?"Hợp đồng chưa có lô hàng – tạo lô trước, hoặc chọn loại giấy tờ của cả hợp đồng":"";
+  $("nOk").disabled=noShipment;
+  $("nPartyErr").textContent=""; $("nPartyQ").value="";
   if(c.source==="partner"){
-    const q=c.partner_type?("&party_type="+c.partner_type):"";
-    try{ const items=(await apiJson("/md/parties?page_size=100"+q)).body.items;
-      $("nParty").innerHTML='<option value=""></option>'+items.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join(""); }catch(e){ $("nParty").innerHTML=""; }
+    try{ const r=await searchParties(c.partner_type,"");
+      $("nParty").innerHTML=partyOptions(r.items,null);
+      $("nPartyErr").textContent=r.items.length?(r.more?"Còn nhiều đối tác – gõ để tìm":""):"Chưa có đối tác loại này trong danh mục";
+    }catch(e){ $("nParty").innerHTML=partyOptions([],null); $("nPartyErr").textContent="Không tải được danh sách đối tác: "+e.message; }
+    bindPartySearch($("nPartyQ"),$("nParty"),$("nPartyErr"),c.partner_type,()=>null);
   }
 }
 $("nCatalog").onchange=onCatalogChange;
@@ -448,6 +626,7 @@ $("nCancel").onclick=()=>$("dlgNew").close();
 $("newForm").onsubmit=async ev=>{
   ev.preventDefault();
   const c=S.catalog.find(x=>x.code===$("nCatalog").value), fd=new FormData();
+  if(c.level==="shipment"&&!$("nShipment").value){ $("nErr").textContent="Chọn lô hàng"; return; }
   fd.append("catalog_code",c.code);
   if(c.level==="shipment") fd.append("shipment_id",$("nShipment").value);
   if(c.source==="partner"&&$("nParty").value) fd.append("party_id",$("nParty").value);

@@ -454,8 +454,22 @@ Chưa làm (ngoài phạm vi bước này): tài khoản `is_customer_admin` m�
 | `doc_entry.html`: luôn hỏi "rời trang?", PATCH thừa khi chuyển ô / giấy tờ, giờ cố định `+07:00`, mất nội dung khi 409 | Cờ `dirty`, bộ đếm lưu được đặt lại; giờ theo múi giờ trình duyệt; 409 hỏi trước khi bỏ nội dung đang nhập; `StaticFiles` theo đường dẫn tuyệt đối | Như trên |
 | `conftest` không nạp lại danh mục seed `ops_document_catalog` sau TRUNCATE (khóa `code`, không có `id`) | Thêm vào `SEED_TABLES`; bỏ giả định cột `id` | Test Giai đoạn 23 không chạy được |
 | – | Test: `test_ai_gateway`, `test_ai_router`, thêm 2 test `test_contract_documents`, `tests/e2e/test_doc_entry_ui.py` (Playwright); `test_migrations` head `0022` | `07` §5 |
+
 ## §10.37 - P0.1 Architecture Tests (07 §4.2)
 - Thêm tests/architecture/: test_import_linter.py (N4), test_no_cross_flow_fk.py (N3), test_enabled_flows.py (N6)
 - Chạy: pytest tests/architecture/ -v -> 4 passed
 - Nhánh canonical: stage-23-ai-operations
 - Hướng AI: nhập tay là chính, docai + Qwen27B chỉ dự phòng
+
+
+### 10.37. Mã nguồn – Giai đoạn 23 (sửa sau rà soát): nối giấy tờ nhập tay vào BR-103, sửa giao diện (12/11/2026)
+
+| Nội dung cũ | Nội dung mới | Lý do sửa |
+|---|---|---|
+| Giấy tờ cấp lô nhập tay (`ops_contract_documents`) tách khỏi chứng từ lô; B/L đã nhập mà lô vẫn báo thiếu | Xác nhận giấy tờ cấp lô trùng loại chứng từ lô → phiên bản `ops_documents` (bản sao file, `source_contract_document_id`), lần kiểm tra chờ, EV-121, lô `docs_verified` quay về `docs_collecting`; không file / loại file không nhận → nêu lý do | Rà soát Giai đoạn 23: BR-103, KPI không thấy dữ liệu nhập tay |
+| – | Migration `0023` (`ops_documents.source_contract_document_id`); `files.copy`, `files.allowed_for` | `07` §6 điểm 3 |
+| Giao diện: đổi hợp đồng không lưu nốt; mã truy cập 15 phút không làm mới, tài khoản đã bật 2 lớp không vào được; đối tác / lô chỉ 100 dòng đầu, lỗi tải bị bỏ qua; hợp đồng chưa có lô → 422 không hướng dẫn; không có ô `boolean`; không biết còn thiếu trường nào; lý do qua `prompt()` | Lưu nốt trước khi đổi; refresh token xoay vòng + bước TOTP, mất phiên giữ phần đang nhập; tìm đối tác phía máy chủ, đọc hết các trang lô, báo lỗi tải; chặn khai báo cấp lô khi chưa có lô; ô Có / Không; đếm + đánh dấu trường bắt buộc trống; hộp thoại lý do | Rà soát Giai đoạn 23 |
+| – | 5 test `test_contract_documents_br103.py`; 6 test Playwright mới; `test_migrations` head `0023` | `07` §5 |
+| Màn hình giấy tờ không thấy hợp đồng đã ký, phụ lục, biên bản thanh lý | Nhóm "Hồ sơ hợp đồng – chỉ xem" trong ô chọn giấy tờ (file đính kèm + thông tin phụ lục), xem ảnh / pdf, báo thiếu bản hợp đồng đã ký; 1 test Playwright | Rà soát Giai đoạn 23 (mục 4) |
+
+
