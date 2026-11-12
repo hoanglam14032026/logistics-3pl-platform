@@ -4,6 +4,7 @@ Khách hàng -> Hợp đồng -> Vận tải -> Tài chính
 """
 from fastapi.testclient import TestClient
 
+
 def test_e2e_01_production_flow(client: TestClient):
     # 1. Health - Backend phải chạy
     r = client.get("/health")
@@ -28,4 +29,7 @@ def test_e2e_01_production_flow(client: TestClient):
     if r.status_code == 200:
         paths = r.json().get("paths", {})
         # Tài chính có thể là finance / cashbook / settlement
-        assert any("finance" in p or "cashbook" in p or "settlement" in p or "payment" in p for p in paths), "Thiếu router finance (Luồng 4)"
+        has_finance = any(
+            x in p for p in paths for x in ("finance", "cashbook", "settlement", "payment")
+        )
+        assert has_finance, "Thieu router finance (Luong 4)"
