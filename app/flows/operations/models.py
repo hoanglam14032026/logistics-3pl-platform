@@ -554,6 +554,9 @@ class OpsDocument(Base):
     doc_type: Mapped[str] = mapped_column(String(32), nullable=False)
     version_no: Mapped[int] = mapped_column(Integer, nullable=False)
     file_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("sys_files.id", ondelete="RESTRICT"), nullable=False)
+    source_contract_document_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ops_contract_documents.id", ondelete="RESTRICT"), nullable=True
+    )
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="current", server_default="current")
     channel: Mapped[str] = mapped_column(String(8), nullable=False, default="staff", server_default="staff")  # G17
     note: Mapped[str | None] = mapped_column(String(500))
