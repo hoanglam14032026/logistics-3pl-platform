@@ -1,29 +1,25 @@
 """Architecture test N6 - Bật/tắt luồng qua ENABLED_FLOWS.
-Tắt luồng -> router/subscriber của luồng đó không được load.
+Luồng thật của dự án: ops, control, learning, assessment (07 §4.2).
 """
 import os
 
 def _enabled_flows() -> set[str]:
-    raw = os.getenv("ENABLED_FLOWS", "customer_transaction,transport,warehouse,customs")
+    raw = os.getenv("ENABLED_FLOWS", "ops,control,learning,assessment")
     return {x.strip() for x in raw.split(",") if x.strip()}
 
 def test_enabled_flows_default_includes_all():
-    # Mặc định phải có đủ 4 luồng
     flows = _enabled_flows()
-    assert "customer_transaction" in flows
-    assert "transport" in flows
-    assert "warehouse" in flows
-    assert "customs" in flows
+    assert "ops" in flows
+    assert "control" in flows
+    assert "learning" in flows
+    assert "assessment" in flows
 
 def test_disabled_flow_is_respected():
-    # Khi ENABLED_FLOWS thiếu 1 luồng, hàm kiểm tra phải nhận biết
-    # Đây là test logic, không cần khởi động app thật
-    os.environ["ENABLED_FLOWS"] = "customer_transaction,transport"
+    os.environ["ENABLED_FLOWS"] = "ops,control"
     try:
         flows = _enabled_flows()
-        assert "warehouse" not in flows
-        assert "customs" not in flows
-        assert "customer_transaction" in flows
+        assert "learning" not in flows
+        assert "assessment" not in flows
+        assert "ops" in flows
     finally:
-        os.environ["ENABLED_FLOWS"] = "customer_transaction,transport,warehouse,customs"
-        
+        os.environ["ENABLED_FLOWS"] = "ops,control,learning,assessment"
