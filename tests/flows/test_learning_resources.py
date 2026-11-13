@@ -33,8 +33,9 @@ def _ensure_head_and_topics():
 def _uniq(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
-def test_topics_seed():
-    r = client.get("/learning/topics")
+@pytest.mark.parametrize("prefix", ["/api/v2/learning", "/learning"])  # /learning: alias cho client cũ
+def test_topics_seed(prefix):
+    r = client.get(f"{prefix}/topics")
     assert r.status_code == 200
     codes = [t["topic_code"] for t in r.json()]
     for expected in ["T01", "T02", "T03", "T04", "T05", "T06", "T07"]:

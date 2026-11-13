@@ -16,7 +16,8 @@ from app.flows.learning.models import (
     LrnTopic,
 )
 
-router = APIRouter(prefix="/learning", tags=["learning-resources"])
+# Không đặt prefix ở đây: app/main.py gắn router này hai lần – /api/v2/learning (chuẩn) và /learning (alias cũ).
+router = APIRouter(tags=["learning-resources"])
 
 TOPICS_SEED = [
     ("T01", "Hop dong va dieu kien thuong mai"),

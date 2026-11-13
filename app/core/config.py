@@ -152,6 +152,8 @@ class Settings(BaseSettings):
     # AI local trích xuất chứng từ (Giai đoạn 9). Chỉ gọi máy chủ model trong máy / mạng nội bộ: OLLAMA_URL ngoài
     # localhost / mạng riêng → ứng dụng KHÔNG khởi động (app/core/netguard.py). Danh mục model đọc từ bảng `ai_models`
     # (admin quản lý) – không ghi tên model trong mã nghiệp vụ.
+    # AI_ENABLED=false (bản demo): /api/ai, /api/v2/doc-jobs, /api/v2/doc-types, /api/v2/ai-models trả 503.
+    ai_enabled: bool = True
     ollama_url: str = "http://localhost:11434"
     llama_url: str = "http://localhost:8080"
     # Tên máy chủ nội bộ thêm (vd. ai.noibo.congty.vn) – lúc gọi vẫn kiểm DNS phải ra địa chỉ mạng riêng.

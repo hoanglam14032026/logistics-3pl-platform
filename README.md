@@ -5,10 +5,10 @@
 
 > **Trạng thái mới nhất - G22: P1 chuan hoa EV + P2 Learning (resources 7 loai, topics T01..T07, courses, progress) đã xong - 88b6386**
 > - Stage 22: AI Gateway - lỗi có kiểu 502/504, router `/api/ai` chỉ `ops_staff`.
-> - Stage 23: Nhập tay giấy tờ theo hợp đồng thay AI đọc bill (BR-103), `staff_bill.html`, migration 0022 + 0023.
+> - Stage 23: Nhập tay giấy tờ theo hợp đồng thay AI đọc bill (BR-103), giao diện `doc_entry.html` (file thực tế duy nhất trong `app/static`; `staff_bill.html` không còn), migration 0022 + 0023.
 > - P0.1: `tests/architecture/` N3/N4/N6 - 4 passed. P0.2: E2E-01..08 - 8 passed. Tổng `tests/architecture/ + tests/e2e/` = 16 passed.
 > - P3: `ruff` xanh, `alembic check`: No new upgrade operations detected.
-> - Nhánh chuẩn: `stage-23-ai-operations` = `giai-doan-0` = `ce7ae7b`.
+> - Nhánh: `stage-23-ai-operations` hiện ở `44be12d`, khác `giai-doan-0` ở `0a7cd67` (hai nhánh chưa đồng bộ).
 
 ## 1. Mục tiêu
 

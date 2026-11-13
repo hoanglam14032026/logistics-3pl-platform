@@ -1,0 +1,96 @@
+# Bản chạy thử (demo) – dùng riêng, KHÔNG chung CSDL/volume với docker-compose.yml của máy dev.
+#   docker compose -f docker-compose.demo.yml --env-file .env.demo up -d --build
+#   docker compose -f docker-compose.demo.yml --env-file .env.demo exec api python -m app.scripts.seed_demo
+# Khác bản dev: chỉ mở cổng 8000 (db 5432, redis 6379 nằm trong mạng nội bộ compose), mật khẩu CSDL và khóa lấy từ
+# .env.demo, AI_ENABLED=false (không gọi Ollama), api có healthcheck. Mọi service thuộc profile `demo`
+# (.env.demo đã đặt COMPOSE_PROFILES=demo; không dùng --env-file thì thêm --profile demo).
+name: logistics-3pl-demo
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql+psycopg://logistics:${POSTGRES_PASSWORD:?đặt POSTGRES_PASSWORD trong .env.demo}@db:5432/logistics_3pl_demo
+  JWT_SECRET: ${JWT_SECRET:?đặt JWT_SECRET trong .env.demo}
+  TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?đặt TOTP_ENCRYPTION_KEY trong .env.demo}
+  JOB_QUEUE_URL: redis://redis:6379/0
+  AI_ENABLED: "false"
+  # Giữ mặc định localhost: AI tắt nên không gọi; tránh phải phân giải host.docker.internal khi khởi động.
+  OLLAMA_URL: http://localhost:11434
+
+services:
+  db:
+    image: postgres:17
+    container_name: logistics-3pl-demo-db
+    profiles: ["demo"]
+    environment:
+      POSTGRES_USER: logistics
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?đặt POSTGRES_PASSWORD trong .env.demo}
+      POSTGRES_DB: logistics_3pl_demo
+    # Không có `ports`: CSDL chỉ truy cập được từ các service trong compose.
+    volumes:
+      - pgdata_demo:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U logistics -d logistics_3pl_demo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: logistics-3pl-demo-redis
+    profiles: ["demo"]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    # Không có `ports`: Redis chỉ truy cập được từ các service trong compose.
+    volumes:
+      - redisdata_demo:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      target: runtime
+    image: logistics-3pl-platform:latest
+    container_name: logistics-3pl-demo-api
+    profiles: ["demo"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads_demo:/app/data/uploads
+    healthcheck:
+      # Image python:slim không có curl: dùng Python gọi /health (không cần đăng nhập, không chạm CSDL).
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  worker:
+    image: logistics-3pl-platform:latest
+    container_name: logistics-3pl-demo-worker
+    profiles: ["demo"]
+    command: ["python", "-m", "app.worker"]
+    environment: *app-env
+    volumes:
+      - uploads_demo:/app/data/uploads
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata_demo:
+  redisdata_demo:
+  uploads_demo:

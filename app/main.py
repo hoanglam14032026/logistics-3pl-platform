@@ -12,12 +12,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app import handlers as _event_handlers  # noqa: F401  (Giai đoạn 11: xử lý sự kiện của các luồng)
 from app.ai_router import router as qwen_sharp_router
+from app.core.ai_guard import require_ai_enabled
 from app.core.config import Settings, get_settings
 from app.core.db import SessionLocal, engine
 from app.core.errors import UnhandledErrorMiddleware, register_exception_handlers
@@ -158,11 +159,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(audit_router)
     app.include_router(files_router)
     # AI local trích xuất chứng từ (Giai đoạn 9) – dùng chung mọi tiến trình
-    app.include_router(ai_models_admin_router)
-    app.include_router(ai_models_router)
-    app.include_router(qwen_sharp_router)  # Giai đoạn 22: trợ lý hỏi đáp /api/ai
-    app.include_router(doc_types_router)
-    app.include_router(doc_jobs_router)
+    # AI_ENABLED=false (bản demo): cả nhóm AI/DocAI trả 503 trước khi xử lý, không gọi máy chủ model.
+    ai_gate = [Depends(require_ai_enabled)]
+    app.include_router(ai_models_admin_router, dependencies=ai_gate)
+    app.include_router(ai_models_router, dependencies=ai_gate)
+    app.include_router(qwen_sharp_router, dependencies=ai_gate)  # Giai đoạn 22: trợ lý hỏi đáp /api/ai
+    app.include_router(doc_types_router, dependencies=ai_gate)
+    app.include_router(doc_jobs_router, dependencies=ai_gate)
     docai_service.register_file_access()
     ops_document_service.register_file_access()  # Giai đoạn 16: file chứng từ lô
     ops_contract_document_service.register_file_access()  # Giai đoạn 23: file giấy tờ theo hợp đồng
@@ -196,7 +199,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(learner_scores_portal_router)
     if "learning" in settings.enabled_flows:  # Luồng 3 – đào tạo (Giai đoạn 18)
         app.include_router(learning_router)
-        app.include_router(learning_resources_router)
+        # Học liệu/chủ đề/khóa/tiến độ: prefix chuẩn /api/v2/learning;
+        # /learning giữ làm alias cho client cũ (ẩn khỏi OpenAPI).
+        app.include_router(learning_resources_router, prefix="/api/v2/learning")
+        app.include_router(learning_resources_router, prefix="/learning", include_in_schema=False)
         app.include_router(learning_portal_router)
     _include_legacy_v1_routers(app)
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")

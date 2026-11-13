@@ -1,4 +1,4 @@
-"""E2E-08 - Stage 23: Manual Doc Entry + BR-103 + staff_bill.html
+"""E2E-08 - Stage 23: Manual Doc Entry + BR-103 + doc_entry.html
 Điều kiện hoàn thành 07 §4.3 + Stage 23.
 """
 from fastapi.testclient import TestClient
