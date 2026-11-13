@@ -3,7 +3,7 @@
 > **Đặc tả v2.3** (08/11/2026) – thư mục [`docs/specs/`](docs/specs/00-muc-luc-va-quy-uoc.md).
 > **Mã nguồn hiện tại: v1.1.0** – đang chuyển đổi theo đặc tả v2.x. Hiện trạng: [`docs/specs/90-hien-trang-v1.1.md`](docs/specs/90-hien-trang-v1.1.md). Lộ trình chuyển đổi: [`docs/specs/07`](docs/specs/07-cau-truc-ma-nguon-chuyen-doi-lo-trinh.md).
 
-> **Trạng thái mới nhất - G22: P1 chuan hoa EV đã xong, giai-doan-0 = ce7ae7b**
+> **Trạng thái mới nhất - G22: P1 chuan hoa EV + P2 Learning (resources 7 loai, topics T01..T07, courses, progress) đã xong - 88b6386**
 > - Stage 22: AI Gateway - lỗi có kiểu 502/504, router `/api/ai` chỉ `ops_staff`.
 > - Stage 23: Nhập tay giấy tờ theo hợp đồng thay AI đọc bill (BR-103), `staff_bill.html`, migration 0022 + 0023.
 > - P0.1: `tests/architecture/` N3/N4/N6 - 4 passed. P0.2: E2E-01..08 - 8 passed. Tổng `tests/architecture/ + tests/e2e/` = 16 passed.
