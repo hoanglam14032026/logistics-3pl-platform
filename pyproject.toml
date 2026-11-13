@@ -28,6 +28,7 @@ dependencies = [
     "pillow==13.0.0",
     "python-docx==1.2.0",
     "openpyxl==3.1.5",
+    "httpx==0.28.1",  # app/ai_gateway.py gọi model local – import ở cấp module nên ảnh Docker thiếu gói này sẽ không khởi động
 ]
 
 [project.optional-dependencies]
@@ -43,7 +44,6 @@ ocr-paddle = [
 dev = [
     "pytest==9.2.0",
     "pytest-cov==7.1.0",
-    "httpx==0.28.1",
     "ruff==0.17.4",
     "playwright==1.65.1",  # test giao diện tests/e2e (cần: python -m playwright install chromium)
 ]

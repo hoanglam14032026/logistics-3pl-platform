@@ -53,7 +53,7 @@ services:
     build:
       context: .
       target: runtime
-    image: logistics-3pl-platform:latest
+    image: logistics-3pl-platform:demo
     container_name: logistics-3pl-demo-api
     profiles: ["demo"]
     environment: *app-env
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
 
   worker:
-    image: logistics-3pl-platform:latest
+    image: logistics-3pl-platform:demo
     container_name: logistics-3pl-demo-worker
     profiles: ["demo"]
     command: ["python", "-m", "app.worker"]
