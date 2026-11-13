@@ -27,6 +27,7 @@ from app.flows.assessment.learning_router import portal_router as learner_scores
 from app.flows.assessment.learning_router import router as assessment_learning_router
 from app.flows.assessment.router import router as assessment_router
 from app.flows.control.router import router as control_router
+from app.flows.learning.resources import router as learning_resources_router
 from app.flows.learning.router import portal_router as learning_portal_router
 from app.flows.learning.router import router as learning_router
 from app.flows.operations import advance_service as ops_advance_service
@@ -195,6 +196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(learner_scores_portal_router)
     if "learning" in settings.enabled_flows:  # Luồng 3 – đào tạo (Giai đoạn 18)
         app.include_router(learning_router)
+        app.include_router(learning_resources_router)
         app.include_router(learning_portal_router)
     _include_legacy_v1_routers(app)
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")

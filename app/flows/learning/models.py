@@ -12,6 +12,7 @@ Luồng 3 – hợp đồng đào tạo, buổi học, điểm danh (Giai đoạ
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -27,6 +28,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import AuditColumnsMixin, Base
@@ -166,3 +168,75 @@ class LrnAttendance(Base):
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
     )
+
+class LrnResourceType(StrEnum):
+    GUIDE = "GUIDE"
+    ACADEMIC_DOC = "ACADEMIC_DOC"
+    VIDEO = "VIDEO"
+    INTERVIEW = "INTERVIEW"
+    CASE_STUDY = "CASE_STUDY"
+    TEMPLATE = "TEMPLATE"
+    REGULATION = "REGULATION"
+
+class LrnTopic(Base):
+    __tablename__ = "lrn_topics"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    topic_code: Mapped[str] = mapped_column(String(8), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(1000))
+
+class LrnResource(Base):
+    __tablename__ = "lrn_resources"
+    __table_args__ = (
+        CheckConstraint(f"resource_type IN ({_in(LrnResourceType)})", name="resource_type_valid"),
+        CheckConstraint("status IN ('draft', 'published')", name="resource_status_valid"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    summary: Mapped[str | None] = mapped_column(String(2000))
+    resource_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    topic_code: Mapped[str | None] = mapped_column(String(8))
+    level: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft", server_default="draft")
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_by: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc, server_default=func.now()
+    )
+
+class LrnCourse(Base):
+    __tablename__ = "lrn_courses"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    course_code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(2000))
+    owner_instructor_id: Mapped[int | None] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft", server_default="draft")
+
+class LrnCourseItem(Base):
+    __tablename__ = "lrn_course_items"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    course_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("lrn_courses.id", ondelete="RESTRICT"), nullable=False
+    )
+    resource_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("lrn_resources.id", ondelete="RESTRICT"), nullable=False
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    min_completion: Mapped[int] = mapped_column(Integer, nullable=False, default=100, server_default="100")
+
+class LrnProgress(Base):
+    __tablename__ = "lrn_progress"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    learner_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    resource_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("lrn_resources.id", ondelete="RESTRICT"), nullable=False
+    )
+    course_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("lrn_courses.id", ondelete="RESTRICT")
+    )
+    percent_complete: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_position_sec: Mapped[int | None] = mapped_column(Integer)
+    first_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -77,7 +77,14 @@ G18_TABLES = {
     "asm_fact_learning_progress",
     "asm_session_scores",
 }
-G23_TABLES = {"ops_document_catalog", "ops_contract_documents"}  # Giai đoạn 23: nhập tay giấy tờ theo hợp đồng
+G23_TABLES = {"ops_document_catalog", "ops_contract_documents"}
+G24_TABLES = {
+    "lrn_topics",
+    "lrn_resources",
+    "lrn_courses",
+    "lrn_course_items",
+    "lrn_progress",
+}  # P2 Learning: hoc lieu 7 loai
 G16_TABLES = {
     "md_locations",
     "ops_documents",
@@ -123,7 +130,7 @@ def _alembic(fn, *args) -> None:
 
 
 def test_single_head():
-    assert head_revision() == "0023"
+    assert head_revision() == "0024"
 
 
 def test_upgrade_from_empty_creates_all_tables():
@@ -148,6 +155,7 @@ def test_upgrade_from_empty_creates_all_tables():
         | G19_TABLES
         | G20_TABLES
         | G23_TABLES
+        | G24_TABLES
     )
     assert _tables() == expected | {"alembic_version"}
 
