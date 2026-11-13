@@ -15,3 +15,5 @@ Qwen3.8-27B-UD-Q4_K_XL.gguf
 sharp/
 .claude/
 prompt-audit.md
+*.tar
+logistics-3pl-demo.zip

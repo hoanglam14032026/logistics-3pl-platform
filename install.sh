@@ -26,11 +26,29 @@ if [ ! -f .env.demo ]; then
 fi
 # Ghi chú: cấu hình demo luôn đọc từ .env.demo (--env-file), nên không ghi đè .env của máy dev nếu có.
 
-echo "[1/4] Tải các image có sẵn (postgres, redis)..."
-"${COMPOSE[@]}" pull db redis
+IMAGE=logistics-3pl-platform:demo
+TAR=logistics-3pl-demo-image.tar
 
-echo "[2/4] Dựng và khởi động ứng dụng (lần đầu có thể mất vài phút)..."
-"${COMPOSE[@]}" up -d --build
+echo "[1/4] Chuẩn bị các thành phần..."
+# Gói offline: nếu máy chưa có image mà thư mục có file .tar thì nạp từ file (không cần mạng).
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1 && [ -f "$TAR" ]; then
+  echo "Đang nạp image từ $TAR (vài phút)..."
+  docker load -i "$TAR"
+fi
+# Chỉ tải postgres/redis khi máy chưa có (máy offline đã nạp từ .tar thì bỏ qua).
+if ! docker image inspect postgres:17 redis:7.4-alpine >/dev/null 2>&1; then
+  "${COMPOSE[@]}" pull db redis
+fi
+
+echo "[2/4] Khởi động ứng dụng (lần đầu có thể mất vài phút)..."
+if [ -f Dockerfile ]; then
+  "${COMPOSE[@]}" up -d --build   # có mã nguồn: dựng image
+elif docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  "${COMPOSE[@]}" up -d --no-build  # gói offline: dùng image đã nạp
+else
+  echo "Không có image $IMAGE và không có file $TAR. Hãy giải nén đủ gói rồi chạy lại."
+  exit 1
+fi
 
 echo "[3/4] Đợi ứng dụng sẵn sàng..."
 for i in $(seq 1 60); do

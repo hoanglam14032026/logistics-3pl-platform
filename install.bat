@@ -29,13 +29,40 @@ if not exist .env.demo (
   exit /b 1
 )
 
-echo [1/4] Tải các image có sẵn (postgres, redis)...
-%COMPOSE% pull db redis
-if errorlevel 1 goto :fail
+set "IMAGE=logistics-3pl-platform:demo"
+set "TAR=logistics-3pl-demo-image.tar"
 
-echo [2/4] Dựng và khởi động ứng dụng (lần đầu có thể mất vài phút)...
-%COMPOSE% up -d --build
+echo [1/4] Chuẩn bị các thành phần...
+rem Gói offline: nếu máy chưa có image mà thư mục có file .tar thì nạp từ file (không cần mạng).
+docker image inspect %IMAGE% >nul 2>nul
+if errorlevel 1 (
+  if exist "%TAR%" (
+    echo Đang nạp image từ %TAR% ^(vài phút^)...
+    docker load -i "%TAR%"
+    if errorlevel 1 goto :fail
+  )
+)
+rem Chỉ tải postgres/redis khi máy chưa có.
+docker image inspect postgres:17 redis:7.4-alpine >nul 2>nul
+if errorlevel 1 (
+  %COMPOSE% pull db redis
+  if errorlevel 1 goto :fail
+)
+
+echo [2/4] Khởi động ứng dụng (lần đầu có thể mất vài phút)...
+if exist Dockerfile (
+  %COMPOSE% up -d --build
+  if errorlevel 1 goto :fail
+  goto :started
+)
+docker image inspect %IMAGE% >nul 2>nul
+if errorlevel 1 (
+  echo Không có image %IMAGE% và không có file %TAR%. Hãy giải nén đủ gói rồi chạy lại.
+  goto :fail
+)
+%COMPOSE% up -d --no-build
 if errorlevel 1 goto :fail
+:started
 
 echo [3/4] Đợi ứng dụng sẵn sàng...
 set /a TRIES=0
